@@ -17,6 +17,7 @@ export function NotificationRegion() {
         <div key={item.id} className={`ttm-notification is-${item.kind}`} role={item.kind === 'error' ? 'alert' : 'status'}>
             <span className="ttm-notification-state" aria-hidden="true" />
             <span className="ttm-notification-message">{item.message}</span>
+            {item.action && <button type="button" className="ttm-notification-action" onClick={item.action.run}>{item.action.label}</button>}
             <button type="button" aria-label="关闭通知" onClick={() => dismissNotification(item.id)}><Icon name="close" width={15} height={15} /></button>
         </div>
     )}</aside>, target);

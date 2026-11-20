@@ -1721,60 +1721,66 @@ export async function deleteWorkspaceWorldbook(id: string): Promise<void> {
     workspaceStore.setState(draft => { removeWorldbookFromWorkspace(draft, id); });
     await persistWorkspaceNow(); worldbooksChanged();
 }
-export function getCharacterDeletionBooks(id: string) {
-    const state = workspaceStore.getState(), card = state.characters.find(item => item.id === id);
-    if (!card) return [];
-    const binding = getCharacterWorldbooks(card, state);
-    const ids = new Set([card.characterBook?.id, card.embeddedLorebook?.id]);
-    const names = new Set([binding.primary, ...binding.additional]);
-    const owned = [card.characterBook, card.embeddedLorebook].filter((book): book is NormalizedLorebook => !!book);
-    return getAvailableWorldbooks(state).filter(book => ids.has(book.id) || names.has(book.name) && !owned.some(own => own.name === book.name)).map(book => ({ book,
+export function getCharacterDeletionBooks(characterIds: readonly string[]) {
+    const selected = new Set(characterIds), state = workspaceStore.getState();
+    const candidates = state.characters.filter(card => selected.has(card.id)).map(card => {
+        const binding = getCharacterWorldbooks(card, state);
+        return { owned: [card.characterBook, card.embeddedLorebook], names: new Set([binding.primary, ...binding.additional]) };
+    });
+    return getAvailableWorldbooks(state).filter(book => candidates.some(({ owned, names }) =>
+        owned.some(own => own?.id === book.id) || names.has(book.name) && !owned.some(own => own?.name === book.name))).map(book => ({ book,
         shared: state.characters.some(other => {
-            if (other.id === id) return false;
+            if (selected.has(other.id)) return false;
             const own = other.characterBook ?? other.embeddedLorebook;
             if (own?.id === book.id) return true;
             const linked = getCharacterWorldbooks(other, state);
             // A duplicated card with its own same-name book does not own this copy.
             return own?.name !== book.name && (linked.primary === book.name || linked.additional.includes(book.name));
-        }) || state.personas.some(persona => persona.lorebook === book.name) || state.activeLorebookIds.includes(book.id),
+        }) || state.personas.some(persona => persona.lorebook === book.name) || state.activeLorebookIds.includes(book.id)
+            || Object.values(state.chatWorldbookBindings).includes(book.name),
     }));
 }
 export async function deleteWorkspaceCharacter(id: string, deleteChats = false, deleteBookIds: string[] = []): Promise<boolean> {
+    return (await deleteWorkspaceCharacters([id], deleteChats, deleteBookIds)) > 0;
+}
+export async function deleteWorkspaceCharacters(ids: readonly string[], deleteChats = false, deleteBookIds: string[] = []): Promise<number> {
+    const requested = new Set(ids);
     await waitForReplicaCommit();
     while (characterSwitchJob) await characterSwitchJob;
     return enqueuePersistentOperation(async () => {
     let state = workspaceStore.getState();
-    if (state.isGenerating || state.helperGenerationCount) throw new Error('请等待生成结束后删除角色');
-    const card = state.characters.find(item => item.id === id);
-    if (!card) return false;
-    if (state.activeCharacterId === id && !deleteChats) {
+    if (state.isGenerating || state.helperGenerationCount || state.mvuExtraAnalysisActive) throw new Error('请等待生成结束后删除角色');
+    const cards = state.characters.filter(item => requested.has(item.id));
+    if (!cards.length) return 0;
+    const selected = new Set(cards.map(card => card.id));
+    const switching = selected.has(state.activeCharacterId);
+    if (switching && !deleteChats) {
         const leaf = getActiveChatMessages(state).at(-1);
         if (leaf) captureMessageSnapshot(leaf.id);
         state = workspaceStore.getState();
     }
     await persistWorkspaceNow();
     const archives = await listChatArchives();
-    const switching = state.activeCharacterId === id;
-    const nextCard = state.characters.find(item => item.id !== id);
+    const nextCard = switching ? state.characters.find(item => !selected.has(item.id)) : undefined;
     const recent = switching && nextCard ? [...archives].reverse().find(chat => chat.characterId === nextCard.id) : undefined;
     const nextChat = recent ? await loadChatArchive(recent.id) : null;
     const extras: Record<string, any> = {};
     let index = archives;
     if (switching && !deleteChats && state.messages.length) {
-        const chat: ArchivedChat = { id: state.activeChatId, characterId: id, messages: state.messages, deletedMessageIds: state.deletedMessageIds,
+        const chat: ArchivedChat = { id: state.activeChatId, characterId: state.activeCharacterId, messages: state.messages, deletedMessageIds: state.deletedMessageIds,
             activeLeafId: state.activeLeafId, timedStates: state.timedStates, worldbookName: state.chatWorldbookBindings[state.activeChatId],
             templateInjections: state.templateInjections, templateActivations: state.templateActivations, continuation: captureChatContinuation() };
         extras[`chat_archive:${chat.id}`] = chat;
         index = [...index.filter(item => item.id !== chat.id), summarizeChat(chat)];
     }
     if (deleteChats) {
-        for (const chat of index.filter(item => item.characterId === id)) extras[`chat_archive:${chat.id}`] = null;
+        for (const chat of index.filter(item => selected.has(item.characterId))) extras[`chat_archive:${chat.id}`] = null;
         if (switching) extras[`chat_archive:${state.activeChatId}`] = null;
-        index = index.filter(item => item.characterId !== id);
+        index = index.filter(item => !selected.has(item.characterId));
     }
     extras.chat_archive_index = index;
     const cleanup = await platformStorage.loadSnapshot<string[]>('gallery_cleanup', []);
-    extras.gallery_cleanup = [...new Set([...cleanup, id])];
+    extras.gallery_cleanup = [...new Set([...cleanup, ...selected])];
     const finish = suspendRegisteredPersistence(), release = holdReplicaCommit();
     const oldVariables = scopedVariableStore.getState(), oldSettings = schemaRegistryStore.getState();
     let candidate: ReturnType<typeof registeredSnapshots>;
@@ -1785,10 +1791,13 @@ export async function deleteWorkspaceCharacter(id: string, deleteChats = false, 
     try {
     workspaceStore.setState(draft => {
         // Keep embedded books as independent resources unless explicitly selected for deletion.
-        for (const book of [card.characterBook, card.embeddedLorebook]) if (book && !draft.lorebooks.some(item => item.id === book.id)) draft.lorebooks.push(book);
-        draft.characters = draft.characters.filter(item => item.id !== id);
-        delete draft.characterWorldbookBindings[id]; delete draft.streamDisplayModes[id];
-        for (const persona of draft.personas) persona.connections = persona.connections.filter(link => link.type !== 'character' || ![id, `${id}.png`].includes(link.id));
+        for (const card of cards) {
+            for (const book of [card.characterBook, card.embeddedLorebook]) if (book && !draft.lorebooks.some(item => item.id === book.id)) draft.lorebooks.push(book);
+            delete draft.characterWorldbookBindings[card.id]; delete draft.streamDisplayModes[card.id];
+        }
+        draft.characters = draft.characters.filter(item => !selected.has(item.id));
+        const removedLinks = new Set([...selected].flatMap(id => [id, `${id}.png`]));
+        for (const persona of draft.personas) persona.connections = persona.connections.filter(link => link.type !== 'character' || !removedLinks.has(link.id));
     });
     if (switching) {
         if (nextChat) applyArchivedChatState(nextChat);
@@ -1817,7 +1826,7 @@ export async function deleteWorkspaceCharacter(id: string, deleteChats = false, 
         void tavernEventBus.emit('character_changed', getActiveCharacter()); schedulePreview();
     }
     void import('../core/story-gallery').then(module => module.drainGalleryCleanup()).catch(error => setStatusBanner(`图库清理稍后重试：${String(error)}`));
-    return true;
+    return cards.length;
     });
 }
 export async function deleteWorkspacePreset(id: string): Promise<void> {

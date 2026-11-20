@@ -12,6 +12,8 @@ import { SettingsDisclosure, SettingsSection } from './SettingsPrimitives';
 import { pluginSettingsDestinations, settingsCategories, settingsCategoryForField, settingsFieldLabels, type PluginSettingsDestination, type SettingsCategory } from './settings-presentation';
 import type { StreamDisplayMode } from '../pipeline/streaming-message';
 import { NativePluginManager } from '../plugins/native/PluginManager';
+import { nativeAppUpdates } from '../core/native-runtime';
+import { checkAppUpdate } from '../core/app-update';
 
 type SettingsPanelProps = {
     advancedTools?: ReactNode; dataTools?: ReactNode; onOpenPersona?: (anchor: HTMLElement) => void;
@@ -134,6 +136,9 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
                 <SettingsDisclosure title="酒馆兼容扩展"><ExtensionManager /></SettingsDisclosure>
             </>}
             {category === 'advanced' && <>
+                {nativeAppUpdates && <SettingsSection title="应用更新">
+                    <button type="button" className="ttm-btn-secondary" onClick={() => void checkAppUpdate(true)}><Icon name="refresh" width={16} height={16} />检查更新</button>
+                </SettingsSection>}
                 <SettingsSection title="运行诊断与作者配置" description="普通阅读通常无需打开。遇到脚本或变量问题时，可查看诊断或按作者说明调整。">{advancedTools}</SettingsSection>
                 {ids.some(id => settingsCategoryForField(id) === 'advanced') && <SettingsDisclosure title="其他扩展参数">{renderFields(ids.filter(id => settingsCategoryForField(id) === 'advanced'))}</SettingsDisclosure>}
             </>}

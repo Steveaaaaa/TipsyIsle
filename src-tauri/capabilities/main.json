@@ -34,6 +34,9 @@
     "allow-tipsy-gallery-write",
     "allow-tipsy-gallery-remove",
     "allow-tipsy-extension-files",
-    "allow-tipsy-lan-control"
+    "allow-tipsy-lan-control",
+    "allow-tipsy-update-check",
+    "allow-tipsy-update-download",
+    "allow-tipsy-update-install"
   ]
 }

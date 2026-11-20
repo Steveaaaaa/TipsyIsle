@@ -6,13 +6,14 @@ import { readStoryGallery } from '../core/story-gallery';
 import { CharacterLibraryItem } from './CharacterLibraryItem';
 import { GenerationActivity } from './GenerationActivity';
 import { NotificationRegion } from './NotificationRegion';
-import { DeleteAssetDialog, type DeleteAssetTarget } from './DeleteAssetDialog';
+import { DeleteAssetDialog, type DeleteAssetConfirmation, type DeleteAssetTarget } from './DeleteAssetDialog';
 import { useNativeNavigation } from './useNativeNavigation';
 import { initializeLanSync, lanSyncStore, beginWorldbookEditing, finishWorldbookEditing } from '../core/sync/engine';
 import { WorldbookSyncReview } from './WorldbookSyncReview';
 import { hydrateStorySettings } from '../registry/schema-registry';
 import { DEFAULT_CONTEXT_TOKENS } from '../core/generation-defaults';
 import { compatibilityOrigin, initializeNativeRuntime, isNativeRuntime } from '../core/native-runtime';
+import { checkAppUpdate } from '../core/app-update';
 import { pickNativeAsset } from '../core/platform-files';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { stopHelperGeneration } from '../compatibility/helper-generation';
@@ -202,6 +203,7 @@ export function AdaptiveWorkspaceApp() {
         return () => window.removeEventListener('tipsy-extension-illustration', open);
     }, [openIllustration]);
     const [workspaceReady, setWorkspaceReady] = useState(false);
+    useEffect(() => { if (workspaceReady) void checkAppUpdate(); }, [workspaceReady]);
     const [readyStory, setReadyStory] = useState('');
     useEffect(() => {
         const ready = (event: Event) => setReadyStory((event as CustomEvent<string>).detail);
@@ -245,7 +247,8 @@ export function AdaptiveWorkspaceApp() {
     const [denseLibrary, setDenseLibrary] = useState<boolean | null>(null);
     const [assetDialog, setAssetDialog] = useState<{ kind: 'presets' | 'lorebook'; anchor: HTMLElement } | null>(null);
     useEffect(() => assetDialog?.kind === 'presets' ? beginSyncAssetEdit() : undefined, [assetDialog?.kind]);
-    const [deleteAsset, setDeleteAsset] = useState<DeleteAssetTarget | null>(null);
+    const [deleteAsset, setDeleteAsset] = useState<DeleteAssetConfirmation | null>(null);
+    const [deleteSelection, setDeleteSelection] = useState<Set<string> | null>(null);
     const [assetMenu, setAssetMenu] = useState<(DeleteAssetTarget & { point?: MenuPoint }) | null>(null);
     const [characterDetails, setCharacterDetails] = useState<{ id: string; anchor: HTMLElement } | null>(null);
     const openAssetMenu = (target: DeleteAssetTarget, point?: MenuPoint) => setAssetMenu(previous =>
@@ -289,6 +292,7 @@ export function AdaptiveWorkspaceApp() {
     const closeInspector = () => { setInspectorOpen(false); setMobileTab('chat'); };
     useNativeNavigation(() => {
         if (assetMenu) { setAssetMenu(null); return true; }
+        if (deleteSelection && mobileTab === 'characters') { setDeleteSelection(null); return true; }
         if (historyOpen || toolsOpen) { setHistoryOpen(false); setToolsOpen(false); return true; }
         if (inspectorOpen || mobileTab !== 'chat') { closeInspector(); return true; }
         if (reading) { restoreReadingControls(); return true; }
@@ -297,12 +301,15 @@ export function AdaptiveWorkspaceApp() {
     useEffect(() => {
         const onEscape = (event: KeyboardEvent) => {
             if (event.key !== 'Escape' || event.defaultPrevented) return;
+            if (deleteSelection && !deleteAsset && !inspectorVisible && (!compactLayout || mobileTab === 'characters')) {
+                event.preventDefault(); setDeleteSelection(null); return;
+            }
             restoreReadingControls();
             setInspectorOpen(false); setHistoryOpen(false); setToolsOpen(false); setMobileTab('chat');
         };
         window.addEventListener('keydown', onEscape);
         return () => window.removeEventListener('keydown', onEscape);
-    }, []);
+    }, [deleteSelection, deleteAsset, inspectorVisible, compactLayout, mobileTab, restoreReadingControls]);
     const [selectedVarScope, setSelectedVarScope] = useState<VariableScopeLevel>('chat');
     const [newVarKey, setNewVarKey] = useState('');
     const [newVarVal, setNewVarVal] = useState('');
@@ -341,10 +348,17 @@ export function AdaptiveWorkspaceApp() {
         return characterSort === 'name' ? matches.sort((a, b) => storyIdentity(a).name.localeCompare(storyIdentity(b).name, 'zh-CN', { numeric: true })) : matches;
     }, [state.characters, characterSearch, characterTag, characterSort]);
     const characterTags = useMemo(() => [...new Set(state.characters.flatMap(character => character.tags ?? []))].sort((a, b) => a.localeCompare(b, 'zh-CN')), [state.characters]);
-    useEffect(() => setCharacterPage(0), [characterSearch, characterTag, characterSort]);
     const pageCount = Math.max(1, Math.ceil(filteredCharacters.length / 12));
     const currentCharacterPage = Math.min(characterPage, pageCount - 1);
     const visibleCharacters = filteredCharacters.slice(currentCharacterPage * 12, (currentCharacterPage + 1) * 12);
+    const selectedCards = useMemo(() => deleteSelection ? state.characters.filter(card => deleteSelection.has(card.id)) : [], [deleteSelection, state.characters]);
+    const deletionBlocked = state.isGenerating || state.helperGenerationCount > 0 || state.mvuExtraAnalysisActive || importing || clearing || switchingCharacter !== null;
+    const toggleDeleteSelection = (id: string) => setDeleteSelection(previous => {
+        if (!previous) return previous;
+        const next = new Set(previous);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
     const mvuPrimaryName = getCharacterWorldbooks(activeCharacter, state).primary;
     const mvuPrimaryBook = getAvailableWorldbooks(state).find(book => book.name === mvuPrimaryName);
     const activePreset = getActivePreset(state);
@@ -696,22 +710,23 @@ export function AdaptiveWorkspaceApp() {
                                 <ShellArt skin={skin} id="import" fallback={<Icon name="plus" width={16} height={16} />} />{importing ? '导入中…' : textOf(skin, 'import')}
                             </button>
                         </div>
-                        <label className="ttm-search"><Icon name="search" width={17} height={17} /><input type="search" aria-label="搜索故事" placeholder="搜索故事、作者或标签" value={characterSearch} onChange={event => setCharacterSearch(event.target.value)} /></label>
+                        <label className="ttm-search"><Icon name="search" width={17} height={17} /><input type="search" aria-label="搜索故事" placeholder="搜索故事、作者或标签" value={characterSearch} onChange={event => { setCharacterSearch(event.target.value); setCharacterPage(0); }} /></label>
                         <div className="ttm-library-controls">
-                            <select aria-label="故事排序" value={characterSort} onChange={event => setCharacterSort(event.target.value)}><option value="original">导入顺序</option><option value="name">名称排序</option></select>
+                            <select aria-label="故事排序" value={characterSort} onChange={event => { setCharacterSort(event.target.value); setCharacterPage(0); }}><option value="original">导入顺序</option><option value="name">名称排序</option></select>
                             <button type="button" className="ttm-mini-btn" aria-pressed={denseLibrary ?? state.characters.length > 12} onClick={() => setDenseLibrary(!(denseLibrary ?? state.characters.length > 12))}>{(denseLibrary ?? state.characters.length > 12) ? '舒展显示' : '紧凑显示'}</button>
-                            {characterTags.length > 0 && <select aria-label="故事标签" value={characterTag} onChange={event => setCharacterTag(event.target.value)}><option value="">全部标签</option>{characterTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}</select>}
+                            {characterTags.length > 0 && <select aria-label="故事标签" value={characterTag} onChange={event => { setCharacterTag(event.target.value); setCharacterPage(0); }}><option value="">全部标签</option>{characterTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}</select>}
                         </div>
                         <div className={`ttm-char-list ${(denseLibrary ?? state.characters.length > 12) ? 'is-dense' : ''}`}>
                             {visibleCharacters.map(char => <CharacterLibraryItem key={char.id} character={char}
                                 active={char.id === activeCharacter.id} switching={switchingCharacter === char.id}
-                                disabled={state.isGenerating || state.helperGenerationCount > 0 || clearing || switchingCharacter !== null}
+                                disabled={deletionBlocked}
+                                selected={deleteSelection?.has(char.id)}
                                 menuOpen={assetMenu?.kind === 'character' && assetMenu.id === char.id}
-                                onActivate={() => void enterCharacter(char.id)}
+                                onActivate={() => { if (deleteSelection) toggleDeleteSelection(char.id); else void enterCharacter(char.id); }}
                                 onMenu={(anchor, point) => openAssetMenu({ kind: 'character', id: char.id, name: storyIdentity(char).name, anchor }, point)} />)}
                         </div>
                         {pageCount > 1 && <nav className="ttm-library-pages" aria-label="故事分页"><button className="ttm-icon-btn" type="button" aria-label="上一页故事" disabled={currentCharacterPage === 0} onClick={() => setCharacterPage(currentCharacterPage - 1)}><Icon name="chevron" style={{ transform: 'rotate(180deg)' }} /></button><label><select aria-label="故事页码" value={currentCharacterPage} onChange={event => setCharacterPage(Number(event.target.value))}>{Array.from({ length: pageCount }, (_, page) => <option key={page} value={page}>{page + 1} / {pageCount}</option>)}</select></label><button className="ttm-icon-btn" type="button" aria-label="下一页故事" disabled={currentCharacterPage === pageCount - 1} onClick={() => setCharacterPage(currentCharacterPage + 1)}><Icon name="chevron" /></button></nav>}
-                        {!filteredCharacters.length && <div className="ttm-empty-search"><p>{state.characters.length ? '没有找到这个故事' : '馆藏还是空的，导入角色卡后会显示在这里。'}</p>{state.characters.length ? <button type="button" className="ttm-mini-btn" onClick={() => { setCharacterSearch(''); setCharacterTag(''); }}>清除筛选</button> : <button type="button" className="ttm-mini-btn" onClick={replayGuide}>查看使用引导</button>}</div>}
+                        {!filteredCharacters.length && <div className="ttm-empty-search"><p>{state.characters.length ? '没有找到这个故事' : '馆藏还是空的，导入角色卡后会显示在这里。'}</p>{state.characters.length ? <button type="button" className="ttm-mini-btn" onClick={() => { setCharacterSearch(''); setCharacterTag(''); setCharacterPage(0); }}>清除筛选</button> : <button type="button" className="ttm-mini-btn" onClick={replayGuide}>查看使用引导</button>}</div>}
                     </section>
 
                     <nav className="ttm-library-shortcuts" aria-label="故事设定" data-guide="resources">
@@ -730,8 +745,15 @@ export function AdaptiveWorkspaceApp() {
 
                     <SlotMount name="shell.sidebar.footer" />
                     </div>
-                    <div className="ttm-sidebar-bottom">
-                        <div className={`ttm-sidebar-bottom-actions${compactLayout && placed.sidebar.some(id => id !== 'appearance' && id !== 'sidebar-settings') ? ' has-custom-parts' : ''}`} data-ti-area="sidebar">{shellParts('sidebar')}</div>
+                    <div className={`ttm-sidebar-bottom${deleteSelection ? ' is-selecting' : ''}`}>
+                        {deleteSelection ? <div className="ttm-library-selection" role="group" aria-label="删除角色卡">
+                            <span role="status">已选 {selectedCards.length} 张</span>
+                            <button type="button" className="ttm-mini-btn" onClick={() => setDeleteSelection(null)}>退出多选</button>
+                            <button type="button" className="ttm-mini-btn ttm-library-delete" aria-haspopup="dialog" disabled={deletionBlocked || !selectedCards.length}
+                                onClick={event => setDeleteAsset({ kind: 'characters', anchor: event.currentTarget, cards: selectedCards.map(card => ({ id: card.id, name: storyIdentity(card).name })) })}>
+                                <Icon name="trash" width={16} height={16} />删除所选
+                            </button>
+                        </div> : <div className={`ttm-sidebar-bottom-actions${compactLayout && placed.sidebar.some(id => id !== 'appearance' && id !== 'sidebar-settings') ? ' has-custom-parts' : ''}`} data-ti-area="sidebar">{shellParts('sidebar')}</div>}
                     </div>
                 </aside>
 
@@ -1090,11 +1112,26 @@ export function AdaptiveWorkspaceApp() {
                     { label: '查看故事资料', icon: 'book' as const, run: () => setCharacterDetails(previous => previous?.id === assetMenu.id ? previous : { id: assetMenu.id, anchor: assetMenu.anchor }) },
                     { label: '导出角色卡', icon: 'download' as const, run: () => { void runUiAction('导出角色卡', async () => setStatusBanner(await exportCharacterAsPng(assetMenu.id)), undefined); } },
                 ] : []),
-                { label: `删除${assetMenu.kind === 'character' ? '故事' : assetMenu.kind === 'worldbook' ? '世界书' : '预设'}`, icon: 'trash', destructive: true,
-                    disabled: state.isGenerating || state.helperGenerationCount > 0 || clearing || switchingCharacter !== null,
-                    run: () => setDeleteAsset(assetMenu) },
+                { label: `删除${assetMenu.kind === 'character' ? '角色卡…' : assetMenu.kind === 'worldbook' ? '世界书' : '预设'}`, icon: 'trash', destructive: true,
+                    disabled: deletionBlocked,
+                    run: () => {
+                        if (assetMenu.kind !== 'character') { setDeleteAsset({ ...assetMenu, kind: assetMenu.kind }); return; }
+                        setCharacterDetails(null);
+                        if (!assetMenu.anchor.closest('.ttm-char-list')) {
+                            let index = filteredCharacters.findIndex(card => card.id === assetMenu.id);
+                            if (index < 0) {
+                                setCharacterSearch(''); setCharacterTag(''); setCharacterSort('original');
+                                index = state.characters.findIndex(card => card.id === assetMenu.id);
+                            }
+                            setCharacterPage(Math.max(0, Math.floor(index / 12)));
+                        }
+                        showLibrary();
+                        setDeleteSelection(new Set([assetMenu.id]));
+                    } },
             ]} />}
-            {deleteAsset && <DeleteAssetDialog key={`${deleteAsset.kind}:${deleteAsset.id}`} target={deleteAsset} onClose={() => setDeleteAsset(null)} />}
+            {deleteAsset && <DeleteAssetDialog key={deleteAsset.kind === 'characters' ? 'characters' : `${deleteAsset.kind}:${deleteAsset.id}`} target={deleteAsset}
+                onClose={() => { setDeleteAsset(null); requestAnimationFrame(() => { if (deleteAsset.anchor.isConnected) deleteAsset.anchor.focus({ preventScroll: true }); }); }}
+                onDeleted={() => { setDeleteAsset(null); if (deleteAsset.kind === 'characters') setDeleteSelection(null); }} />}
             {galleryDialog && <AnchoredDialog compact title="本地图库" anchor={galleryDialog.anchor} onClose={() => setGalleryDialog(null)}><StoryGalleryPanel key={galleryDialog.id} storyId={galleryDialog.id} name={galleryDialog.name} onChanged={bound => { if (galleryDialog.id === activeCharacter.id) setGalleryStoryId(bound ? galleryDialog.id : ''); }} /></AnchoredDialog>}
             {illustrationNode && illustrationAnchor.current && <AnchoredDialog compact centered title={`第 ${illustrationNode.floor} 楼配图`} anchor={illustrationAnchor.current} onClose={() => setIllustrationId(undefined)}>
                 <form className="ttm-illustration-form" onSubmit={event => { event.preventDefault(); void generateIllustration(); }}>

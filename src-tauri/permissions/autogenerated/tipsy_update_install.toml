@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-tipsy-update-install"
+description = "Enables the tipsy_update_install command without any pre-configured scope."
+commands.allow = ["tipsy_update_install"]
+
+[[permission]]
+identifier = "deny-tipsy-update-install"
+description = "Denies the tipsy_update_install command without any pre-configured scope."
+commands.deny = ["tipsy_update_install"]
