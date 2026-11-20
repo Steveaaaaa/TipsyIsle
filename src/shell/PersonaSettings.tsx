@@ -57,7 +57,7 @@ function PersonaEditor({ initial, disabled, onSave, onDraft, saveLabel }: { init
         catch (cause) { setError(cause instanceof Error ? cause.message : '无法打开图片'); }
     };
     return <form className="ttm-persona-form" onSubmit={event => { event.preventDefault(); try { onSave(value); } catch (cause) { setError(String(cause)); } }}>
-        <div className="ttm-persona-avatar-row"><CharacterAvatar name={value.name} avatar={value.image} /><div>
+        <div className="ttm-persona-avatar-row"><CharacterAvatar name={value.name} avatar={value.image} fallback="user" /><div>
             <button type="button" className="ttm-btn-secondary" disabled={disabled || loading} onClick={() => void chooseAvatar()}>{loading ? '正在读取…' : '选择头像'}</button>
             {value.image && <button type="button" className="ttm-btn-ghost" disabled={disabled} onClick={() => setValue({ ...value, image: '' })}>移除头像</button>}
         </div></div>

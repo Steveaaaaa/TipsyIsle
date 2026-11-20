@@ -619,7 +619,7 @@ export function AdaptiveWorkspaceApp() {
             const label = partText(skin, part, options.label);
             return <button key={id} type="button" data-ti-part={id} className={options.className ?? (options.iconOnly ? 'ttm-icon-btn' : area === 'toolbar' || area === 'more' || area.startsWith('input-') ? 'ttm-chip-btn' : 'ttm-btn-secondary')}
                 title={options.title ?? label} aria-label={options.iconOnly ? options.title ?? label : undefined} aria-pressed={part === 'history' ? undefined : options.pressed} aria-expanded={part === 'history' ? historyOpen : undefined} aria-controls={part === 'history' ? 'ttm-conversation-history' : undefined} aria-current={options.current} disabled={options.disabled} onClick={event => action(event.currentTarget)}>
-                {part === 'profile' && !assetUrl(skin, skin?.art[part]) ? <CharacterAvatar name={state.userName} avatar={getActivePersona(state)?.image} />
+                {part === 'profile' && !assetUrl(skin, skin?.art[part]) ? <CharacterAvatar name={state.userName} avatar={getActivePersona(state)?.image} fallback="user" />
                     : <ShellPartIcon skin={skin} id={part} name={part === 'focus' ? sidebarCollapsed ? 'panel' : 'focus' : undefined} size={area === 'mobile' || options.iconOnly ? 20 : area === 'toolbar' ? 15 : 17} />}
                 {!options.iconOnly && <span>{label}</span>}
             </button>;
@@ -740,7 +740,7 @@ export function AdaptiveWorkspaceApp() {
                     className={`ttm-center-stage ${mobileTab === 'chat' ? 'is-mobile-active' : ''} ${reading ? 'is-reading' : ''}`}
                 >
                     <header className="ttm-conversation-header" data-ti-shell="conversation">
-                        <div className="ttm-conversation-person" data-ti-part="conversation-title"><CharacterAvatar name={hasStory ? activeStoryIdentity.name : appName} avatar={activeCharacter.avatar} /><div><h2 data-ti-type="heading">{hasStory ? activeStoryIdentity.name : appName}</h2><p>{!hasStory ? '导入或选择故事，开始你的对话' : state.mvuExtraAnalysisActive ? '正在整理本轮变量' : generating ? '故事正在续写' : `${activeMessages.length} 条消息 · ${activePreset.name}`}</p></div></div>
+                        <div className="ttm-conversation-person" data-ti-part="conversation-title"><CharacterAvatar name={hasStory ? activeStoryIdentity.name : appName} avatar={hasStory ? activeCharacter.avatar : '/icons/192x192.png'} /><div><h2 data-ti-type="heading">{hasStory ? activeStoryIdentity.name : appName}</h2><p>{!hasStory ? '导入或选择故事，开始你的对话' : state.mvuExtraAnalysisActive ? '正在整理本轮变量' : generating ? '故事正在续写' : `${activeMessages.length} 条消息 · ${activePreset.name}`}</p></div></div>
                         <div className="ttm-conversation-actions" data-ti-area="conversation">{shellParts('conversation')}</div>
                     </header>
                     <div id="ttm-conversation-history" className="ttm-history-panel" data-ti-shell="history" data-guide="history" hidden={!historyOpen}>

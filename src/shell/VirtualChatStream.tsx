@@ -335,7 +335,7 @@ export function VirtualChatStream({
                         onTouchCancel={() => { touchStateRef.current = null; }}
                     >
                         <header className="ttm-msg-header">
-                            <div className="ttm-msg-identity"><CharacterAvatar className="ttm-message-avatar" name={speakerName} avatar={node.role === 'assistant' ? characterAvatar : node.role === 'user' ? userAvatar : undefined} /><strong className="ttm-speaker-name">{speakerName}</strong><small className="ttm-floor-badge">#{node.floor}</small></div>
+                            <div className="ttm-msg-identity"><CharacterAvatar className="ttm-message-avatar" name={speakerName} avatar={node.role === 'assistant' ? characterAvatar : node.role === 'user' ? userAvatar : undefined} fallback={node.role === 'user' ? 'user' : 'initial'} /><strong className="ttm-speaker-name">{speakerName}</strong><small className="ttm-floor-badge">#{node.floor}</small></div>
                             <div className="ttm-msg-toolbar">
                             {node.floor > 0 && <button type="button" className="ttm-route-entry" onClick={event => openStoryRoutes(node.id, event.currentTarget)} aria-label={`查看第 ${node.floor} 楼的故事路线`}><Icon name="branch" width={15} height={15} />路线 · {routesAt(allMessages, node.id).length}</button>}
                             {node.floor === 0 && messages.length === 1 && node.swipes.length > 1 && <div className="ttm-msg-toolbar" role="group" aria-label="切换开场">
