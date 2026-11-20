@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "workspaces": ["packages/plugin-sdk"],
-  "description": "微醺屿 (TipsyIsle) — 为 AIRP 玩家与社区生态打造的本地角色扮演客户端",
+  "description": "微醺屿 (TipsyIsle) — 基于全新独立架构，为 AIRP 玩家与社区生态打造的本地角色扮演客户端",
   "scripts": {
     "start": "node scripts/start-local.mjs",
     "typecheck": "tsc --noEmit",
