@@ -77,7 +77,7 @@ import {
     resolveMergedVariables,
     scopedVariableStore,
 } from '../store/scoped-variable-store';
-import { hydrateThemeFromPlatform, themeEngineStore } from '../theme/theme-engine';
+import { hydrateThemeFromPlatform, readingColorScheme, themeEngineStore, toggleReadingColorScheme } from '../theme/theme-engine';
 import { appearanceDevice, appearanceStore, hydrateAppearance, pauseAppearance } from '../theme/appearance-store';
 import { applyAppearanceStyle, compileAppearance, wallpaperStyle } from '../theme/appearance-style';
 import { assetUrl, defaultText, partText, placements, textOf, type Area, type Part, type Widget } from '../theme/appearance-model';
@@ -166,6 +166,8 @@ export function AdaptiveWorkspaceApp() {
     const state = workspaceStore.useStore();
     const variableState = scopedVariableStore.useStore();
     const themeState = themeEngineStore.useStore();
+    const darkReading = readingColorScheme(themeState.tokens.bgPrimary) === 'dark';
+    const readingColorAction = darkReading ? '切换到日间配色' : '切换到夜间配色';
     const savedSkin = appearanceStore.useStore(state => state.saved);
     const skinDevice = appearanceDevice.useStore();
     const skin = skinDevice.paused ? undefined : savedSkin ?? undefined;
@@ -664,6 +666,10 @@ export function AdaptiveWorkspaceApp() {
                         onChange={handleFileUpload}
                     />
                     {shellParts('top')}
+                    <button type="button" className="ttm-icon-btn ttm-reading-colors" data-ti-part="reading-colors"
+                        aria-label={readingColorAction} title={readingColorAction} onClick={toggleReadingColorScheme}>
+                        <Icon name={darkReading ? 'sun' : 'moon'} />
+                    </button>
                     <WorkspacePluginMenu />
                     <SlotMount name="chat.header.actions" />
                 </div>

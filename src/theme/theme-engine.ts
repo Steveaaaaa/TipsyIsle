@@ -173,6 +173,14 @@ export const themeEngineStore = createReactiveStore<ThemeEngineState>(() => ({
 export function readingThemeTokens(state = themeEngineStore.getState()): ThemeDesignTokens {
     return state.followSystemFont ? { ...state.tokens, fontFamilyBody: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif' } : state.tokens;
 }
+
+export function readingColorScheme(bgPrimary: string): 'light' | 'dark' {
+    const color = bgPrimary.replace('#', '');
+    const full = color.length === 3 ? [...color].map(char => char + char).join('') : color;
+    const channels = /^[0-9a-f]{6}$/i.test(full) ? [0, 2, 4].map(offset => parseInt(full.slice(offset, offset + 2), 16)) : [24, 28, 36];
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722 > 155 ? 'light' : 'dark';
+}
+
 export function setFollowSystemFont(value: boolean): void {
     themeEngineStore.setState(draft => { draft.followSystemFont = value; });
     persistThemeState();
@@ -228,12 +236,9 @@ export function applyThemeToDocument(state: ThemeEngineState = themeEngineStore.
     root.style.setProperty('--ti-line-height', String(tokens.lineHeight));
     root.style.setProperty('--ti-chat-max-width', `${tokens.chatMaxWidthPx}px`);
     // Theme only the presentation. Existing presets and user token values remain intact.
-    const color = tokens.bgPrimary.replace('#', '');
-    const full = color.length === 3 ? [...color].map(char => char + char).join('') : color;
-    const channels = /^[0-9a-f]{6}$/i.test(full) ? [0, 2, 4].map(offset => parseInt(full.slice(offset, offset + 2), 16)) : [24, 28, 36];
-    const light = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722 > 155;
-    root.style.colorScheme = light ? 'light' : 'dark';
-    root.dataset.colorScheme = light ? 'light' : 'dark';
+    const scheme = readingColorScheme(tokens.bgPrimary);
+    root.style.colorScheme = scheme;
+    root.dataset.colorScheme = scheme;
     root.dataset.portraitPlacement = tokens.portraitPlacement;
     const accent = tokens.accentColor.replace('#', '');
     const accentHex = accent.length === 3 ? [...accent].map(char => char + char).join('') : accent;
@@ -306,7 +311,8 @@ export function updateThemeToken<K extends keyof ThemeDesignTokens>(key: K, valu
 
 /** The quick switch changes colors without resetting reading preferences or custom CSS. */
 export function toggleReadingColorScheme(): void {
-    const preset = BUILTIN_THEME_PRESETS.find(item => item.id === (document.documentElement.dataset.colorScheme === 'light' ? 'isle-nightfall' : 'isle-daylight'))!;
+    const scheme = readingColorScheme(themeEngineStore.getState().tokens.bgPrimary);
+    const preset = BUILTIN_THEME_PRESETS.find(item => item.id === (scheme === 'light' ? 'isle-nightfall' : 'isle-daylight'))!;
     themeEngineStore.setState(draft => {
         draft.activePresetId = preset.id;
         for (const key of ['accentColor', 'bgPrimary', 'bgSurface', 'textPrimary', 'textMuted'] as const) draft.tokens[key] = preset.tokens[key];

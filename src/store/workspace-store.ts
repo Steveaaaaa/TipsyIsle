@@ -871,7 +871,7 @@ export function savePlayerPersona(value: { name: string; image: string; descript
         const id = reuse ? previous.avatar_id : `persona_${crypto.randomUUID()}.png`;
         const persona: import('../types').UserPersona = { avatar_id: id, avatar: id, title: '',
             position: 0, depth: 2, role: 0, lorebook: '', connections: [], is_default: !characterId,
-            ...(reuse ? previous : {}), ...value, name, description_mode: 'supplement' };
+            ...(reuse ? cloneStateValue(previous) : {}), ...value, name, description_mode: 'supplement' };
         if (characterId) {
             for (const item of draft.personas) item.connections = item.connections.filter(link => !(link.type === 'character' && [characterId, `${characterId}.png`].includes(link.id)));
             persona.connections = [...persona.connections.filter(link => !(link.type === 'character' && [characterId, `${characterId}.png`].includes(link.id))), { type: 'character', id: characterId }];

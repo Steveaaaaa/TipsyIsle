@@ -478,6 +478,7 @@ a { color: var(--ti-accent); text-underline-offset: 3px; }
     .ttm-topbar { height: 60px; padding: 0 20px; }
     .ttm-brand { width: auto; }
     .ttm-topbar-location, .ttm-focus-button, .ttm-topbar-settings { display: none; }
+    .ttm-topbar .ttm-reading-colors { width: 44px; min-height: 44px; }
     .ttm-sidebar, .ttm-center-stage, .ttm-inspector, .has-inspector .ttm-inspector { display: none; width: 100%; }
     .ttm-sidebar.is-mobile-active, .is-focused .ttm-sidebar.is-mobile-active, .ttm-center-stage.is-mobile-active, .ttm-inspector.is-mobile-active { display: flex; }
     .ttm-sidebar-scroll { padding: 24px; }
