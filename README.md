@@ -1,116 +1,118 @@
-# 微醺屿 · TipsyIsle
+**English** | [简体中文](README.zh-CN.md)
 
-**万千世界，终有一屿。**
+# TipsyIsle · 微醺屿
 
-微醺屿是一款为 **AIRP（AI 角色扮演）玩家**打造、向**社区创作与扩展**敞开的本地客户端。支持 Windows、Android 与本地网页，将沉浸阅读、剧情分支、跨端接续和深度自定义融为一体，让你与角色相处的每一晚，都更自在一些。
+**Countless worlds. One place to call home.**
 
-**微醺屿基于全新设计的独立底层架构。** 从界面、剧情状态与提示词流水线，到本地存储和原生插件系统，都有自己的实现。它不是 SillyTavern 的换皮或套壳，也不依赖 SillyTavern 运行；熟悉的社区作品，通过格式兼容与接口适配来到这里。
+TipsyIsle is a local client built for **AI roleplay (AIRP) players** and the **creators and developers who shape the community**. Available on Windows, Android, and the local web, it brings immersive reading, branching stories, continuity across devices, and deep customization into one experience—so every evening with your characters feels a little more your own.
 
-我们想把这里建成所有 AIRP 玩家最终愿意长住的港湾。第一次开卡的人，能找到走进故事的路；收藏了几百张卡的老玩家，能带着自己的偏爱安顿下来；写卡、做美化、调预设、开发插件的人，也能在这里继续拓宽 AIRP 的可能。
+**TipsyIsle is built on a new, independently designed architecture.** It has its own interface, story state, prompt pipeline, local storage, and plugin system. It is not a reskin or wrapper around SillyTavern, and it does not require SillyTavern to run. Familiar community creations find their way here through format compatibility and API adapters.
 
-**好看的界面是相遇的开始。值得留下的，是故事、自由，以及能一起生长的社区。**
+We want this to become the place every AIRP player can eventually call home. Somewhere to open your first card, settle in with a collection of hundreds, or create the card, theme, preset, or plugin that takes roleplay somewhere new.
 
-[为什么值得换](#为什么值得换) · [带上酒馆里的珍藏](#带上酒馆里的珍藏) · [给社区创作者与开发者](#给社区创作者与开发者) · [开始你的第一段故事](#开始你的第一段故事)
+**A beautiful interface draws you in. Stories, freedom, and a community with room to grow give you reasons to stay.**
 
-## 为什么值得换
+[Why make the move?](#why-make-the-move) · [Bring your favorites from SillyTavern](#bring-your-favorites-from-sillytavern) · [For community creators and developers](#for-community-creators-and-developers) · [Start your first story](#start-your-first-story)
 
-在 SillyTavern 里用久了，留下来的远不止角色卡。还有反复调好的预设、顺手的操作、熟悉的作者，以及只有你知道有多珍贵的故事。SillyTavern 和社区多年积累的成熟生态，值得认真对待。让你愿意换一个地方继续，理由也必须足够具体。
+## Why make the move?
 
-微醺屿把选择的理由放在四件事上：**为沉浸阅读设计的界面、可以独立游玩的手机端、连同状态保留的剧情分支，以及由你和社区继续定义的体验。**
+After years with SillyTavern, you have more than a folder of character cards. You have carefully tuned presets, familiar routines, favorite creators, and stories whose meaning only you fully know. SillyTavern and its community have built a mature ecosystem over many years. Moving deserves a compelling reason.
 
-### 打开就想入戏，读久了也舒服
+TipsyIsle offers four: **an interface designed for immersive reading, a phone app that runs independently, story branches that preserve their state, and an experience you and the community can keep making your own.**
 
-角色与正文占据视线的中心，馆藏、设置和操作各有位置。日间的清晰留白、夜间的沉静配色，配合为长篇对话安排的阅读宽度、行距与层次，让几百楼的故事也有舒展的书页。专注阅读、阅读位置记忆，以及阅读时收起的操作栏，让注意力更容易留在角色的下一句话上。
+### An invitation to immerse yourself—and stay awhile
 
-电脑有展开馆藏与剧情的空间，手机有适合触控的导航、输入和菜单。**审美体现在第一眼，也体现在每一次翻阅、停顿与回应里。**
+Characters and prose take center stage. Your library, settings, and controls each have their place. Clear spacing by day, quiet colors by night, and carefully considered line spacing and reading width give even hundreds of messages room to breathe. Focused reading, a remembered reading position, and controls that tuck away as you read help keep your attention on what your character says next.
 
-### 电脑合上了，故事还在你手里
+Desktop gives your library and stories room to spread out. Mobile has navigation, input, and menus made for touch. **Good design lives in the first impression and in every page you read afterward.**
 
-Windows 与 Android 都有基于 Tauri 的独立客户端，手机端内置本地存储和作者页面运行环境。使用支持的模型接口时，可以直接在手机上继续，无需让电脑一直开着。
+### Close your laptop. Take the story with you.
 
-两端在同一局域网配对后，可以同步角色卡、世界书、预设、个人资料和剧情进度。进度先保存到本机，空闲时再同步；准备换设备时，也能手动立即同步。两台设备分别续写过同一个存档，重新连接后会保留各自的进度；世界书出现修改冲突，也有差异可供核对。
+Windows and Android each have a standalone Tauri app. The phone app includes local storage and a runtime for creator-authored pages. With a supported model endpoint, you can keep playing directly on your phone without leaving your computer running.
 
-**换一块屏幕，接着赴约。** 模型连接与密钥由每台设备单独配置，支持的协议见[入门说明](docs/MIGRATING_FROM_SILLYTAVERN.md#连接模型与换设备)。
+Pair your devices on the same local network to sync character cards, worldbooks, presets, personas, and story progress. Changes save to the current device first and sync when idle; you can also sync immediately before switching devices. If you continue the same save separately on both devices, both versions of your progress are preserved when they reconnect. Conflicting worldbook edits can be reviewed side by side.
 
-### 舍不得原来的结局，也能去看另一种可能
+**A different screen. The same world waiting for you.** Configure model connections and API keys separately on each device; see the [connection guide](docs/MIGRATING_FROM_SILLYTAVERN.md#connect-models-and-switch-devices) for supported protocols.
 
-那个路口，你已经陪角色走过了一次。现在想知道，如果当时答应了，会怎样？
+### Keep the ending you love. Discover the one you never chose.
 
-在开场后的模型回复旁选择「从这里重新选择」，就能保留原路线，另写一个选择。故事路线图让你沿着分叉查看剧情摘要，也能总览整张角色卡的不同会话与路线。
+You have already walked that road together. But what if, back at the crossroads, you had said yes?
 
-恢复路线时，正文、剧情变量与世界书的计时状态会一起回到对应进度。另一条路上的收获、关系和代价，归属于那一条路。**每一种舍不得，都有继续生长的地方。**
+Choose “Choose again from here” (从这里重新选择) beside a model reply after the opening to follow another possibility while keeping the original route. The story map lets you explore summaries along each branch or see the conversations and routes across an entire character card.
 
-### 住进来以后，按你的想象布置
+When you return to a route, its text, story variables, and timed worldbook state return with it. The discoveries, relationships, and consequences of one path belong to that path. **Every possibility you care about has somewhere to keep growing.**
 
-你可以从换一张壁纸开始，也可以重新定义整个界面的气质。
+### Settle in. Make it yours.
 
-- **把阅读调到舒服。** 配色、字体、字号、行距与正文宽度，都能按自己的习惯调整。
-- **把操作摆到顺手。** 调整常用部件的位置与顺序，给桌面和手机分别安排布局。
-- **把个性放进细节。** 替换标志、按钮图标和启动素材，修改界面文字，甚至给自己的微醺屿换一个名字。
-- **把审美分享出去。** 先预览、对比、撤销，再保存；满意的搭配可以导出为外观包，交给另一个同样喜欢它的人。
+Start with a wallpaper, or give the whole app a different character.
 
-会写 CSS，就能通过 `data-ti-shell`、`data-ti-part` 等界面挂点进一步创作。应用外观有自己的样式作用范围，卡作者的 HTML 页面与互动内容保留独立的运行环境。
+- **Read your way.** Adjust colors, fonts, font sizes, line spacing, and text width to suit you.
+- **Put controls within reach.** Rearrange common interface elements, with separate layouts for desktop and mobile.
+- **Make the details personal.** Replace logos, button icons, and startup artwork. Rewrite interface text. Even give your own TipsyIsle a new name.
+- **Share your taste.** Preview, compare, and undo before saving. Export an appearance pack for someone else who will love it as much as you do.
 
-**你对界面的想象，可以成为自己的日常，也可以成为社区的下一款作品。**
+If you write CSS, hooks such as `data-ti-shell` and `data-ti-part` let you go further. App appearance styles have their own scope, while card-authored HTML and interactive content keep their own runtime.
 
-## 带上酒馆里的珍藏
+**The interface you imagine can become your everyday home—or the community's next favorite creation.**
 
-喜欢的角色、调好的预设、收藏许久的世界，都值得一起带来。微醺屿以全新独立架构支持酒馆社区的作品，通过自己的解析、运行与接口适配体系，让熟悉的角色与玩法在这里继续陪伴你。
+## Bring your favorites from SillyTavern
 
-从文字对话，到变量驱动的剧情、动态状态栏与 HTML 互动页面，微醺屿已经支持这些丰富的角色卡玩法。**截至目前，项目作者实际体验过的角色卡，均能在微醺屿中正常运行。**
+Your favorite characters, carefully tuned presets, and collected worlds deserve to come with you. TipsyIsle supports SillyTavern community creations through its own parsing, execution, and API compatibility systems, all built on its independent architecture.
 
-| 把这些一起带来 | 在微醺屿里继续体验 |
+From text conversations to stories driven by variables, dynamic status panels, and interactive HTML pages, TipsyIsle already supports a rich range of character card experiences. **Every character card the project author has personally tried so far has run successfully in TipsyIsle.**
+
+| Bring these along | Enjoy them in TipsyIsle |
 | --- | --- |
-| PNG／JSON 角色卡 | 支持导入，随卡世界书会随故事启用；角色卡也可导出为标准 V2／V3 PNG。 |
-| 世界书与预设 | 支持 JSON 导入，把熟悉的世界设定与叙事方式带来，在应用内继续编辑、调整与选用。 |
-| 宏、正则与提示词模板 | 支持作品中的文本处理、显示美化与提示词逻辑，延续作者精心设计的表达。 |
-| MVU 变量、作者 HTML 页面与交互脚本 | 支持变量更新、动态状态栏与 HTML 交互，让复杂角色卡的玩法在独立运行环境中展开。 |
-| 酒馆扩展 | 提供安装、更新与启停管理，通过兼容接口接入扩展能力。 |
+| PNG / JSON character cards | Import cards with their embedded worldbooks enabled alongside the story. Export cards as standard V2 / V3 PNG files. |
+| Worldbooks and presets | Import JSON files to bring familiar worldbuilding and storytelling styles with you, then edit, adjust, and select them in the app. |
+| Macros, regex, and prompt templates | Run the text processing, display formatting, and prompt logic that creators use to shape their work. |
+| MVU variables, creator-authored HTML, and interactive scripts | Use variable updates, dynamic status panels, and HTML interactions in TipsyIsle's independent runtime. |
+| SillyTavern extensions | Install, update, enable, and disable extensions, with their functionality connected through compatibility APIs. |
 
-带上你喜欢的卡，沿用熟悉的模型与预设，在更合眼缘的界面里重新相遇。想试另一种选择，就留下一条分支；想换个地方继续，就把故事带到手机上。**你已经爱上的那些世界，欢迎一起搬来。**
+Bring a card you love, choose your usual model and preset, and meet again in an interface that feels right. Keep a branch when you want to try another choice. Take the story to your phone when you want a change of scenery. **The worlds you already love are welcome here.**
 
-如果你的作品用到了尚未适配的特殊扩展接口，欢迎带着具体玩法提交 [Issue](https://github.com/Steveaaaaa/TipsyIsle/issues)，一起把社区的创作空间继续打开。具体导入步骤与迁移范围，见下方指南。
+If your creation needs a specialized extension API that has yet to be adapted, open an [issue](https://github.com/Steveaaaaa/TipsyIsle/issues) with the experience you want to support. The guide below covers import steps and migration scope.
 
-[从酒馆到微醺屿：导入作品、连接模型与双端接续 →](docs/MIGRATING_FROM_SILLYTAVERN.md)
+[From SillyTavern to TipsyIsle: import your creations, connect a model, and continue across devices →](docs/MIGRATING_FROM_SILLYTAVERN.md)
 
-## 给社区创作者与开发者
+## For community creators and developers
 
-**AIRP 的边界，一直由社区的想象力向外推动。**
+**The community's imagination has always pushed AIRP forward.**
 
-一张卡可以写出一个世界；一套预设可以改变故事的节奏；一个状态栏、一份外观包、一个插件，也能让许多人爱上新的玩法。我们想让微醺屿的未来，也有这些作者的笔迹：让喜欢折腾的人有足够深的接口，让喜欢直接游玩的人享受到社区创作的成果。
+A card can hold a world. A preset can change the rhythm of a story. A status panel, appearance pack, or plugin can introduce a whole community to a new way to play. We want TipsyIsle's future to carry its creators' signatures: deep APIs for people who love to build, and the fruits of that creativity for people who simply want to play.
 
-写卡与预设的作者，可以从已有格式和兼容能力开始；美化作者可以创作阅读主题和应用外观；插件开发者则有一套独立、带版本声明的原生插件 API，直接面向故事、资源、模型与界面扩展。
+Card and preset authors can start with familiar formats and compatibility features. Theme creators can shape reading styles and app appearance. Plugin developers have an independent, versioned API for working with stories, resources, models, and the interface.
 
-### 更深的能力，留给更大胆的玩法
+### Deeper APIs for bigger ideas
 
-| 你想创造的体验 | 已提供的扩展能力 |
+| What you want to create | Available extension capabilities |
 | --- | --- |
-| 剧情手记、路线复盘、长篇检索 | 分页访问会话与路线树，按版本读取消息和变量；使用 `device`、`route`、`reply` 作用域保存不同层级的数据。 |
-| 前情整理、自定义记忆与上下文策略 | 通过 `beforeScan`／`afterScan` 参与提示词流水线，提供宏与注入内容、调整送给模型的历史，并声明模型可调用的只读工具。 |
-| 世界书助手、剧情编辑与分支工具 | 对故事和资源执行 `preview → commit → undo`，通过版本校验与幂等操作处理修改。 |
-| 生图、语音、文本嵌入与多模型辅助 | 调用玩家授权的模型连接，管理异步任务、媒体资源，以及文本／向量索引。 |
-| 有完整界面的功能、能互相协作的插件 | 注册输入栏、消息与应用菜单命令，使用弹窗、侧栏或全屏界面；通过带版本的服务声明与其他插件协作。 |
+| Story journals, route reviews, and long-story search | Page through conversations and route trees, read versioned messages and variables, and store data in `device`, `route`, and `reply` scopes. |
+| Recaps, custom memory, and context strategies | Join the prompt pipeline through `beforeScan` / `afterScan`, contribute macros and injections, adjust the history sent to the model, and declare read-only tools for model use. |
+| Worldbook assistants, story editors, and branching tools | Use `preview → commit → undo` for story and resource edits, with version checks and idempotent operations. |
+| Images, speech, embeddings, and assistance from multiple models | Use player-authorized model connections and manage asynchronous tasks, media, and text / vector indexes. |
+| Plugins with their own interfaces and ways to work together | Register commands in the composer, on messages, or in the app menu; use dialogs, sidebars, or full-screen views; collaborate through versioned plugin services. |
 
-上表描述的是**可以用来开发这些玩法的接口**。仓库提供[剧情手记](examples/plugins/story-journal)与[行动选项](examples/plugins/action-options)两个示例，社区作品可以从这里迈出第一步。
+These are **APIs you can use to build those experiences**. The repository includes [Story Journal](examples/plugins/story-journal) and [Action Options](examples/plugins/action-options) as starting points.
 
-### 全新独立架构，为 AIRP 重新设计
+### A new, independent architecture designed for AIRP
 
-微醺屿的运行底座由本项目独立设计：**React + TypeScript** 构建界面与核心逻辑，**Tauri 2 + Rust** 提供原生端能力，**SQLite** 保存原生端本地数据，同时保留本地网页运行方式。剧情分支、跨端同步和原生插件系统围绕这套架构构建，SillyTavern 不参与应用运行。
+TipsyIsle's foundation is independently designed: **React + TypeScript** for the interface and core logic, **Tauri 2 + Rust** for native platform capabilities, and **SQLite** for local storage in the installed apps. A local web mode is also available. Story branching, device sync, and the plugin system are built around this architecture. SillyTavern is not part of the application runtime.
 
-对酒馆生态的兼容，位于内容格式与接口适配层。它让现有作品可以接入微醺屿自己的故事状态、提示词流水线和作者运行环境。这样的架构，让我们能够围绕 AIRP 的实际需求继续设计：
+Compatibility with the SillyTavern ecosystem lives in content formats and API adapters. These connect existing creations to TipsyIsle's own story state, prompt pipeline, and creator runtime, leaving the architecture free to evolve around AIRP's needs:
 
-- **桌面与手机共享核心能力。** 平台层衔接本地存储、网络与文件访问，两端使用同一套故事与扩展接口，降低跨端维护的负担。
-- **长对话有专门的处理方式。** 普通消息流采用虚拟化渲染；角色卡导入与模板编译使用 Web Worker，提示词计算也有独立 Worker 路径，减少重任务对界面主线程的占用。
-- **分支有自己的状态。** 消息、变量与续写状态围绕路线保存，插件也能明确区分设备、路线和单条回复，便于构建会跟随剧情变化的功能。
-- **扩展有明确的契约。** 原生插件逻辑在 Web Worker 内的 QuickJS 环境中执行，通过声明权限和宿主 API 访问能力，并受执行与内存配额约束。玩家可以查看授权和运行日志，作者可以查询宿主版本与能力。
+- **Shared capabilities across desktop and mobile.** A platform layer connects storage, networking, and file access. Both apps use the same core story and extension APIs, reducing the work of maintaining features across devices.
+- **Dedicated handling for long conversations.** The standard message stream uses virtualized rendering. Card importing and template compilation use Web Workers, and prompt computation also has a separate Worker path, reducing heavy work on the interface thread.
+- **State belongs to the story branch.** Messages, variables, and continuation state are saved around routes. Plugins can distinguish device, route, and individual reply data when building features that change with the story.
+- **Explicit contracts for extensions.** TipsyIsle plugin logic runs in QuickJS inside a Web Worker, accessing capabilities through declared permissions and host APIs under execution and memory limits. Players can inspect permissions and session logs; developers can query host versions and capabilities.
 
-这为持续演进留下了空间：界面可以更新，设备可以增加，玩法也可以变得更复杂；社区作者有明确的接口来衔接自己的作品。
+This leaves room for the interface to evolve, more devices to join, and new ways to play—with explicit APIs for community creators to build on.
 
-[生态开发指南](docs/ECOSYSTEM.md) · [TypeScript API](packages/plugin-sdk/index.d.ts) · [Manifest Schema](packages/plugin-sdk/manifest.schema.json) · [插件 SDK 与打包工具](packages/plugin-sdk)
+[Ecosystem guide](docs/ECOSYSTEM.md) · [TypeScript API](packages/plugin-sdk/index.d.ts) · [Manifest Schema](packages/plugin-sdk/manifest.schema.json) · [Plugin SDK and packaging tools](packages/plugin-sdk)
 
-## 开始你的第一段故事
+## Start your first story
 
-目前可从源码启动本地网页版。安装 [Node.js](https://nodejs.org/) **22.19.0 或更新版本**与 [Git](https://git-scm.com/)，运行：
+You can currently run the local web version from source. Install [Node.js](https://nodejs.org/) **22.19.0 or later** and [Git](https://git-scm.com/), then run:
 
 ```sh
 git clone https://github.com/Steveaaaaa/TipsyIsle.git
@@ -119,32 +121,32 @@ npm ci
 npm start
 ```
 
-打开 [http://localhost:5179](http://localhost:5179)，跟随首次使用引导：
+Open [http://localhost:5179](http://localhost:5179) and follow the first-run guide. The steps below include the app's current Chinese menu labels:
 
-1. 在馆藏中导入角色卡，按作者说明准备世界书和预设。
-2. 在「设置 → 个人资料」里写下故事中的名字与人设。
-3. 在「设置 → 模型连接」中填写服务地址、密钥和模型，保存设置。
-4. 选一个开场，把下一句交给你。
+1. Import a character card into the library (馆藏), along with any worldbooks and presets recommended by its author.
+2. Open Settings → Persona (设置 → 个人资料) and choose your own name and identity for the story.
+3. Open Settings → Model Connection (设置 → 模型连接), enter your endpoint, API key, and model, then save.
+4. Pick an opening. The next line is yours.
 
-微醺屿需要接入你自己的模型服务；模型是否能离线运行，取决于你使用的服务。剧情与资源保存在本机，双端同步通过局域网完成。
+TipsyIsle connects to a model service you provide. Whether generation works offline depends on that service. Stories and resources are stored locally; device sync runs over your local network.
 
 <details>
-<summary>自行构建 Windows／Android 客户端，或构建网页资源</summary>
+<summary>Build the Windows / Android apps or the web assets yourself</summary>
 
-- **网页资源：** `npm run build`。`npm start` 会构建并启动网页、本地模型网关与兼容服务；单独构建静态资源不包含这些服务。
-- **Windows 安装包：** 准备 [Tauri 开发环境](https://v2.tauri.app/start/prerequisites/)后，运行 `npm run windows:build`，产物位于 `releases/`。
-- **Android 安装包：** 当前脚本面向在 Windows 上构建 ARM64 APK。准备 Tauri／Rust Android 工具链、JDK 21、Android SDK 37、NDK 28.2.13676358，配置 `JAVA_HOME`、`ANDROID_HOME`，并在本机的 `src-tauri/gen/android/keystore.properties` 中配置签名后，运行 `npm run android:build`。产物位于 `releases/`，最低 Android 版本为 8.0（API 26）。
+- **Web assets:** `npm run build`. `npm start` builds and launches the web app, local model gateway, and compatibility service. Building static assets alone does not include these services.
+- **Windows installer:** Set up the [Tauri development prerequisites](https://v2.tauri.app/start/prerequisites/), then run `npm run windows:build`. Output is placed in `releases/`.
+- **Android APK:** The current script builds an ARM64 APK on Windows. Set up the Tauri / Rust Android toolchain, JDK 21, Android SDK 37, and NDK 28.2.13676358. Configure `JAVA_HOME` and `ANDROID_HOME`, supply signing settings in your local `src-tauri/gen/android/keystore.properties`, then run `npm run android:build`. Output is placed in `releases/`; the minimum Android version is 8.0 (API 26).
 
-构建细节见 [Windows 脚本](scripts/windows.ps1)与 [Android 脚本](scripts/android.ps1)。
+See the [Windows script](scripts/windows.ps1) and [Android script](scripts/android.ps1) for build details.
 
 </details>
 
-## 这座岛，留着你的位置
+## There is a place for you here
 
-微醺屿还在成长。它能走多远，既取决于代码，也取决于有多少真实的玩法、认真打磨的作品和坦诚的反馈来到这里。
+TipsyIsle is still growing. How far it goes depends on the code, the experiences people bring, the creations they care enough to polish, and the honest feedback they share.
 
-玩家可以告诉我们，哪一步让你出戏，哪一个细节让你愿意留下；作者可以带来作品的兼容需求，或一个现有接口还接不住的想法；开发者可以参与适配、插件、性能与跨端体验的建设。带着具体的故事来提 [Issue](https://github.com/Steveaaaaa/TipsyIsle/issues)，也欢迎提交 Pull Request。
+Players: tell us what breaks your immersion and what makes you want to stay. Creators: bring your compatibility needs and the ideas our APIs cannot yet express. Developers: help shape compatibility, plugins, performance, and the experience across devices. Open an [issue](https://github.com/Steveaaaaa/TipsyIsle/issues) with a concrete example, or contribute a pull request.
 
-**愿你去过万千世界，最终在这里靠岸。**
+**Explore countless worlds. Find your harbor here.**
 
-感谢 SillyTavern 及 AIRP 社区长期积累的创作与探索。使用的第三方代码与许可见[第三方声明](docs/THIRD_PARTY_NOTICES.md)。
+With thanks to SillyTavern and the AIRP community for years of creativity and exploration. See [third-party notices](docs/THIRD_PARTY_NOTICES.md) for reused code and licenses.

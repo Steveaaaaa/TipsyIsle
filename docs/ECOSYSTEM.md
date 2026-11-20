@@ -1,86 +1,88 @@
-# 为下一种 AIRP 玩法，留出接口
+**English** | [简体中文](ECOSYSTEM.zh-CN.md)
 
-微醺屿希望成为社区可以持续创作的地方。角色、世界书、预设、阅读主题、应用外观与功能插件，都能改变玩家进入故事的方式。不同作品有不同的入口，你可以从熟悉的创作开始，也可以沿着宿主 API 深入到剧情、变量和生成过程。
+# Make room for the next way to roleplay
 
-## 全新独立的宿主架构
+TipsyIsle is a place for the community to keep creating. Characters, worldbooks, presets, reading themes, app appearances, and plugins can all change how players enter a story. Each kind of creation has its own entry point. Start with what you know, or go deeper into stories, variables, and generation through the host API.
 
-微醺屿拥有独立设计的应用架构，以及自己的故事状态、提示词流水线、本地存储与原生插件系统。应用运行不依赖 SillyTavern；对酒馆生态的支持，通过内容格式解析和兼容接口适配实现。
+## An independent host architecture
 
-开发原生插件时，对接的是微醺屿自己的、带版本声明的宿主 API。适配已有酒馆作品时，对接的是兼容层提供的接口，两者的能力与运行约定需要分别核对。核心设计与玩家体验的关系见 [README](../README.md#全新独立架构为-airp-重新设计)，采用的第三方组件与复用代码见[第三方声明](THIRD_PARTY_NOTICES.md)。
+TipsyIsle has an independently designed application architecture, with its own story state, prompt pipeline, local storage, and plugin system. It does not depend on SillyTavern at runtime. Support for the SillyTavern ecosystem comes through content format parsing and compatibility API adapters.
 
-## 找到适合你的创作入口
+When you build a TipsyIsle plugin, you target its own versioned host API. When you adapt an existing SillyTavern creation, you target the interfaces exposed by the compatibility layer. Each has its own capabilities and runtime contract. See the [README](../README.md#a-new-independent-architecture-designed-for-airp) for how the architecture shapes the player experience, and [third-party notices](THIRD_PARTY_NOTICES.md) for dependencies and reused code.
 
-| 你的作品 | 可以从哪里开始 |
+## Find the right entry point
+
+| Your creation | Where to start |
 | --- | --- |
-| 角色卡、世界书与预设 | 使用现有 PNG／JSON 格式导入；复杂作品先按[兼容说明](MIGRATING_FROM_SILLYTAVERN.md#目前的兼容边界)核对依赖。 |
-| HTML 状态栏、互动页面与卡内脚本 | 使用作者页面运行环境及已适配的接口；涉及酒馆特定行为时，用实际作品验证。 |
-| 阅读主题与应用美化 | 在「外观」中调整样式、文案、素材、部件位置和双端布局，再导出 `.tipsy-appearance.json` 外观包。 |
-| 微醺屿原生功能插件 | 使用 `@tipsy-isle/plugin-sdk` 开发，声明版本与权限，签名打包成 `.tipsy-plugin`。 |
-| 现有酒馆扩展的适配 | 对照兼容层检查依赖，通过「酒馆兼容扩展」管理；这与原生插件是两个入口。 |
+| Character cards, worldbooks, and presets | Import existing PNG / JSON formats. For complex creations, review their dependencies against the [compatibility guide](MIGRATING_FROM_SILLYTAVERN.md#compatibility-and-scope). |
+| HTML status panels, interactive pages, and card scripts | Use the creator page runtime and adapted APIs. Verify SillyTavern-specific behavior with the actual creation. |
+| Reading themes and app appearance | Adjust styles, text, artwork, component placement, and layouts for both devices in Appearance (外观), then export a `.tipsy-appearance.json` pack. |
+| TipsyIsle plugins | Develop with `@tipsy-isle/plugin-sdk`, declare versions and permissions, and sign and package your work as a `.tipsy-plugin` file. |
+| Adaptations of existing SillyTavern extensions | Check dependencies against the compatibility layer and manage them through SillyTavern-compatible Extensions (酒馆兼容扩展). This is a separate entry point from TipsyIsle plugins. |
 
-## 从可运行的示例开始
+## Start with working examples
 
-仓库已经包含两个原生插件示例：
+The repository includes two TipsyIsle plugin examples:
 
-- **[剧情手记](../examples/plugins/story-journal)**：在回复保存后为当前路线记录手记，也允许手写补充；可将最近的手记作为续写前情。它展示了事件订阅、路线存储、设置与生成内容贡献。
-- **[行动选项](../examples/plugins/action-options)**：提取角色回复中的行动选项，玩家点选后写入输入草稿；发送由玩家决定。它展示了消息命令、回复存储与输入框交互。
+- **[Story Journal](../examples/plugins/story-journal):** Records a note for the current route when a reply is saved and lets players add their own notes. Recent notes can serve as a recap for the next generation. It demonstrates event subscriptions, route storage, settings, and prompt contributions.
+- **[Action Options](../examples/plugins/action-options):** Extracts action choices from a character reply and puts the player's selected option into the input draft. The player decides when to send it. It demonstrates message commands, reply storage, and composer interaction.
 
-在仓库根目录安装依赖后，可以先查看打包命令：
+Install dependencies from the repository root, then inspect the packaging commands:
 
 ```sh
 npm ci
 node packages/plugin-sdk/cli.mjs --help
 ```
 
-[SDK 目录](../packages/plugin-sdk)包含 TypeScript 类型、Manifest Schema、打包器与 CLI。开发时请从[类型定义](../packages/plugin-sdk/index.d.ts)查看参数和返回值，从[清单 Schema](../packages/plugin-sdk/manifest.schema.json)查看入口、权限、版本与资源声明；具体打包参数以 CLI 帮助为准。
+The [SDK directory](../packages/plugin-sdk) contains TypeScript types, a Manifest Schema, the packager, and a CLI. Use the [type definitions](../packages/plugin-sdk/index.d.ts) for arguments and return values, and the [Manifest Schema](../packages/plugin-sdk/manifest.schema.json) for entry points, permissions, versions, and resource declarations. Refer to CLI help for packaging arguments.
 
-## 从读取故事，到参与故事
+## From reading a story to taking part in it
 
-宿主 API 将能力划分为明确的领域：
+The host API organizes capabilities into explicit domains:
 
-| API | 能做什么 | 适合的创作方向 |
+| API | What it offers | Ideas to build on it |
 | --- | --- | --- |
-| `story` | 列出会话与路线、遍历路线树、分页读取与检索消息、读取指定版本的状态与变更。 | 剧情导航、路线复盘、长篇检索。 |
-| `storage` | 使用 `device`、`route`、`reply` 三种作用域，并按明确地址读写。 | 本机偏好、分支手记、单条回复的标注。 |
-| `assets` | 读取角色卡、世界书、预设与世界书条目；预览、提交、撤销获准的修改。 | 世界书整理、创作辅助、资源编辑。 |
-| `beforeScan`／`afterScan` | 在世界书扫描前后提供宏、提示词注入与历史调整。 | 前情整理、记忆系统、自定义上下文策略。 |
-| `models`／`tasks` | 使用获准的连接发起对话、生图、语音或文本嵌入任务，读取进度与结果。 | 多模型辅助、插图、语音与语义检索。 |
-| `media`／`index` | 管理媒体资源与文本／向量索引。 | 素材管理、检索与内容组织。 |
-| 命令与界面声明 | 在输入栏、消息或应用菜单注册命令，以宿主提供的界面块和字段呈现弹窗、侧栏或全屏界面。 | 可直接操作的辅助功能与独立功能页面。 |
-| `services` | 声明带版本的服务，调用其他插件公开的方法。 | 让多个插件组合成更完整的玩法。 |
+| `story` | List conversations and routes, traverse route trees, page through and search messages, and read versioned state and changes. | Story navigation, route reviews, long-story search. |
+| `storage` | Store data in `device`, `route`, and `reply` scopes, with explicitly addressed reads and writes. | Local preferences, branch journals, annotations on individual replies. |
+| `assets` | Read cards, worldbooks, presets, and worldbook entries; preview, commit, and undo authorized changes. | Worldbook organization, creation assistants, resource editors. |
+| `beforeScan` / `afterScan` | Supply macros, prompt injections, and history adjustments around worldbook scanning. | Recaps, memory systems, custom context strategies. |
+| `models` / `tasks` | Start chat, image, speech, or embedding tasks through authorized connections and read their progress and results. | Assistance from multiple models, illustrations, speech, semantic search. |
+| `media` / `index` | Manage media resources and text / vector indexes. | Asset management, search, content organization. |
+| Command and interface declarations | Register commands in the composer, on messages, or in the app menu. Use host-provided blocks and fields to present dialogs, sidebars, or full-screen views. | Interactive helpers and dedicated feature pages. |
+| `services` | Declare versioned services and call methods exposed by other plugins. | Plugins that combine into richer experiences. |
 
-这里列举的创作方向是接口可以支持的用途，并不代表已经存在对应的成品插件。
+The ideas listed here describe what the APIs can support; they do not imply that finished plugins for every use case already exist.
 
-## 为长剧情与多分支设计
+## Build for long stories and multiple branches
 
-AIRP 的状态会随故事改变。插件应明确自己正在处理哪段会话、哪条路线、哪一版回复；宿主提供 `StoryRef`、`MessageRef`、`RouteAddress` 与版本信息，帮助作者表达这些边界。
+AIRP state changes with the story. A plugin should identify the conversation, route, and reply version it is handling. The host provides `StoryRef`, `MessageRef`, `RouteAddress`, and version information to express those boundaries.
 
-三种存储作用域各有用途：`device` 保存本机层面的数据；`route` 关联故事路线；`reply` 关联单条候选回复。使用明确的作用域，可以让手记、标注和玩法数据与相应剧情对应起来。
+Each storage scope has a purpose: `device` holds data local to the device, `route` associates data with a story route, and `reply` associates data with an individual reply candidate. Choosing the right scope keeps notes, annotations, and gameplay data attached to the relevant part of the story.
 
-修改故事或资源时，使用 `preview → commit → undo` 流程。预览描述变更，提交与撤销核对版本，操作 ID 支持幂等处理。当玩家已经切换路线或内容发生变化时，插件可以识别失效状态，再决定怎样继续。读取长剧情则可以使用分页与定址访问，按需取得内容。
+For story or resource edits, use `preview → commit → undo`. A preview describes the changes; commits and undo operations check versions; operation IDs support idempotent handling. If a player has switched routes or content has changed, a plugin can detect stale state and decide how to proceed. Pagination and addressed access let you retrieve only the parts of a long story you need.
 
-相关实现：[路线数据](../src/plugins/native/route-graph.ts)、[故事 API](../src/plugins/native/story-data.ts)、[编辑事务](../src/plugins/native/transactions.ts)。
+Implementation references: [route data](../src/plugins/native/route-graph.ts), [story API](../src/plugins/native/story-data.ts), [edit transactions](../src/plugins/native/transactions.ts).
 
-## 让扩展能力与玩家选择对应起来
+## Give players control over extension access
 
-原生插件逻辑运行在 **Web Worker 内的 QuickJS 沙箱**中，通过宿主 API 交互，并受 CPU 时间、内存、调用次数和消息大小配额约束。具体限制见[运行协议](../src/plugins/native/vm-protocol.ts)。
+TipsyIsle plugin logic runs in a **QuickJS sandbox inside a Web Worker**. It interacts through host APIs and is subject to CPU time, memory, call count, and message size limits. See the [runtime protocol](../src/plugins/native/vm-protocol.ts) for the specific limits.
 
-Manifest 声明插件申请的能力、宿主 API 版本与入口。涉及资源修改、模型调用和网络访问时，玩家还能选择允许修改的资源、允许调用的连接和允许访问的网址。插件包使用签名格式，玩家可在管理页查看发布者、授权与本次运行日志。
+The manifest declares requested capabilities, host API versions, and entry points. For resource edits, model calls, and network requests, players can also choose which resources may be changed, which connections may be used, and which origins may be accessed. Plugin packages are signed; the manager shows the publisher, granted permissions, and logs for the current session.
 
-提示词阶段与模型工具使用只读 API；会修改数据的能力仅在相应入口开放。开发时可以通过 `host.capabilities()` 查询当前宿主的版本、平台与能力，按实际运行环境启用功能。类型、版本与能力查询，为插件随宿主演进提供了明确的对接方式。
+Prompt stages and model tools use a read-only API. Data-changing capabilities are available only in the appropriate entry points. Query `host.capabilities()` to discover the current host version, platform, and features, then enable functionality for the runtime you actually have. Types, version declarations, and capability queries provide explicit ways for plugins to evolve alongside the host.
 
-相关实现：[插件宿主](../src/plugins/native/host.ts)、[QuickJS 执行环境](../src/plugins/native/plugin.worker.ts)、[权限界面](../src/plugins/native/PluginAccess.tsx)。
+Implementation references: [plugin host](../src/plugins/native/host.ts), [QuickJS runtime](../src/plugins/native/plugin.worker.ts), [permissions interface](../src/plugins/native/PluginAccess.tsx).
 
-## 把审美也做成社区作品
+## Turn your visual style into a community creation
 
-应用外观支持文字、图标、启动素材、字体、壁纸、部件布局与 CSS，桌面和手机可以分别安排。可定位的挂点包括 `data-ti-shell`、`data-ti-part`、`data-ti-area` 等；从它们入手，能更明确地选择要改变的界面区域。
+App appearance supports text, icons, startup artwork, fonts, wallpapers, component layouts, and CSS, with separate arrangements for desktop and mobile. Hooks include `data-ti-shell`, `data-ti-part`, and `data-ti-area`, helping you target the interface regions you want to change.
 
-编辑时可以预览两端效果、对比已保存的外观、撤销与重做，并将素材和配置打包分享。应用外观 CSS 有自己的作用范围；卡内 HTML 与互动内容由作者运行环境处理，适配时需要分别检查。
+While editing, you can preview both device layouts, compare with the saved appearance, undo and redo changes, and package the assets and configuration for sharing. App appearance CSS has its own scope. Card-authored HTML and interactive content run in the creator runtime, so check each separately when adapting a design.
 
-可以参考内置的[雾港外观示例](../src/theme/appearance-sample.ts)与[外观数据结构](../src/theme/appearance-model.ts)，了解一套完整外观怎样组合文字、素材和布局。
+The built-in [Fog Harbor appearance](../src/theme/appearance-sample.ts) and [appearance data model](../src/theme/appearance-model.ts) show how text, assets, and layout fit together in a complete pack.
 
-## 一起把接口做得更好
+## Help shape the APIs
 
-遇到接口缺口时，欢迎提交 [Issue](https://github.com/Steveaaaaa/TipsyIsle/issues)，描述你想让玩家完成什么、目前卡在哪个环节，并附上最小示例。兼容问题请注明作品依赖和运行环境；API 建议也欢迎说明预期的数据流、权限与跨分支行为。
+If an API cannot express your idea yet, open an [issue](https://github.com/Steveaaaaa/TipsyIsle/issues). Explain what you want players to do, where you get stuck, and include a minimal example. For compatibility issues, include the creation's dependencies and runtime environment. For API proposals, describe the expected data flow, permissions, and behavior across branches where relevant.
 
-微醺屿提供底层能力，社区让这些能力变成值得体验的作品。我们期待看到的下一种玩法，也许正是你已经想了很久的那个点子。
+TipsyIsle provides the foundations. The community turns them into experiences worth having. The next way to play may be the idea you have been carrying for years.

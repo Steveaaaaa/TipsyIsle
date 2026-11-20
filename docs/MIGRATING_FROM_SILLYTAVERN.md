@@ -1,75 +1,77 @@
-# 从 SillyTavern 来，先带一张你最熟悉的卡
+**English** | [简体中文](MIGRATING_FROM_SILLYTAVERN.zh-CN.md)
 
-换一个客户端，需要重新熟悉一些操作。最值得用来试它的，是你已经玩过、知道应该怎样运行的作品：开场是否对，人物状态是否接得上，常用按钮能不能用，你都心里有数。
+# Coming from SillyTavern? Bring a card you know by heart.
 
-这份说明帮助你把角色卡和常用资源带到微醺屿，并判断它是否适合你的玩法。应用的启动与客户端构建方法见 [README](../README.md#开始你的第一段故事)。
+A new client takes a little getting used to. A card you already know is the best place to start: you know its opening, how its character state should develop, and what its familiar buttons do.
 
-## 准备你想带来的作品
+This guide helps you bring your cards and resources into TipsyIsle and find your way around. For startup and app build instructions, see the [README](../README.md#start-your-first-story). Translated menu names below include the app's current Chinese labels so you can find them on screen.
 
-从 SillyTavern 导出，或使用作者提供的原始文件：
+## Gather the creations you want to bring
 
-| 内容 | 准备什么 | 在微醺屿里怎样使用 |
+Export from SillyTavern, or use the original files supplied by the creator:
+
+| Content | What to prepare | How to use it in TipsyIsle |
 | --- | --- | --- |
-| 角色卡 | 含角色数据的 PNG，或角色卡 JSON | 在馆藏点击「导入」。普通头像图片不等同于角色卡。 |
-| 世界书 | 世界书 JSON | 从同一个导入入口加入；卡内自带的世界书会随卡启用，不用再导入一份。 |
-| 预设 | 预设 JSON | 导入后在「预设明细」中选用；导入本身不会替你切换当前预设。 |
-| 自己的人设 | 名字、头像与人设文字 | 在「设置 → 个人资料」重新填写，可设置全局资料与故事专属身份。 |
-| 模型连接 | 服务地址、密钥、协议与模型名称 | 在「设置 → 模型连接」重新配置，并保存设置。 |
+| Character cards | A PNG containing character data, or a character card JSON file. | Choose Import (导入) in the library (馆藏). An ordinary avatar image is not a character card. |
+| Worldbooks | A worldbook JSON file. | Use the same import entry. Worldbooks embedded in a card are enabled with it, so you do not need to import them again. |
+| Presets | A preset JSON file. | Import it, then select it in Preset Details (预设明细). Importing does not change your active preset automatically. |
+| Your persona | Your name, avatar, and persona description. | Enter these in Settings → Persona (设置 → 个人资料). You can set a global persona and a story-specific identity. |
+| Model connection | Endpoint, API key, protocol, and model name. | Configure and save these in Settings → Model Connection (设置 → 模型连接). |
 
-当前导入入口覆盖角色卡、世界书和预设，**不提供整个 SillyTavern 数据目录、聊天记录或全部设置的一键迁移**。外观包与原生插件也有各自的格式；已有的酒馆主题、CSS 和扩展需要结合接口与页面结构检查适配。
+The import entry handles character cards, worldbooks, and presets. **It does not provide a one-click migration of an entire SillyTavern data directory, chat history, or all settings.** Appearance packs and TipsyIsle plugins also have their own formats. Existing SillyTavern themes, CSS, and extensions need to be considered against the interfaces and page structure they use.
 
-微醺屿里的角色卡可从卡片菜单导出为标准 V2／V3 PNG，包含随卡世界书和正则等角色数据。这个导出文件不包含聊天存档。
+You can export a character card from its menu as a standard V2 / V3 PNG, including character data such as its embedded worldbook and regex scripts. This export does not include chat saves.
 
-## 用熟悉的开场，检查熟悉的玩法
+## Start with familiar scenes and interactions
 
-1. **先读作者说明。** 确认推荐的模型、预设、世界书，以及是否依赖酒馆助手、提示词模板、MVU 或其他扩展。
-2. **导入并选好资源。** 打开角色卡，确认附带世界书；导入额外预设后，记得手动选用。
-3. **配置模型与人设。** 保存设置，尽量先用你已经熟悉的模型和预设，便于判断差异来自哪里。
-4. **走完一小段互动。** 看开场、发一条回复，试一下卡内按钮、状态栏和变量更新。复杂作品需要检查实际玩法，不能只凭“导入成功”判断兼容。
-5. **试试微醺屿自己的体验。** 调整阅读样式，从开场后的模型回复旁选择「从这里重新选择」，再到故事路线图切换回来，体验不同路线的保存与恢复。
+1. **Read the creator's instructions.** Check the recommended model, preset, and worldbooks, along with any dependencies on Tavern Helper, Prompt Template, MVU, or other extensions.
+2. **Import and select your resources.** Open the card and confirm its worldbook. After importing an additional preset, remember to select it.
+3. **Configure your model and persona.** Save your settings. Starting with a model and preset you already know makes differences easier to understand.
+4. **Play through a short interaction.** Read the opening, send a reply, and try the card's buttons, status panels, and variable updates. For complex cards, check their actual interactions as well as the import result.
+5. **Try what TipsyIsle adds.** Adjust your reading style, select “Choose again from here” (从这里重新选择) beside a model reply after the opening, then switch back using the story map to experience saving and restoring different routes.
 
-如果只是想先认识界面，可以随时重看「设置 → 使用引导」。
+You can revisit the onboarding tour through Settings → Usage Guide (设置 → 使用引导) at any time.
 
-## 目前的兼容边界
+## Compatibility and scope
 
-微醺屿使用全新设计的独立底层架构，运行时不依赖 SillyTavern。导入的作品由微醺屿自己的内容解析、提示词流水线、变量处理与作者页面运行环境处理，涉及酒馆接口的部分通过兼容层适配。
+TipsyIsle uses a new, independently designed architecture and does not require SillyTavern at runtime. Imported creations run through TipsyIsle's own content parsing, prompt pipeline, variable handling, and creator page runtime. A compatibility layer adapts calls to SillyTavern-related APIs.
 
-当前已支持文字对话、变量驱动的剧情、动态状态栏与 HTML 互动页面等角色卡玩法。**截至目前，项目作者实际体验过的角色卡均能正常运行。** 下表说明各项能力的使用方式，以及第三方扩展的适配范围。
+It already supports text conversations, stories driven by variables, dynamic status panels, and interactive HTML pages. **Every character card the project author has personally tried so far has run successfully.** The table below explains how to use these capabilities and where third-party extension adaptation comes in.
 
-| 作品使用的能力 | 使用方式与适配范围 |
+| Capability used by a creation | Usage and adaptation scope |
 | --- | --- |
-| 角色设定、多个开场、随卡世界书 | 有对应导入与运行能力，先核对作者要求的资源是否准备齐全。 |
-| 宏、正则、世界书触发与提示词模板 | 有对应处理模块；具体语法、配置和触发组合仍以实际运行结果为准。 |
-| MVU 变量与状态栏 | 有变量解析、更新及恢复能力；确认变量配置、作者脚本和额外解析连接符合卡片要求。 |
-| HTML 互动页面、酒馆助手接口 | 作者内容有独立运行环境；涉及特定助手接口、跨窗口访问或原酒馆 DOM 的部分可能需要适配。 |
-| 第三方酒馆扩展 | 在「设置 → 插件」中的「酒馆兼容扩展」管理；是否可用取决于扩展依赖，不能直接按原生插件安装。 |
+| Character definitions, alternate openings, and embedded worldbooks | Importing and runtime support are available. Check that you have prepared the resources the creator recommends. |
+| Macros, regex, worldbook triggers, and prompt templates | Dedicated processing modules are available. Actual behavior depends on the syntax, configuration, and trigger combinations used. |
+| MVU variables and status panels | Variable parsing, updates, and restoration are supported. Match variable settings, creator scripts, and any additional analysis connection to the card's requirements. |
+| Interactive HTML pages and Tavern Helper APIs | Creator content has its own runtime. Specific helper APIs, cross-window access, or dependencies on the original SillyTavern DOM may need adaptation. |
+| Third-party SillyTavern extensions | Manage these under Settings → Plugins → SillyTavern-compatible Extensions (设置 → 插件 → 酒馆兼容扩展). Compatibility depends on their dependencies; they use a different installation path from TipsyIsle plugins. |
 
-使用某个熟悉的宏或插件名称，并不自动意味着它的全部行为都已兼容。复杂卡出现问题时，具体依赖和复现步骤比一句“这张卡不能用”更有助于补齐适配。
+A familiar macro or plugin name alone does not establish support for every behavior of that tool. If a complex card behaves unexpectedly, its dependencies and reproduction steps help us identify what needs adapting.
 
-## 连接模型与换设备
+## Connect models and switch devices
 
-Windows／Android 客户端可以直接请求 **OpenAI 兼容的 Chat Completions 接口**，使用自己的服务地址、密钥与模型。部分原厂协议和服务商账号授权依赖本地 Node 网关；需要这些能力时，请通过 `npm start` 使用本地网页模式。不同运行方式的模型连接能力不完全相同。
+The Windows and Android apps can directly call **OpenAI-compatible Chat Completions endpoints** using your own endpoint, API key, and model. Some provider-specific protocols and account authorization features depend on the local Node gateway. Use the local web mode through `npm start` when you need them. Model connection capabilities differ between runtime modes.
 
-模型服务需要自行准备。资源与进度保存在本地，不代表客户端内置了能离线生成回复的模型。
+You provide the model service. Local storage of resources and progress does not mean the client includes a model that can generate replies offline.
 
-从电脑换到手机时：
+To move from your computer to your phone:
 
-1. 让两端连接同一局域网，在「设置 → 双端互通」中开启设备发现。
-2. 按界面提示完成首次配对；已配对的设备再次发现后可以自动重连。
-3. 换设备前点击「立即同步」，确认完成，再到另一端继续。
-4. 在另一端单独填写模型连接。服务地址与 API 密钥不参与同步。
+1. Connect both devices to the same local network and enable discovery in Settings → Device Sync (设置 → 双端互通).
+2. Follow the on-screen steps to pair them for the first time. Paired devices can reconnect automatically when discovered again.
+3. Choose Sync Now (立即同步), wait for it to finish, then continue on the other device.
+4. Configure the model connection separately on that device. Service endpoints and API keys are not synced.
 
-同步覆盖角色卡、世界书、预设、个人资料与剧情进度；外观和画廊有各自的同步选项。未连接对方设备时，本机仍会保存自己的进度；两端分别续写同一个存档后，重新同步会保留两条进度。世界书发生两端修改冲突时，可以查看差异并选择处理。
+Sync covers character cards, worldbooks, presets, personas, and story progress. Appearance and gallery content have their own sync options. Each device saves its own progress while disconnected from the other. If you continue the same save independently on both, reconnecting preserves both continuations. When both devices edit a worldbook, you can review the differences and choose how to resolve the conflict.
 
-## 把遇到的问题带回来
+## Tell us what you encounter
 
-欢迎提交 [Issue](https://github.com/Steveaaaaa/TipsyIsle/issues)，尽量附上：
+Open an [issue](https://github.com/Steveaaaaa/TipsyIsle/issues) and, where possible, include:
 
-- 设备、应用版本，以及使用客户端还是本地网页。
-- 作品依赖哪些插件或扩展；如果知道，也附上版本。
-- 从哪一步开始异常，原本期待什么，实际发生什么。
-- 可分享的最小复现文件、截图或相关错误信息。
+- Your device, app version, and whether you use an installed app or the local web mode.
+- The plugins or extensions the creation depends on, with versions if known.
+- Where the issue starts, what you expected, and what happened instead.
+- A small shareable reproduction, screenshots, or relevant error messages.
 
-提交前去掉 API 密钥、私人对话和不便公开的内容；角色卡与作者素材只提供你有权分享的部分。
+Remove API keys, private conversations, and other private content before posting. Share only the card files and creator materials you have permission to share.
 
-你带来的每一种真实玩法，都会帮助微醺屿更准确地理解社区。希望下一次回来时，挡在故事前面的那一步，已经可以顺利走过去。
+Every real experience you bring helps TipsyIsle better understand its community. We hope that, on your next visit, the step that interrupted your story is one you can take with ease.
