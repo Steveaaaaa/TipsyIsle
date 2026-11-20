@@ -36,3 +36,20 @@ export async function adaptAuthorWindow(source: string): Promise<string> {
     }
     return source;
 }
+
+/** Explain unsupported source only after a script fails; valid JS keeps its normal loading path. */
+export async function explainAuthorScriptFailure(source: string, error: unknown): Promise<string> {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/SyntaxError|Unexpected|Missing initializer|Missing semicolon/i.test(message)) return message;
+    const { parse } = await import('@babel/parser');
+    try { parse(source, { sourceType: 'module' }); return message; } catch { /* check whether this was TypeScript source */ }
+    try {
+        const { program } = parse(source, { sourceType: 'module', plugins: ['typescript'] });
+        const relativeImports = [...new Set(program.body.flatMap(node =>
+            (node.type === 'ImportDeclaration' && node.importKind !== 'type' || node.type === 'ExportNamedDeclaration' && node.exportKind !== 'type' || node.type === 'ExportAllDeclaration' && node.exportKind !== 'type')
+                && node.source && /^\.{1,2}\//.test(node.source.value) ? [node.source.value] : []))];
+        return relativeImports.length
+            ? `卡内嵌入了未编译的 TypeScript，并引用了本地模块 ${relativeImports.join('、')}。请导入作者已打包的角色卡。`
+            : '卡内嵌入了未编译的 TypeScript。请导入作者已编译为 JavaScript 的角色卡。';
+    } catch { return message; }
+}

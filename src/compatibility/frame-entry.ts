@@ -28,6 +28,7 @@ import { tavernEvents as events, mvuEvents, canonicalEvent } from './event-contr
 import { hostHiddenKey, hostMessageHidden, messageExtra } from './chat-message-codec';
 import { defaultTemplateFeatures, normalizeTemplateFeatures } from '../pipeline/template-features';
 import { ResidentTemplateHost } from './template-host';
+import { exposeScriptSurface } from './script-surface';
 import type { TemplateRuntime } from '../pipeline/template-runtime';
 import { compileAuthorTemplate, templateSyntaxError } from '../pipeline/template-compiler';
 import { parseTemplateJSON, patchTemplateJSON } from '../pipeline/template-json';
@@ -49,7 +50,7 @@ import { getImageTokenCost, getVideoTokenCost } from './media-tokens';
 import { installHostSlashCommands } from './host-slash-commands';
 import { SlashCommandClosureResult } from '../sandbox/slash-control';
 import { createExtensionApi, findCompatibilityExtension, type CompatibilityExtension } from './extensions';
-import { adaptAuthorWindow } from './author-window';
+import { adaptAuthorWindow, explainAuthorScriptFailure } from './author-window';
 import { authorBrowserRuntime } from './author-browser-runtime';
 import { authorDocument } from './author-document';
 import { observeFrameHeight, setFrameHeight } from './frame-sizing';
@@ -170,8 +171,27 @@ let initialScripts: CardScript[] = [];
 let transaction: Record<string, any> | undefined;
 let transactionTarget: { message: any; swipe: number } | undefined;
 let transactionWrites: VariableWrite[] | undefined;
-let initializationFailed = false;
-const failedScriptIds = new Set<string>();
+const scriptFailures = new Map<string, { name: string; message: string }>();
+class AuthorStartupError extends Error {}
+function assertAuthorScriptsReady() {
+    if (!scriptFailures.size) return;
+    const { name, message } = scriptFailures.values().next().value!;
+    throw new AuthorStartupError(`脚本「${name}」未能启动：${message}`);
+}
+async function initializeAuthorVariables() {
+    // Do not initialize or persist variables without the author's validation rules.
+    assertAuthorScriptsReady();
+    try { await initializeMvuSession(); }
+    catch (error) {
+        diagnostic('变量初始化', error);
+        throw new AuthorStartupError(`初始变量未能加载：${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+function reportStartupFailure(bindingToken: string, error: unknown) {
+    if (bindingToken !== token) return;
+    if (!(error instanceof AuthorStartupError)) diagnostic('兼容初始化', error);
+    outer.postMessage({ kind: 'compat:fault', token, message: `兼容初始化失败：${error instanceof Error ? error.message : String(error)}` }, '*');
+}
 let pipelineWorker: Worker | undefined;
 let pipelineSequence = 0;
 const pipelineJobs = new Map<number, { resolve(result: AssembledPromptResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
@@ -314,7 +334,7 @@ async function finishStartupForSync(bindingToken: string) {
     if (startupCompletedSession === snapshot.session && startupCompletedToken === bindingToken) { outer.postMessage({ kind: 'compat:startup-complete', token }, '*'); return; }
     if (startupFinishing?.token === bindingToken) return startupFinishing.promise;
     const promise = (async () => {
-        if (initializationFailed || failedScriptIds.size) throw new Error('角色脚本或初始变量未能完成初始化，请查看兼容诊断后重新载入');
+        assertAuthorScriptsReady();
         await request('runtime.startup');
         if (token !== bindingToken) return;
         // Template rendering can replace frames. Observe the live set, not one early snapshot.
@@ -1710,6 +1730,11 @@ function installApi(win: any, floor?: number, scriptId?: string) {
     api.triggerSlashWithResult = api.triggerSlash;
     const owned = new Map<string, Map<(...args: any[]) => any, { wrapper: (...args: any[]) => any; stop: () => void }>>();
     const cleanups = new Set<() => void>();
+    if (scriptId && win.frameElement) {
+        const expose = () => { if (!disposed) cleanups.add(exposeScriptSurface(win.frameElement)); };
+        win.addEventListener('DOMContentLoaded', expose, { once: true });
+        cleanups.add(() => win.removeEventListener('DOMContentLoaded', expose));
+    }
     if (floor !== undefined) cleanups.add(observeReadingActivity(win, readingActivity));
     cleanups.add(observeSyncInteraction(win));
     const childSlashRegistration = slashRegistration(win, runAuthorSlash);
@@ -1972,6 +1997,7 @@ async function refreshScripts() {
     const desired = [...new Map([...scriptsFromTrees(trees.global), ...scriptsFromTrees(trees.preset), ...scriptsFromTrees(trees.character)].map(script => [script.id, script])).values()];
     initialScripts = desired;
     const enabled = new Map(desired.filter(script => script.enabled).map(script => [script.id, script]));
+    for (const id of scriptFailures.keys()) if (!enabled.has(id)) scriptFailures.delete(id);
     for (const [id, running] of runningScripts) {
         const next = enabled.get(id);
         if (!next || running.source.content !== next.content || running.source.name !== next.name) {
@@ -1979,7 +2005,7 @@ async function refreshScripts() {
                 running.frame.contentWindow.dispatchEvent(new Event('pagehide'));
                 childDisposers.get(running.frame.contentWindow)?.();
             }
-            children.delete(running.frame); running.frame.remove(); runningScripts.delete(id); failedScriptIds.delete(id); scriptButtons.delete(id); scriptInfo.delete(id);
+            children.delete(running.frame); running.frame.remove(); runningScripts.delete(id); scriptFailures.delete(id); scriptButtons.delete(id); scriptInfo.delete(id);
         } else {
             if (!_.isEqual(next.buttons, running.source.buttons)) scriptButtons.set(id, next.buttons.map(button => ({ name: button.name, visible: button.visible !== false })));
             if (next.info !== running.source.info) scriptInfo.set(id, next.info);
@@ -2006,6 +2032,13 @@ async function mountScript(script: CardScript): Promise<{ completion: Promise<vo
 }
 async function loadScripts(scripts: CardScript[], bindingToken: string): Promise<void> {
     const completions: Promise<void>[] = [];
+    const recordFailure = async (script: CardScript, error: unknown) => {
+        if (token !== bindingToken) return;
+        const message = await explainAuthorScriptFailure(script.content, error).catch(() => String(error));
+        if (token !== bindingToken) return;
+        scriptFailures.set(script.id, { name: script.name, message });
+        diagnostic(script.name, message, script.id);
+    };
     // Mount in declared order, but allow modules awaiting another script's shared
     // globals to settle after that provider has mounted.
     for (const script of scripts) {
@@ -2014,12 +2047,11 @@ async function loadScripts(scripts: CardScript[], bindingToken: string): Promise
         try {
             const { completion } = await mountScript(script);
             completions.push(completion.then(() => {
-                failedScriptIds.delete(script.id);
-                if (token === bindingToken) appendRuntimeDiagnostic(root, script.name, '', 'entry', script.id);
-            }, error => {
-                if (token === bindingToken) { failedScriptIds.add(script.id); diagnostic(script.name, error, script.id); }
-            }));
-        } catch (error) { failedScriptIds.add(script.id); diagnostic(script.name, error, script.id); }
+                if (token !== bindingToken) return;
+                scriptFailures.delete(script.id);
+                appendRuntimeDiagnostic(root, script.name, '', 'entry', script.id);
+            }, error => recordFailure(script, error)));
+        } catch (error) { completions.push(recordFailure(script, error)); }
     }
     await Promise.all(completions);
     startupStage('作者脚本入口已完成');
@@ -2303,16 +2335,17 @@ async function switchCompatibilitySession(next: CompatSnapshot, scripts: CardScr
             childDisposers.get(running.frame.contentWindow)?.();
         }
         children.delete(running.frame); running.frame.remove(); runningScripts.delete(id);
-        scriptButtons.delete(id); scriptInfo.delete(id); failedScriptIds.delete(id);
+        scriptButtons.delete(id); scriptInfo.delete(id);
     }
+    for (const id of scriptFailures.keys()) if (!retained.has(id)) scriptFailures.delete(id);
     diagnostics.length = 0; document.getElementById('compat-diagnostics')?.remove();
-    initializationFailed = false; initialScripts = scripts; reconciledScriptTrees = undefined;
+    initialScripts = scripts; reconciledScriptTrees = undefined;
     prepareReadingBookmark(bookmark);
     applySnapshot(next);
     await loadGallery(next.character.id);
     releaseSessionData();
     await refreshScripts();
-    try { await initializeMvuSession(); } catch (error) { initializationFailed = true; diagnostic('变量初始化', error); }
+    await initializeAuthorVariables();
     if (token !== bindingToken) return;
     switchingSession = false; initialized = true; renderMessages();
     outer.postMessage({ kind: 'compat:ready', token }, '*');
@@ -2386,7 +2419,7 @@ window.addEventListener('message', event => {
     }
     if (data.kind === 'compat:init' && data.token === token && snapshot && data.snapshot.session !== snapshot.session) {
         sessionSwitchTask = sessionSwitchTask.then(() => switchCompatibilitySession(data.snapshot, data.scripts, data.token, data.readingBookmark)).catch(error => {
-            if (token === data.token) { diagnostic('切换兼容会话', error); outer.postMessage({ kind: 'compat:fault', token, message: String(error) }, '*'); }
+            reportStartupFailure(data.token, error);
         });
         return;
     }
@@ -2402,7 +2435,7 @@ window.addEventListener('message', event => {
             publishExtensionMenu();
             const bindingToken = token;
             void startupEventsTask.then(() => finishStartupForSync(bindingToken)).catch(error => {
-                if (token === bindingToken) outer.postMessage({ kind: 'compat:fault', token, message: String(error) }, '*');
+                reportStartupFailure(bindingToken, error);
             });
         }
         return;
@@ -2419,10 +2452,8 @@ window.addEventListener('message', event => {
             await loadInstalledExtensions();
             await loadScripts((data.scripts as CardScript[]).filter(script => script.enabled), startupToken);
             if (startupToken !== token) return;
-            try {
-                startupStage('初始化 MVU 变量');
-                await initializeMvuSession();
-            } catch (error) { initializationFailed = true; diagnostic('变量初始化', error); }
+            startupStage('初始化 MVU 变量');
+            await initializeAuthorVariables();
             if (startupToken !== token) return;
             startupStage('生成角色消息界面');
             renderMessages(); initialized = true; scheduleScriptRefresh();
@@ -2443,9 +2474,7 @@ window.addEventListener('message', event => {
             catch (error) { diagnostic('会话启动事件', error); }
         });
         void startupEventsTask.then(() => finishStartupForSync(startupToken)).catch(error => {
-            if (startupToken !== token) return;
-            diagnostic('兼容初始化', error);
-            outer.postMessage({ kind: 'compat:fault', token, message: `兼容初始化失败：${error instanceof Error ? error.message : String(error)}` }, '*');
+            reportStartupFailure(startupToken, error);
         });
         return;
     }
@@ -2565,7 +2594,7 @@ window.addEventListener('message', event => {
                 if (snapshot.session !== session || (snapshot.branchEpoch ?? 0) !== epoch || chat.at(-1)?._id !== head || chat.at(-1)?.swipe_id !== swipe) {
                     throw new Error('校验时剧情路线已切换，请重新预演');
                 }
-                if (initializationFailed || failedScriptIds.size) throw new Error('作者变量规则未能初始化');
+                assertAuthorScriptsReady();
                 let next = normalizeMvuVariables(candidate).variables;
                 const registered = variableSchemas.get(scope)?.schema;
                 if (registered && registered !== mvuVariableSchema) {
@@ -2584,7 +2613,7 @@ window.addEventListener('message', event => {
                 result.variables = next;
             }
             else if (data.command === 'beforeGeneration') {
-                if (initializationFailed || failedScriptIds.size) throw new Error('角色脚本或初始变量未能完成初始化，请先处理兼容诊断');
+                assertAuthorScriptsReady();
                 await initializeNewMvuBindings();
                 const type = data.args[0] ?? 'normal';
                 await emit(events.GENERATION_STARTED, type, {}, false);

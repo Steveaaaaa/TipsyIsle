@@ -92,7 +92,7 @@ export function CompatibilityChat({ session, visible = true, extensionPanel = fa
     const frameVisible = visible || extensionPanel;
     if (stopped) return null;
     if (failure) return <div role="alert" className="ttm-compatibility-error">
-        <p>{failure}。已停止当前作者运行环境，防止超时任务继续写入。</p>
+        <p>{failure}</p>
         <button type="button" className="ttm-btn-secondary" onClick={() => { setFailure(null); setReadySession(''); setEpoch(value => value + 1); }}>重新载入角色运行环境</button>
     </div>;
     const preparing = readySession !== session;

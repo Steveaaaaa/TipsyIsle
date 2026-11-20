@@ -46,7 +46,7 @@ button:focus-visible { outline: 2px solid var(--reader-accent); outline-offset: 
 .compat-stream-status { margin: 0; padding: 0 28px 16px; font-size: 12px; color: var(--reader-muted); }
 .mes_text > p { padding: 18px 24px; margin: 0; }
 .compat-message-frame { width: 100%; height: 240px; border: 0; display: block; }
-.compat-script { display: none; }
+.compat-script { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: transparent; z-index: 30; clip-path: var(--tipsy-script-clip, inset(50%)); }
 :root[data-layout=novel-reader] .mes_text { border: 0; border-bottom: 1px solid var(--reader-border); background: transparent; }
 :root[data-layout=novel-reader] .compat-prose { padding: 24px 12px; }
 :root[data-layout=adv-galgame] .mes_text { border-color: var(--reader-accent); }

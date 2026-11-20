@@ -1,6 +1,6 @@
 [package]
 name = "tipsy-isle"
-version = "1.0.0"
+version = "1.0.1"
 license = "Apache-2.0"
 description = "TipsyIsle — A local AI roleplay client built on an independent architecture for players, creators, and developers"
 authors = ["TipsyIsle contributors"]
