@@ -1,0 +1,62 @@
+# Dependencies and local toolchains
+node_modules/
+.pnpm-store/
+/.runtime/
+
+# Build outputs and release packages
+/dist/
+/dist-verification-*/
+/output/
+/releases/
+/coverage/
+*.tsbuildinfo
+/src-tauri/target/
+/src-tauri/gen/schemas/
+
+# Personal content, local databases and connection settings
+/data/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.db-wal
+*.db-shm
+
+# Signing material and machine-specific Android configuration
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.key
+*.pem
+keystore.properties
+key.properties
+/src-tauri/gen/android/.gradle/
+/src-tauri/gen/android/.kotlin/
+/src-tauri/gen/android/**/build/
+/src-tauri/gen/android/**/.cxx/
+/src-tauri/gen/android/**/.externalNativeBuild/
+/src-tauri/gen/android/local.properties
+/src-tauri/gen/android/app/src/main/jniLibs/
+
+# Local design workspace, editor state and temporary files
+/.impeccable/
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+npm-debug.log*
+pnpm-debug.log*

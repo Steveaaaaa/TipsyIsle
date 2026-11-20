@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-tipsy-kv-get"
+description = "Enables the tipsy_kv_get command without any pre-configured scope."
+commands.allow = ["tipsy_kv_get"]
+
+[[permission]]
+identifier = "deny-tipsy-kv-get"
+description = "Denies the tipsy_kv_get command without any pre-configured scope."
+commands.deny = ["tipsy_kv_get"]

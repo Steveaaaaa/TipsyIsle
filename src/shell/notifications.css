@@ -1,0 +1,16 @@
+.ttm-notifications { position: fixed; z-index: 10020; top: calc(env(safe-area-inset-top, 0px) + 58px); right: max(16px, env(safe-area-inset-right, 0px)); width: min(390px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 7px; pointer-events: none; }
+.ttm-notification { display: flex; align-items: center; gap: 9px; padding: 7px 9px 7px 12px; min-height: 34px; box-sizing: border-box; color: var(--ti-text-primary); background: var(--ti-bg-surface); border: 1px solid var(--ti-border); border-radius: 10px; box-shadow: 0 5px 18px #00000016; font: 12px/1.55 var(--ti-font-ui, system-ui); pointer-events: auto; animation: tipsy-notice-enter 150ms ease-out; }
+.ttm-notification-message { flex: 1; min-width: 0; overflow-wrap: anywhere; max-height: 100px; overflow-y: auto; }
+.ttm-notification-state { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--ti-accent); }
+.ttm-notification.is-error .ttm-notification-state { background: #bb4545; }
+.ttm-notification.is-warning .ttm-notification-state { background: #a47928; }
+.ttm-notification.is-success .ttm-notification-state { background: #478064; }
+.ttm-notification.is-progress .ttm-notification-state { animation: tipsy-notice-pulse 1.6s ease-in-out infinite alternate; }
+.ttm-notification > button { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.ttm-notification > button:hover { background: var(--ti-selection); }
+.ttm-notification > button:focus-visible { outline: 2px solid var(--ti-accent); outline-offset: 1px; }
+@keyframes tipsy-notice-enter { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes tipsy-notice-pulse { to { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .ttm-notification, .ttm-notification.is-progress .ttm-notification-state { animation: none; } }
+
+dialog > .ttm-notifications { position: absolute; top: 60px; right: 12px; width: min(360px, calc(100% - 24px)); }

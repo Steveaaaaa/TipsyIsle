@@ -1,0 +1,64 @@
+.ttm-guide-welcome { display: grid; gap: 16px; color: var(--ti-text-primary); }
+.ttm-guide-welcome > .ttm-welcome-mark, .ttm-start-page > .ttm-welcome-mark { display: flex; justify-content: center; }
+.ttm-guide-welcome h3 { margin: 0; font-size: 24px; text-align: center; }
+.ttm-guide-welcome p { margin: 0; line-height: 1.8; }
+.ttm-guide-welcome small { color: var(--ti-text-muted); line-height: 1.6; text-align: center; }
+.ttm-guide-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+.ttm-guide-welcome .ttm-guide-buttons { justify-content: center; }
+[data-guide-active] { outline: 2px solid var(--ti-accent); outline-offset: 4px; scroll-margin: 12px; }
+.ttm-guide-tip { position: fixed; z-index: 1500; display: flex; flex-direction: column; width: min(360px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px 20px; background: var(--ti-bg-surface); color: var(--ti-text-primary); border: 1px solid var(--ti-border); border-radius: 14px; max-height: calc(100dvh - 32px); overflow-wrap: anywhere; }
+.ttm-guide-tip header, .ttm-guide-tip footer { flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.ttm-guide-tip header { color: var(--ti-text-muted); font-size: 13px; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--ti-border); }
+.ttm-guide-tip h2 { margin: 12px 0 8px; font-size: 19px; line-height: 1.5; }
+.ttm-guide-tip p { font-size: 14px; line-height: 1.8; margin: 0 0 16px; }
+.ttm-guide-tip button { min-height: 44px; }
+.ttm-guide-tip footer { border-top: 1px solid var(--ti-border); margin-top: 12px; padding-top: 8px; }
+.ttm-guide-action { width: 100%; flex-shrink: 0; }
+.ttm-guide-step-copy { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ti-border) transparent; }
+.ttm-guide-route-example { display: grid; justify-items: center; margin: 0 0 12px; padding-block: 2px; font-size: 12px; line-height: 1.45; }
+.ttm-guide-route-origin, .ttm-guide-route-fork > span { display: grid; place-items: center; min-height: 26px; padding: 3px 8px; border: 1px solid var(--ti-border); border-radius: 6px; text-align: center; background: var(--ti-soft); }
+.ttm-guide-route-origin { font-weight: 650; }
+.ttm-guide-route-fork { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; padding-top: 14px; }
+.ttm-guide-route-fork::before, .ttm-guide-route-fork::after { content: ''; position: absolute; pointer-events: none; }
+.ttm-guide-route-fork::before { top: 0; left: 50%; height: 7px; border-inline-start: 1px solid var(--ti-border); }
+.ttm-guide-route-fork::after { top: 7px; left: calc(25% - 2px); right: calc(25% - 2px); height: 7px; border: 1px solid var(--ti-border); border-bottom: 0; }
+.ttm-guide-route-fork > span:last-child { color: var(--ti-accent); background: var(--ti-selection); }
+.ttm-guide-paused { position: fixed; z-index: 1500; right: 16px; top: calc(12px + env(safe-area-inset-top)); display: flex; flex-wrap: wrap; gap: 8px; max-width: calc(100vw - 32px); }
+.ttm-guide-paused button { min-height: 44px; }
+.ttm-guide-welcome > h3, .ttm-guide-welcome > p, .ttm-guide-welcome > .ttm-guide-buttons, .ttm-guide-welcome > small { animation: ttm-guide-unfold 420ms cubic-bezier(.16,1,.3,1) both; }
+.ttm-guide-welcome > h3 { animation-delay: 40ms; }
+.ttm-guide-welcome > p:nth-of-type(1) { animation-delay: 70ms; }
+.ttm-guide-welcome > p:nth-of-type(2) { animation-delay: 100ms; }
+.ttm-guide-welcome > p:nth-of-type(3) { animation-delay: 130ms; }
+.ttm-guide-welcome > .ttm-guide-buttons, .ttm-guide-welcome > small { animation-delay: 160ms; }
+.ttm-guide-step-copy { animation: ttm-guide-unfold 300ms cubic-bezier(.16,1,.3,1); }
+.ttm-guide-paused { animation: ttm-guide-unfold 220ms cubic-bezier(.16,1,.3,1); }
+[data-guide-active] { transition: outline-color 220ms ease-out; }
+@keyframes ttm-guide-unfold { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.ttm-start-page { margin: auto; width: min(100%, 680px); min-width: 0; box-sizing: border-box; padding: 32px 24px; color: var(--ti-text-primary); text-align: center; overflow-wrap: anywhere; }
+.ttm-start-page h2 { font-size: 28px; margin: 18px 0 16px; text-wrap: balance; }
+.ttm-start-page p { max-width: 58ch; margin: 0 auto; line-height: 1.9; color: var(--ti-text-muted); text-wrap: pretty; }
+.ttm-start-page .ttm-guide-buttons { justify-content: center; margin: 24px 0; }
+.ttm-start-page .ttm-guide-buttons > button { min-height: 44px; }
+.ttm-start-page .ttm-start-notes { max-width: 62ch; font-size: 13px; }
+.ttm-start-status { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px 20px; margin-top: 24px; font-size: 12px; color: var(--ti-text-muted); padding-top: 16px; border-top: 1px solid var(--ti-border); }
+@media (max-width: 699px) {
+    .ttm-guide-tip { inset: auto 16px calc(76px + env(safe-area-inset-bottom)); width: auto; max-height: min(54dvh, 430px); padding: 6px 14px 12px; }
+    .ttm-guide-welcome { gap: 12px; }
+    .ttm-guide-welcome > .ttm-welcome-mark { margin-bottom: 0; }
+    .ttm-guide-welcome h3 { font-size: 21px; }
+    .ttm-guide-welcome p { font-size: 14px; line-height: 1.7; }
+    .ttm-guide-tip h2 { font-size: 18px; margin-top: 8px; }
+    .ttm-guide-tip p { font-size: 14px; line-height: 1.6; margin-bottom: 8px; }
+    .ttm-guide-tip footer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; margin-top: 6px; padding-top: 6px; }
+    .ttm-guide-tip footer > button { padding-inline: 8px; }
+    .ttm-guide-route-example { margin-bottom: 6px; }
+    .has-onboarding-tour .ttm-inspector-content, .has-onboarding-tour .ttm-sidebar-scroll, .has-onboarding-tour .ttm-reading-viewport { padding-bottom: var(--guide-reserve, 0px); scroll-padding-bottom: var(--guide-reserve, 0px); }
+    .ttm-start-page { padding: 24px 20px; }
+    .ttm-start-page h2 { font-size: 24px; }
+    .ttm-start-page .ttm-guide-buttons > button { flex: 1 1 calc(50% - 5px); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ttm-guide-welcome > h3, .ttm-guide-welcome > p, .ttm-guide-welcome > .ttm-guide-buttons, .ttm-guide-welcome > small, .ttm-guide-step-copy, .ttm-guide-paused { animation-name: ttm-guide-fade; animation-duration: 100ms !important; animation-delay: 0ms !important; }
+}
+@keyframes ttm-guide-fade { from { opacity: .6; } to { opacity: 1; } }

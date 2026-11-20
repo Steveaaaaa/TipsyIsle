@@ -1,0 +1,21 @@
+{
+  "$schema": "../../../packages/plugin-sdk/manifest.schema.json",
+  "manifestVersion": 1,
+  "id": "dev.tipsy-isle.story-journal",
+  "name": "剧情手记",
+  "publisher": "微醺屿示例",
+  "version": "1.0.0",
+  "hostApi": "^1.0.0",
+  "description": "回复保存后为当前路线留一条手记，也可手写补充。手记跟随分支，可作为下次续写的简短前情。",
+  "storageVersion": 1,
+  "permissions": ["story.read", "story.events", "ui.panel", "storage.route", "generation.contribute", "resources.read"],
+  "entrypoints": { "main": "main.js" },
+  "resources": ["prompt-title.txt"],
+  "commands": [{ "id": "journal", "label": "剧情手记", "location": "composer" }],
+  "events": ["story.replySaved"],
+  "generation": true,
+  "settings": [
+    { "id": "remember", "type": "number", "label": "每条路线保留的手记数", "default": 12, "min": 3, "max": 24 },
+    { "id": "contribute", "type": "boolean", "label": "续写时附上最近手记", "default": true }
+  ]
+}

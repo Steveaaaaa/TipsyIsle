@@ -1,0 +1,29 @@
+.ttm-lan-sync { min-width: 0; }
+.ttm-lan-sync .ttm-text-input { width: 100%; min-width: 0; box-sizing: border-box; margin-bottom: 12px; }
+.ttm-lan-status { display: grid; gap: 5px; margin: 16px 0; padding-block: 12px; border-block: 1px solid var(--ti-border); }
+.ttm-lan-status strong { font-size: 14px; }
+.ttm-lan-status span, .ttm-lan-status small, .ttm-lan-option small, .ttm-lan-conflict small { color: var(--ti-text-muted); font-size: 12px; line-height: 1.7; }
+.ttm-lan-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ttm-lan-error { color: var(--ti-danger, #af3d46); font-size: 13px; overflow-wrap: anywhere; }
+.ttm-lan-code { font-variant-numeric: tabular-nums; }
+.ttm-lan-option { display: flex; align-items: flex-start; gap: 10px; padding-block: 10px; cursor: pointer; }
+.ttm-lan-option input { margin-top: 5px; accent-color: var(--ti-accent); width: 17px; height: 17px; flex-shrink: 0; }
+.ttm-lan-option span, .ttm-lan-peer, .ttm-lan-conflict { display: grid; gap: 5px; min-width: 0; }
+.ttm-lan-option strong, .ttm-lan-peer strong, .ttm-lan-conflict strong { font-size: 13px; font-weight: 600; }
+.ttm-lan-peer span { overflow-wrap: anywhere; color: var(--ti-text-muted); font-size: 13px; }
+.ttm-lan-conflict { padding-block: 14px; border-bottom: 1px solid var(--ti-border); }
+.ttm-lan-conflict .ttm-lan-actions { margin-top: 5px; }
+@media (max-width: 600px) {
+    .ttm-lan-sync button { min-height: 42px; }
+    .ttm-lan-sync .ttm-text-input { font-size: 16px; }
+}
+
+.ttm-lan-nearby { grid-template-columns: 1fr auto; align-items: center; padding-block: 12px; border-bottom: 1px solid var(--ti-border); }
+.ttm-lan-pair { margin-top: 16px; }
+.ttm-sync-differences section { padding-block: 16px; border-bottom: 1px solid var(--ti-border); }
+.ttm-sync-differences h3 { margin: 0 0 12px; font-size: 14px; overflow-wrap: anywhere; }
+.ttm-sync-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.ttm-sync-comparison strong { font-size: 13px; }
+.ttm-sync-comparison pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; line-height: 1.7; max-height: 320px; overflow: auto; }
+.ttm-sync-differences + .ttm-lan-actions { margin-top: 20px; }
+@media (max-width: 600px) { .ttm-sync-comparison { grid-template-columns: 1fr; gap: 12px; } }

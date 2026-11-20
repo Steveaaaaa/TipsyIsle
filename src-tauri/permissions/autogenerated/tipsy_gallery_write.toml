@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-tipsy-gallery-write"
+description = "Enables the tipsy_gallery_write command without any pre-configured scope."
+commands.allow = ["tipsy_gallery_write"]
+
+[[permission]]
+identifier = "deny-tipsy-gallery-write"
+description = "Denies the tipsy_gallery_write command without any pre-configured scope."
+commands.deny = ["tipsy_gallery_write"]

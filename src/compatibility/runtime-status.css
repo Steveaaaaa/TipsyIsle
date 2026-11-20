@@ -1,0 +1,71 @@
+.tipsy-runtime-ui {
+    --runtime-accent: var(--reader-accent, var(--ti-accent));
+    --runtime-text: var(--reader-text, var(--ti-text-primary));
+    --runtime-muted: var(--reader-muted, var(--ti-text-muted));
+    --runtime-surface: var(--reader-surface, var(--ti-bg-surface));
+    --runtime-border: color-mix(in srgb, var(--runtime-text) 14%, transparent);
+    --runtime-soft: color-mix(in srgb, var(--runtime-accent) 6%, var(--runtime-surface));
+    color: var(--runtime-text); background: var(--runtime-surface); border: 1px solid var(--runtime-border); border-radius: 14px;
+    font: 13px/1.6 var(--ti-font-ui, system-ui, sans-serif); min-width: 0; box-sizing: border-box;
+}
+.tipsy-runtime-ui summary { cursor: pointer; }
+.tipsy-runtime-ui summary:focus-visible { outline: 2px solid var(--runtime-accent); outline-offset: 3px; border-radius: 6px; }
+.tipsy-runtime-loading { flex: 0 0 auto; width: min(560px, calc(100% - 64px)); margin: clamp(24px, 6vh, 56px) auto 24px; }
+.tipsy-runtime-loading-main { display: flex; align-items: center; gap: 22px; padding: 24px 28px 22px; }
+.tipsy-runtime-loading-art { flex: 0 0 96px; height: 88px; position: relative; }
+.tipsy-runtime-loading-art img { display: block; width: 80px; height: 80px; object-fit: contain; image-rendering: pixelated; animation: tipsy-story-arrival 3.6s ease-in-out infinite alternate; }
+.tipsy-runtime-loading-art > span { position: absolute; bottom: 1px; inset-inline: 8px 0; height: 1px; background: color-mix(in srgb, var(--runtime-accent) 30%, transparent); }
+.tipsy-runtime-loading-copy { min-width: 0; }
+.tipsy-runtime-loading-copy h3 { margin: 0 0 7px; font-size: 16px; line-height: 1.5; font-weight: 600; }
+.tipsy-runtime-loading-copy p { margin: 0; color: var(--runtime-muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.tipsy-runtime-loading-details { padding: 0 20px; border-top: 1px solid var(--runtime-border); background: var(--runtime-soft); border-radius: 0 0 13px 13px; }
+.tipsy-runtime-loading-details > summary { display: flex; align-items: center; gap: 7px; min-height: 42px; list-style: none; color: var(--runtime-muted); font-size: 11px; }
+.tipsy-runtime-loading-details > summary::-webkit-details-marker { display: none; }
+.tipsy-runtime-loading-details > summary svg { transition: transform .18s ease-out; flex-shrink: 0; }
+.tipsy-runtime-loading-details[open] > summary svg { transform: rotate(90deg); }
+.tipsy-runtime-loading-details > p { margin: 0; padding: 0 0 14px 21px; font-size: 12px; color: var(--runtime-text); overflow-wrap: anywhere; white-space: pre-wrap; }
+.tipsy-runtime-diagnostics { width: min(var(--reader-width, 820px), calc(100% - 72px)); margin: 12px auto 0; }
+.tipsy-runtime-diagnostics > summary { display: flex; align-items: center; gap: 12px; padding: 13px 16px; list-style: none; }
+.tipsy-runtime-diagnostics > summary::-webkit-details-marker { display: none; }
+.tipsy-runtime-diagnostics > summary:hover { background: var(--runtime-soft); border-radius: 13px; }
+.tipsy-runtime-diagnostic-mark { display: grid; place-items: center; width: 34px; height: 38px; color: var(--runtime-accent); flex-shrink: 0; }
+.tipsy-runtime-diagnostic-mark svg { width: 23px; height: 23px; }
+.tipsy-runtime-diagnostic-heading { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.tipsy-runtime-diagnostic-heading strong { font-size: 13px; font-weight: 600; }
+.tipsy-runtime-diagnostic-count { color: var(--runtime-muted); font-size: 11px; }
+.tipsy-runtime-diagnostic-total { padding: 3px 8px; border-radius: 6px; background: var(--runtime-soft); color: var(--runtime-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tipsy-runtime-disclosure { width: 16px; height: 16px; color: var(--runtime-muted); flex-shrink: 0; transition: transform .18s ease-out; }
+.tipsy-runtime-diagnostics[open] > summary .tipsy-runtime-disclosure { transform: rotate(90deg); }
+.tipsy-runtime-diagnostic-note { margin: 0; padding: 12px 18px; border-top: 1px solid var(--runtime-border); font-size: 11px; color: var(--runtime-muted); }
+.compat-diagnostic-items { list-style: none; margin: 0; padding: 0 18px 6px; }
+.tipsy-runtime-diagnostic-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0; border-top: 1px solid var(--runtime-border); }
+.tipsy-runtime-row-icon { width: 16px; height: 16px; flex-shrink: 0; margin-top: 3px; color: var(--runtime-accent); }
+.tipsy-runtime-diagnostic-content { flex: 1; min-width: 0; }
+.tipsy-runtime-row-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; }
+.tipsy-runtime-row-heading strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.tipsy-runtime-row-label { color: var(--runtime-muted); font-size: 10px; white-space: nowrap; }
+.tipsy-runtime-error-preview { margin: 5px 0 0; color: var(--runtime-muted); font-size: 12px; overflow-wrap: anywhere; }
+.tipsy-runtime-error-details { margin-top: 6px; }
+.tipsy-runtime-error-details > summary { width: fit-content; color: var(--runtime-accent); font-size: 11px; padding-block: 3px; }
+.tipsy-runtime-error-details pre { margin: 8px 0 0; padding: 12px; background: var(--runtime-soft); border-radius: 8px; color: var(--runtime-text); font: 11px/1.7 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.tipsy-runtime-diagnostics [data-state=error] .tipsy-runtime-row-icon, .tipsy-runtime-diagnostics [data-state=error] .tipsy-runtime-row-label, .tipsy-runtime-diagnostics[data-state=error] .tipsy-runtime-diagnostic-total { color: #af3d46; }
+.tipsy-runtime-diagnostics [data-state=warning] .tipsy-runtime-row-icon, .tipsy-runtime-diagnostics [data-state=warning] .tipsy-runtime-row-label, .tipsy-runtime-diagnostics[data-state=warning] .tipsy-runtime-diagnostic-total { color: #8b601b; }
+:root[data-color-scheme=dark] .tipsy-runtime-diagnostics [data-state=error] .tipsy-runtime-row-icon, :root[data-color-scheme=dark] .tipsy-runtime-diagnostics [data-state=error] .tipsy-runtime-row-label, :root[data-color-scheme=dark] .tipsy-runtime-diagnostics[data-state=error] .tipsy-runtime-diagnostic-total { color: #ee939c; }
+:root[data-color-scheme=dark] .tipsy-runtime-diagnostics [data-state=warning] .tipsy-runtime-row-icon, :root[data-color-scheme=dark] .tipsy-runtime-diagnostics [data-state=warning] .tipsy-runtime-row-label, :root[data-color-scheme=dark] .tipsy-runtime-diagnostics[data-state=warning] .tipsy-runtime-diagnostic-total { color: #e5c184; }
+@keyframes tipsy-story-arrival { from { transform: translate(0, 0); } to { transform: translate(12px, -4px); } }
+@media (max-width: 600px) {
+    .tipsy-runtime-loading { width: calc(100% - 32px); margin-top: 24px; }
+    .tipsy-runtime-loading-main { padding: 20px 16px; gap: 14px; }
+    .tipsy-runtime-loading-art { flex-basis: 72px; height: 72px; }
+    .tipsy-runtime-loading-art img { width: 64px; height: 64px; }
+    .tipsy-runtime-loading-copy h3 { font-size: 15px; }
+    .tipsy-runtime-loading-details { padding-inline: 14px; }
+    .tipsy-runtime-loading-details > summary { min-height: 44px; }
+    .tipsy-runtime-diagnostics { width: calc(100% - 32px); }
+    .tipsy-runtime-diagnostics > summary { gap: 8px; padding: 12px; flex-wrap: wrap; }
+    .tipsy-runtime-diagnostic-heading { min-width: 100px; }
+    .tipsy-runtime-diagnostic-note { padding-inline: 14px; }
+    .compat-diagnostic-items { padding-inline: 14px; }
+    .tipsy-runtime-error-details > summary { padding-block: 9px; }
+}
+@media (prefers-reduced-motion: reduce) { .tipsy-runtime-loading-art img { animation: none; } .tipsy-runtime-ui summary svg { transition: none; } }

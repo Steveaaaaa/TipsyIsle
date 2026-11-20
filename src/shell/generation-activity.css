@@ -1,0 +1,27 @@
+.tipsy-generation-activity { display: flex; align-items: center; gap: 12px; min-height: 38px; color: var(--reader-muted, var(--ti-text-muted)); font: 12px/1.6 var(--ti-font-ui, system-ui); --activity-accent: var(--reader-accent, var(--ti-accent)); }
+.tipsy-generation-activity[hidden] { display: none; }
+.tipsy-generation-description { min-width: 0; overflow-wrap: anywhere; }
+.tipsy-generation-description small { display: block; margin-top: 4px; font: inherit; }
+.tipsy-generation-description small[hidden], .tipsy-generation-description details[hidden] { display: none; }
+.tipsy-generation-description details { margin-top: 8px; }
+.tipsy-generation-description summary { cursor: pointer; }
+.tipsy-generation-description pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow-y: auto; }
+.tipsy-generation-activity[data-phase=error] .tipsy-generation-copy { color: var(--ti-text-primary); font-weight: 600; }
+.tipsy-generation-activity:is([data-phase=error], [data-phase=stopped]) .tipsy-generation-sprite { animation: none; left: 16px; width: 40px; height: 38px; bottom: 0; }
+.tipsy-generation-activity:is([data-phase=error], [data-phase=stopped]) .tipsy-generation-art::after { display: none; }
+.tipsy-generation-art { position: relative; width: 78px; height: 38px; flex-shrink: 0; overflow: hidden; color: var(--activity-accent); }
+.tipsy-generation-art::after { content: ''; position: absolute; height: 1px; left: 2px; right: 4px; bottom: 2px; background: currentColor; opacity: .22; }
+.tipsy-generation-sprite { position: absolute; width: 34px; height: 34px; object-fit: contain; image-rendering: pixelated; bottom: 3px; left: 5px; animation: tipsy-activity-drift 4.8s ease-in-out infinite alternate; animation-play-state: paused; }
+.tipsy-generation-art svg { position: absolute; right: 6px; top: 5px; width: 16px; height: 16px; opacity: .7; }
+.tipsy-generation-activity.is-visible .tipsy-generation-sprite { animation-play-state: running; }
+.tipsy-generation-activity[data-phase=thinking] { --activity-accent: #8b79ab; }
+.tipsy-generation-activity[data-phase=thinking] .tipsy-generation-sprite { animation-name: tipsy-activity-hover; animation-duration: 3.2s; }
+.tipsy-generation-activity[data-phase=writing] { --activity-accent: #8e7654; }
+.tipsy-generation-activity[data-phase=writing] .tipsy-generation-sprite { animation-duration: 3.6s; }
+.tipsy-generation-activity[data-phase=layout] { --activity-accent: #5e897a; }
+.tipsy-generation-activity[data-phase=layout] .tipsy-generation-sprite { animation-name: tipsy-activity-hover; animation-duration: 2.4s; }
+.tipsy-generation-activity[data-phase=page] .tipsy-generation-art::after { height: 26px; width: 52px; left: 8px; bottom: 0; background: transparent; border: 1px solid currentColor; border-bottom: 0; border-radius: 12px 12px 0 0; }
+.ttm-composer > .tipsy-generation-activity { padding: 3px 6px 6px; }
+@keyframes tipsy-activity-drift { to { transform: translate(22px, -2px); } }
+@keyframes tipsy-activity-hover { to { transform: translate(5px, -4px); } }
+@media (prefers-reduced-motion: reduce) { .tipsy-generation-sprite { animation: none; } }

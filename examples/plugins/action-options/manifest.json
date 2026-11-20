@@ -1,0 +1,14 @@
+{
+  "$schema": "../../../packages/plugin-sdk/manifest.schema.json",
+  "manifestVersion": 1,
+  "id": "dev.tipsy-isle.action-options",
+  "name": "行动选项",
+  "publisher": "微醺屿示例",
+  "version": "1.0.0",
+  "hostApi": "^1.0.0",
+  "description": "从角色回复里提取行动选项，点选后填入输入框。改选时会替换原来的草稿，发送仍由你决定。",
+  "storageVersion": 1,
+  "permissions": ["story.read", "ui.panel", "composer.draft", "storage.reply"],
+  "entrypoints": { "main": "main.js" },
+  "commands": [{ "id": "choose", "label": "行动选项", "location": "message", "role": "assistant", "latestOnly": true }]
+}

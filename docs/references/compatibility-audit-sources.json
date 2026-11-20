@@ -1,0 +1,1157 @@
+{
+  "date": "2026-11-15",
+  "sources": [
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/audio.d.ts",
+      "file": "helper--types-function-audio-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:19.555Z",
+      "sha256": "02c7ace1acbb1949037aca6f2156e4f109212dd6b9642a63d06934316b24c908"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/builtin.d.ts",
+      "file": "helper--types-function-builtin-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:45.784Z",
+      "sha256": "cc2d1006b92c6ab07266ea38271f5355a07195cb68417243446a30194aa73a8d"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/character.d.ts",
+      "file": "helper--types-function-character-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:20.635Z",
+      "sha256": "5ce1ab959d6b77e084f3b3c39aba412e1d1209adc9286a13dd2bc86ab7eb3654"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/chat_message.d.ts",
+      "file": "helper--types-function-chat-message-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:19.488Z",
+      "sha256": "302930d6cc697321d0e1514d096dcd272a465fbc418f2190b41ddcffafc19327"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/displayed_message.d.ts",
+      "file": "helper--types-function-displayed-message-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:19.75Z",
+      "sha256": "fec1e5463e931e788c787d2a7263e24570ae42429ba04f4648779afe9a161bb1"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/extension.d.ts",
+      "file": "helper--types-function-extension-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:45.793Z",
+      "sha256": "8f465ba49481eec9786526e90c58321d7e4ae813b9732a77b64e51e64274593c"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/file.d.ts",
+      "file": "helper--types-function-file-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:20.015Z",
+      "sha256": "386d747e0ce643e74dc7af7d62ef6a4ef4895f496e7160fdb2367b89c4e97681"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/generate.d.ts",
+      "file": "helper--types-function-generate-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:20.412Z",
+      "sha256": "cdc46ae5ee4aafc37c97382bcbdcc867cb6db52a080fa99fa10e8400e1480a09"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/global.d.ts",
+      "file": "helper--types-function-global-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:20.739Z",
+      "sha256": "d80f189038ab1aba7385764f629760fe7c7c8f0436024f06cbb52c39c2daabdd"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/import_raw.d.ts",
+      "file": "helper--types-function-import-raw-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:21.03Z",
+      "sha256": "436bd0f69cc9f1633389172fed30258eb402c9a9af45eef12411a2aa4cbffaa9"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/index.d.ts",
+      "file": "helper--types-function-index-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:21.003Z",
+      "sha256": "76f9f6ab0a965f7947c3178965d3ba716f97362400bd48841d6260e4405c7bda"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/inject.d.ts",
+      "file": "helper--types-function-inject-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:21.256Z",
+      "sha256": "315bbd3329cea8fe269e1d396948bd98f5c916787d9bd8c4f8cd0359015d71b0"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/lorebook.d.ts",
+      "file": "helper--types-function-lorebook-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:21.414Z",
+      "sha256": "da35836080d2d95a63b7217f9c2550d29e843ec33012953a0fc3b296799c7883"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/lorebook_entry.d.ts",
+      "file": "helper--types-function-lorebook-entry-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:21.513Z",
+      "sha256": "e47a25ec0daa12124ef6304ee49f93ab23353673295c5da046a9aa1c0538555d"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/macro_like.d.ts",
+      "file": "helper--types-function-macro-like-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:21.774Z",
+      "sha256": "0b9bd09646f2e2692f51dbfdd9eade9c0efbb10f092d86de5ed681a1972eda0b"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/persona.d.ts",
+      "file": "helper--types-function-persona-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:21.854Z",
+      "sha256": "edcc00eff62629c2029a2d618ef5b3550939d3aad4fd16a231e51951304dfa26"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/preset.d.ts",
+      "file": "helper--types-function-preset-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:22.793Z",
+      "sha256": "442ee5198e2135ad4fb3e689fbeeac1458f6c813dfc8a60e3d1e00157e0a5ea5"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/raw_character.d.ts",
+      "file": "helper--types-function-raw-character-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:22.125Z",
+      "sha256": "0a0d9923bf01a52f57475588d5d50ac3a8343ef23bb39ab05b0416b7313ca1b0"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/script.d.ts",
+      "file": "helper--types-function-script-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:22.381Z",
+      "sha256": "85212926bc42224ae82ffca2dd86063cdc351863b3ae2e18ef407026e9b263d9"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/slash.d.ts",
+      "file": "helper--types-function-slash-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:22.639Z",
+      "sha256": "773543ca4ac5e231e7ba8dc1d22c779f980755bf57601b946369b63a718c4285"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/tavern_regex.d.ts",
+      "file": "helper--types-function-tavern-regex-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:22.909Z",
+      "sha256": "dbc165d9ff73feb12abd5868f7dc7b42be9b865267be3014b429b97e3ed84673"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/util.d.ts",
+      "file": "helper--types-function-util-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:23.448Z",
+      "sha256": "12ad465ff717f86b259bb49cf32cc915fa938b3f632a980192edbea19419fd2b"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/variables.d.ts",
+      "file": "helper--types-function-variables-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:23.167Z",
+      "sha256": "45bc282ef55a070edcd6d659313f609fe38dae0650897c2fcf9243b00041ce1b"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/version.d.ts",
+      "file": "helper--types-function-version-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:23.434Z",
+      "sha256": "f512d3d436b96ccd1b17a4c67e6ac2912cd4b1121d8a9ce02315b9593667e0b7"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/function/worldbook.d.ts",
+      "file": "helper--types-function-worldbook-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:24.045Z",
+      "sha256": "81f4ffd6127c82e70d4694896f0fd31c59ff49a084bfe41e76ac649dcaf27cd9"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/iframe/event.d.ts",
+      "file": "helper--types-iframe-event-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:24.015Z",
+      "sha256": "33deb24c14916ff0958898b7890ab69bd584d33261297dc0a57448011760cd8e"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/iframe/exported.ejstemplate.d.ts",
+      "file": "helper--types-iframe-exported-ejstemplate-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:24.395Z",
+      "sha256": "55dc38589c2a01a01e162411af321c536d6cd142a18ce3ffb207d699d14fabe8"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/iframe/exported.mvu.d.ts",
+      "file": "helper--types-iframe-exported-mvu-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:26.265Z",
+      "sha256": "3590b3a1d74b1e021a1bc54953b66284c4c860918ec98c8418a54cac8069ef16"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/iframe/exported.sillytavern.d.ts",
+      "file": "helper--types-iframe-exported-sillytavern-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:25.611Z",
+      "sha256": "eae4ed517b5ff493afca4581e191b212020088ad12577d699297efd0eb5ab0bb"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/iframe/exported.tavernhelper.d.ts",
+      "file": "helper--types-iframe-exported-tavernhelper-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:25.984Z",
+      "sha256": "3ce05ebcbedee09da964156f506ac1191fa1477b7e07b876b705aa58891e69a3"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/iframe/script.d.ts",
+      "file": "helper--types-iframe-script-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:26.397Z",
+      "sha256": "b3eefce598b3eefe03aa598e2d76b97922b058a3551a8fdd37265743fc8e9f11"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/iframe/util.d.ts",
+      "file": "helper--types-iframe-util-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:26.538Z",
+      "sha256": "57939734be3b0728bf502f0c6713727920391dfa3c3f7ad834dc8ee8a2523ab0"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "@types/iframe/variables.d.ts",
+      "file": "helper--types-iframe-variables-d-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:26.766Z",
+      "sha256": "b85166d18310f84d6fcd68ff5a9957170a53d655a507e97587a15f79d720c902"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/inject.ts",
+      "file": "template-src-function-inject-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:27.217Z",
+      "sha256": "04dca525b16ce33c393b9e349aee3c37e0ded48206a8eecc069ab93e819cb9de"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/features/inject-prompt.ts",
+      "file": "template-src-features-inject-prompt-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:27.385Z",
+      "sha256": "624eb5319f2c337d4043a126be3cbc624f2f3f1a85f506fa712a5863b9490810"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/chat.ts",
+      "file": "template-src-function-chat-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:27.538Z",
+      "sha256": "60878de4f427e1f0fa84691a852a10896e10691ae47d866541b3de09b82000ad"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/characters.ts",
+      "file": "template-src-function-characters-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:28.094Z",
+      "sha256": "409b462a34873947c5b9f26fec078abd42c18b16c4b98491d014878b2359f0f7"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/presets.ts",
+      "file": "template-src-function-presets-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:27.814Z",
+      "sha256": "7361c778624d804828149917ded49c74908dba32e9bbb4c9fe5a214499b71ca2"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/regex.ts",
+      "file": "template-src-function-regex-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:28.078Z",
+      "sha256": "1737ae865488dd20194a6e061e738d1d71e64cb6c777dd8d13af97bcb3bd3e42"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/json-patch.ts",
+      "file": "template-src-function-json-patch-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:28.428Z",
+      "sha256": "bad188c6e8b62869155c3eadb48a4eb05110c5b258766a2bf5e5c6a1f45a96d9"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/modules/ui.ts",
+      "file": "template-src-modules-ui-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:28.671Z",
+      "sha256": "5495051152dd427d134991e62c2032b6fca02d11c0c9d7c3a7b7ad7ff37abce1"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/utils/iframe.ts",
+      "file": "template-src-utils-iframe-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:22:28.767Z",
+      "sha256": "425b59b172b921fe7d1f3db93b05e91c5462df9d7630dfa4e5a7d9e5f0ef8796"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "LICENSE",
+      "file": "helper-LICENSE.reference.txt",
+      "fetchedAt": "2026-11-15T15:49:03.895Z",
+      "sha256": "ffcca38841adb694b6f380647e15f17c446a4d1656fed51a1e2041d064c94cc8"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "package.json",
+      "file": "helper-package-json.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:45.78Z",
+      "sha256": "c8a4dc370fe71fe8c41a2fb64a5670e6d7163603fbe38bcc9ea8555eee27deea"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/audio.ts",
+      "file": "helper-src-function-audio-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:49:03.887Z",
+      "sha256": "7ea7f194e0c0152f7d2aee29bc82a37b763a35dbe0d2e9decb255a2f80996dfd"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/builtin.ts",
+      "file": "helper-src-function-builtin-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:46.882Z",
+      "sha256": "d9ab4112fedbd621abada2ba2abb7311753f6332e39510da206da3b292608432"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/character.ts",
+      "file": "helper-src-function-character-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:48.453Z",
+      "sha256": "7ee892a63f57b700c23a0eeea3b2a3bd81a0bedf3720f73839d6e32f36b355ea"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/chat_message.ts",
+      "file": "helper-src-function-chat-message-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:47.636Z",
+      "sha256": "7400499e36f664a55fe5a2a55cc77cda49c968ea5af982f6ed28e1001d6ef43f"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/displayed_message.ts",
+      "file": "helper-src-function-displayed-message-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:48.6Z",
+      "sha256": "31802565e713beabab49bbc3c77f8cbf499ea7eedbd2cc5c40d79d2f54d6e187"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/event.ts",
+      "file": "helper-src-function-event-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:49.032Z",
+      "sha256": "6cb7e53132d6bb705f74d19133a923813e24b3851ea884ca7770247e30327fd5"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/extension.ts",
+      "file": "helper-src-function-extension-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:49.178Z",
+      "sha256": "98ab39a0ed9955f86c78d08d3826ec212e00916c1e90260834f87b6787867048"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/file.ts",
+      "file": "helper-src-function-file-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:49.409Z",
+      "sha256": "8a87921a406ff380880ae3856299f6fe3469e6e7086789e6f2bcbc361f539797"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/generate/createGenerationParametersCompat.ts",
+      "file": "helper-src-function-generate-createGenerationParametersCompat-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:49.794Z",
+      "sha256": "31ec72ee62332871095ca63cc04f062298e2247676b14fa543a15c987f614249"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/generate/dataProcessor.ts",
+      "file": "helper-src-function-generate-dataProcessor-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:49.974Z",
+      "sha256": "b55f1ef897cfa024601454f865fad77e99f0e10ed24c4b201465ae9fbd8a0dfe"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/generate/generate.ts",
+      "file": "helper-src-function-generate-generate-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:50.171Z",
+      "sha256": "bcfb14c6dea0dc4e525f72c6d82300b2fd10420ac06338534d427d3e52c1f6fa"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/generate/generateRaw.ts",
+      "file": "helper-src-function-generate-generateRaw-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:50.509Z",
+      "sha256": "b35bb3ea8c07eb98daa91f94cba3fb33e00ec4227a5b0e327a0775587144b3d3"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/generate/index.ts",
+      "file": "helper-src-function-generate-index-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:50.877Z",
+      "sha256": "3810e6c1c2eb0396672b78733f5be86769aaebb8abd85ca9fe08df389a446efb"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/generate/inputProcessor.ts",
+      "file": "helper-src-function-generate-inputProcessor-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:50.888Z",
+      "sha256": "db994f43c5672c6264bd6da4ebc72d0533d9fcdab6ea54d3d0611cc44a997b7a"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/generate/responseGenerator.ts",
+      "file": "helper-src-function-generate-responseGenerator-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:51.501Z",
+      "sha256": "be4056e874afccc4374b9d14d6f48fae3e2810c276258c00d5d24cdb8c7c3f63"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/generate/toolCallCompat.ts",
+      "file": "helper-src-function-generate-toolCallCompat-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:51.989Z",
+      "sha256": "e7ea136488b9d1dd5f05e8d87362b9369e46e75309024757bcdf3a283e070082"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/generate/types.ts",
+      "file": "helper-src-function-generate-types-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:52.101Z",
+      "sha256": "7635093fba551b047421ec2b8872b633ac732f0bcd9232974213ce3679fe8a3d"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/generate/utils.ts",
+      "file": "helper-src-function-generate-utils-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:52.565Z",
+      "sha256": "9aace591938c207d8c3e81a5619ed39ccc6a1d53a1d3e84190243ca6c69ca3ff"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/global.ts",
+      "file": "helper-src-function-global-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:53.057Z",
+      "sha256": "acbf1da9d416df94763ee727d35b488516626fa5f1be17f481746a1e18441270"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/import_raw.ts",
+      "file": "helper-src-function-import-raw-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:52.93Z",
+      "sha256": "fc35a19f9ab683fc76b7fb52fd3732a0f1dd7b31e7f5638e6b3b33dbafa6f5ee"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/index.ts",
+      "file": "helper-src-function-index-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:53.357Z",
+      "sha256": "823ec7094116757c3df6e2165d69fbf1e02eaae77efd3a52ced8adc6bc80d5d5"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/inject.ts",
+      "file": "helper-src-function-inject-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:53.455Z",
+      "sha256": "9a988fbd25c086beaf995005b60f1a123f6afc9a2da7b1237ea7185cbfc0d500"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/lorebook.ts",
+      "file": "helper-src-function-lorebook-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:54.886Z",
+      "sha256": "56a9210cd77e847f9f25eafa768286cdc859e44284f070924afd8de534cd2dd1"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/lorebook_entry.ts",
+      "file": "helper-src-function-lorebook-entry-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:54.357Z",
+      "sha256": "dd533685c071d0d931bc0d848554db70db2b25cee0288a1ab9990c29c0ffced4"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/macro_like.ts",
+      "file": "helper-src-function-macro-like-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:54.78Z",
+      "sha256": "b8e1b150b1f34520f4e597cb64c4695a9bfbd9cbd9a20d23a00176d03490971f"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/persona.ts",
+      "file": "helper-src-function-persona-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:55.352Z",
+      "sha256": "147312ed468c8730e8ba0ad77d453d1d56b3f6fe65f4f0be0d5f3cc982e93bef"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/preset.ts",
+      "file": "helper-src-function-preset-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:55.683Z",
+      "sha256": "cb87f8af8c3c9cbe65c7fd71721f2e9c68af42a1f079f62c18d67d24f9b3bd85"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/raw_character.ts",
+      "file": "helper-src-function-raw-character-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:55.946Z",
+      "sha256": "959edfd7700108be4e3f69349a1542bb4754c06678e74679b6e0b90233221c35"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/script.ts",
+      "file": "helper-src-function-script-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:56.097Z",
+      "sha256": "289704ccd78017c7f2c03a2c8f25822e8f8c92ec687ee91ef06603aba22de59f"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/slash.ts",
+      "file": "helper-src-function-slash-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:56.916Z",
+      "sha256": "eb389bdb1ed4b7f8e57f86b66c577cdc1657c9b7234e70223e506ce5ca633c94"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/tavern_regex.ts",
+      "file": "helper-src-function-tavern-regex-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:56.574Z",
+      "sha256": "7e33494b2d59ac1a1271ad700082e9f6f8eddd7402d8c2d634d3b4737b067f79"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/util.ts",
+      "file": "helper-src-function-util-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:56.98Z",
+      "sha256": "028b46f2d138d383f40a9ec409d9c631244b7a19d65649703a30829372fc4ca6"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/variables.ts",
+      "file": "helper-src-function-variables-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:57.914Z",
+      "sha256": "4bb8008e68a6ff7c9e21a6e5e4fc7d08157593c82f562c855e4e3d416fd3c2a4"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/version.ts",
+      "file": "helper-src-function-version-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:57.388Z",
+      "sha256": "a5b0ed51aad84ff70010547d3ee60bcbd1b5e79553a88327172f1d2c43d287b5"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/function/worldbook.ts",
+      "file": "helper-src-function-worldbook-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:57.863Z",
+      "sha256": "349b88a3391fc91ecb6d56386df39eb4e11af4e27d0b333aed88f07973ea19f9"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/iframe/script_url.ts",
+      "file": "helper-src-iframe-script-url-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:58.245Z",
+      "sha256": "a24e59ab7cbcc088a8e270ace35a5dc4181eca6328abafc0a82b7ff46a0b89d2"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/type/backward.ts",
+      "file": "helper-src-type-backward-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:58.519Z",
+      "sha256": "5c536bb76fc2e92e3c0bbd8bc6b289c57d035d62948badee56117887a8990570"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/type/scripts.ts",
+      "file": "helper-src-type-scripts-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:58.642Z",
+      "sha256": "ccdd9732be63910862c97cc83a447fb840547f2c900f7588cf6757591134eceb"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/type/settings.ts",
+      "file": "helper-src-type-settings-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:58.959Z",
+      "sha256": "3822d6d980461606426c68f865c421170fb053ecf498655570e188ab1dd06057"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "LICENSE",
+      "file": "template-LICENSE.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:59.396Z",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "package.json",
+      "file": "template-package-json.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:59.359Z",
+      "sha256": "8c859650ab3d22a8e31af557c9a12c3196ab4413e6632c26133aa6548e0c3d00"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/features/initial-variables.ts",
+      "file": "template-src-features-initial-variables-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:25:59.757Z",
+      "sha256": "49696b7a25f564bc48e061535e2b83e602e70b1d5b56e18afbb922163322c3bc"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/ejs.ts",
+      "file": "template-src-function-ejs-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:00.736Z",
+      "sha256": "a5b1e8e45687fb53d128cdf817fe098d73e40b1a3d20d60f4fdc2c08f1aee69f"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/faker.ts",
+      "file": "template-src-function-faker-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:00.108Z",
+      "sha256": "bf6af5a8aa53f3ecaa0a8b6b2f17826ed867b2f68a2f3fe3b1e3fcc5fca93bb3"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/hasher.ts",
+      "file": "template-src-function-hasher-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:00.741Z",
+      "sha256": "90f4ad3419eb3156a3d3a4260b3d66556401190b994b64a2e09af73b5359cea5"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/quickreply.ts",
+      "file": "template-src-function-quickreply-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:01.115Z",
+      "sha256": "de43a137bb44457719960e90cc356b22027c83b63a742dc77103a0df283c05f0"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/variables.ts",
+      "file": "template-src-function-variables-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:01.315Z",
+      "sha256": "0c0f671975195fefee6dcebce19fd59a2c36528fd7ab52419490b2c259d0db1c"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/function/worldinfo.ts",
+      "file": "template-src-function-worldinfo-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:01.77Z",
+      "sha256": "7681354d011b16c5bfaab01bba212651dfd42edcf1fd85b3aea089d03f8ea02f"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/modules/code-editor.ts",
+      "file": "template-src-modules-code-editor-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:02.939Z",
+      "sha256": "1dbcd30049227a907805cb21a210adbd3d12fcd4a66a735d7b0f917f702bfafd"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/modules/command.ts",
+      "file": "template-src-modules-command-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:02.938Z",
+      "sha256": "2ad6cf9b797d4d544508e123436a203bf915e1a79e94f7faef258d4a3fb83fc2"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/modules/defines.ts",
+      "file": "template-src-modules-defines-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:04.014Z",
+      "sha256": "c8add3c99d329e367ead229b27e7b43dce2a159bb78d111b298a2353e428e954"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/modules/exports.ts",
+      "file": "template-src-modules-exports-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:03.346Z",
+      "sha256": "65b78ff7831492ef0413e25669cdd1e469758e10dbd57aeeb0cc236185266476"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/modules/handler.ts",
+      "file": "template-src-modules-handler-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:03.947Z",
+      "sha256": "0694fe613f72f5796587cac1023ea0ce554c3e5c122be20a9850f84008b8d91a"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/utils/evaluate.ts",
+      "file": "template-src-utils-evaluate-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:04.377Z",
+      "sha256": "d381e132949fc1434e9680e5db85b82121dabc2a635b2b0fdcfe1ccd21158153"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/utils/prompts.ts",
+      "file": "template-src-utils-prompts-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:04.645Z",
+      "sha256": "a30fd85ddaed666b907a73814a43115718d8595a32e9a93f6408b8f259002720"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/utils/zodutl.ts",
+      "file": "template-src-utils-zodutl-ts.reference.txt",
+      "fetchedAt": "2026-11-15T15:26:04.867Z",
+      "sha256": "20bf4ef0320f81ca9cb9373d3b8d1369e6bdb089c8d8ee9b1fa1fb1aabaa6d6b"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "LICENSE",
+      "file": "mvu-LICENSE.reference.txt",
+      "fetchedAt": "2026-11-15T17:10:13.866Z",
+      "sha256": "47f7767a9980ac6664216671b531088a796df557a6bdffd23f4d8bac6af73c55"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "package.json",
+      "file": "mvu-package-json.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:18.901Z",
+      "sha256": "3f3f2b2b0e05570ded30c6fe8452a5553e9ad428aa31f4d8e881655fc9c0d68c"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/chat_lifecycle.ts",
+      "file": "mvu-src-function-chat-lifecycle-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:18.91Z",
+      "sha256": "63bcb26c9e835e003963143ff2b0e31e2f817076df5021c68552390905fa0621"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/exported_events.ts",
+      "file": "mvu-src-function-exported-events-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:18.822Z",
+      "sha256": "b7fa2a2a92643b894476c5ca8153a1a1178185fa505511a7b0a62f2c86023d9f"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/global/index.ts",
+      "file": "mvu-src-function-global-index-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:16:13.193Z",
+      "sha256": "536308d4fb2297cd5c949a4acbd7a8af5088e8e409710e9450b707efaefde8db"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/initvar/variable_init.ts",
+      "file": "mvu-src-function-initvar-variable-init-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:19.281Z",
+      "sha256": "d2b730788fc74723f9df29ebd02085cd142e1f7289c3b25fb85cbebab51470bf"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/schema.ts",
+      "file": "mvu-src-function-schema-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:19.88Z",
+      "sha256": "e4b17f6f3f682fdc0e6f996706fbe39eb75875471215dd1ea48e56f422d1ae84"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update/on_message_received.ts",
+      "file": "mvu-src-function-update-on-message-received-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:20.911Z",
+      "sha256": "7d727a1807eefda32346476665a5f21af4e5e8990f8141d375f7d71b03e083fc"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update/structured_update.ts",
+      "file": "mvu-src-function-update-structured-update-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:21.078Z",
+      "sha256": "b1f5cfb53174fee0cf2ab4678fc8a7d9f430b6b9636c413ab8e498a368ac36f0"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update_variables.ts",
+      "file": "mvu-src-function-update-variables-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:21.861Z",
+      "sha256": "4e2e9a51ba33ea6e19a6f604466da67130a9b9d16ac0515b46df6849940395a3"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/util.ts",
+      "file": "mvu-src-util-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:21.51Z",
+      "sha256": "35689f41f401478455eff417fa62fe4439aa1c6a6326b4fa3533a3633d8ade4b"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/util/regex.ts",
+      "file": "mvu-src-util-regex-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:21.894Z",
+      "sha256": "9cc825713872fd9bf132daa9984dfb128bca8514c5d97ddf9872c51f795a83ef"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/variable_def.ts",
+      "file": "mvu-src-variable-def-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:09:22.23Z",
+      "sha256": "8ba03ce3d02a2b21ff5af214f01823bbec88e6f2cc33cf831c34a53ecbf3b21e"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "util/common.ts",
+      "file": "mvu-util-common-ts.reference.txt",
+      "fetchedAt": "2026-11-15T17:38:37.25Z",
+      "sha256": "c9ef1ee81e1499e99b7943cba06e31f2f944e9bebbbd74dda8645b900cae7973"
+    },
+    {
+      "repo": "StageDog/tavern_resource",
+      "commit": "a796a5da2cc5993182d2ed44ddefac156e11af1c",
+      "path": "dist/util/mvu_zod.js",
+      "file": "mvu-zod-dist-util-mvu_zod-js.reference.txt",
+      "fetchedAt": "2026-11-15T17:32:31.9056944Z",
+      "sha256": "e540ab99589ad83de1495056a84693bda00af92f8848926bcb9a53b9263a0302"
+    },
+    {
+      "repo": "StageDog/tavern_resource",
+      "commit": "a796a5da2cc5993182d2ed44ddefac156e11af1c",
+      "path": "LICENSE",
+      "file": "mvu-zod-LICENSE.reference.txt",
+      "fetchedAt": "2026-11-15T17:32:31.9056944Z",
+      "sha256": "ffcca38841adb694b6f380647e15f17c446a4d1656fed51a1e2041d064c94cc8"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "src/3rdparty/vm-browserify.ts",
+      "file": "template-src-3rdparty-vm-browserify-ts.reference.txt",
+      "fetchedAt": "2026-11-15T18:09:29.565Z",
+      "sha256": "337ba335ec3f16368fc794b7dc7c33f1abf1537dee1c2d4af41bf83f55babdec"
+    },
+    {
+      "repo": "zonde306/ST-Prompt-Template",
+      "commit": "d6f520d149aba146305b0b781ddd691d449c28d2",
+      "path": "libs/faker.mjs",
+      "file": "template-libs-faker-mjs.reference.txt",
+      "fetchedAt": "2026-11-15T18:53:11.181Z",
+      "sha256": "e89e9d69ec8e237f5527eb1a8e860894df1b5b217836c2c34fd48a5d7e145000"
+    },
+    {
+      "repo": "N0VI028/JS-Slash-Runner",
+      "sha256": "e73d3a79dafc1d2c900fc044a6695eb8c0c81f23e9429c0d5a4d0a694e3fa828",
+      "file": "helper-src-util-tavern-ts.reference.txt",
+      "commit": "4b3ab7a5396369b15f4a1d9e5b2ced4aee84ec85",
+      "path": "src/util/tavern.ts"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "sha256": "d6454226f289bf237d9d218571850fc669044a6d36ffbcd0799d6abcf73bbe9c",
+      "file": "mvu-src-main-ts.reference.txt",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/main.ts"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "sha256": "b961cc743b39cbb04bf7d5c10470ee47e2753b1e14fb698c9cd0f1dc8263d1ad",
+      "file": "mvu-src-function-update-index-ts.reference.txt",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update/index.ts"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/store.ts",
+      "file": "mvu-src-store-ts.reference.txt",
+      "sha256": "74b8286b702b59a6bbf9d715e2836e3c1b016034b156339ad5f7213ea26b6189"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update/invoke_extra_model.ts",
+      "file": "mvu-src-function-update-invoke_extra_model-ts.reference.txt",
+      "sha256": "d34f4369470d515f1624cafaadbe28cf374e54b9f9cbc4bd8a9808b6b64d1402"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update/extra_model_preset.ts",
+      "file": "mvu-src-function-update-extra_model_preset-ts.reference.txt",
+      "sha256": "cd7c27e061b4566f0db8f7ea76fabd669b8b65ed2b654dbca6aab9c921d52e08"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update/extra_model_api_profiles.ts",
+      "file": "mvu-src-function-update-extra_model_api_profiles-ts.reference.txt",
+      "sha256": "3bbece79512affb776ad43fa827935dad8e928082d2e7d6b458c88b30c96ebaf"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/is_extra_model_supported.ts",
+      "file": "mvu-src-function-is_extra_model_supported-ts.reference.txt",
+      "sha256": "b54bf58da10220cd2ca36bd3350a899eb83a6932f6b06ab87eb3d72cdd099efa"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/button.ts",
+      "file": "mvu-src-button-ts.reference.txt",
+      "sha256": "5c7a2f6217ef54cd8b0f076b9a23d9d3e3f8e86b880f8b76efac3b690a8add19"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/prompts/extra_model_task.txt",
+      "file": "mvu-src-prompts-extra_model_task-txt.reference.txt",
+      "sha256": "29196eea4834f3f9f719736650a1362d8ab9078d69270d6c41bd9f530c74a8df"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/request/worldinfo_request.ts",
+      "file": "mvu-src-function-request-worldinfo_request-ts.reference.txt",
+      "sha256": "fad0d5d6a8a3da616a734422a7bd1ad2e619cb2fc553d4cb38588b7da9171b61"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/request/worldinfo_scan.ts",
+      "file": "mvu-src-function-request-worldinfo_scan-ts.reference.txt",
+      "sha256": "d3e1d6c14701b99e9b622a024ca108b0f9745db716fe1603fa0b3955162f5110"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/request/filter_entries.ts",
+      "file": "mvu-src-function-request-filter_entries-ts.reference.txt",
+      "sha256": "51fe3a45477771380fa4aa592bac485869373c83615eb8e1d8014e8940fb3d23"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/character_override/index.ts",
+      "file": "mvu-src-function-character_override-index-ts.reference.txt",
+      "sha256": "71cbe6ba27650937497484197dd56c3045e02af107bc72114407e0d19016be89"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/character_override/schema.ts",
+      "file": "mvu-src-function-character_override-schema-ts.reference.txt",
+      "sha256": "14f292337d87d0f310f11273c6e52f6b3d0339d3681abdc54cb4f332449f7ec5"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update/incremental_repair.ts",
+      "file": "mvu-src-function-update-incremental_repair-ts.reference.txt",
+      "sha256": "fb88012a7b0b5cdb026bd9aba61f28c46d9bd13a37ff0ea57c6b91582d2b2914"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/request/entry_comment_regex.ts",
+      "file": "mvu-src-function-request-entry_comment_regex-ts.reference.txt",
+      "sha256": "2fdf23bafc294310df722b156c5c61daddee960f1e8d1f62f79f8c0281405e15"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/prompts/claude_head.txt",
+      "file": "mvu-src-prompts-claude_head-txt.reference.txt",
+      "fetchedAt": "2026-11-16T06:35:38.774734+00:00",
+      "sha256": "f603fe2ee75cf84c1c284bb6571e986e3c8173cbf24296cb31df33c337c5c88f"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/prompts/claude_tail.txt",
+      "file": "mvu-src-prompts-claude_tail-txt.reference.txt",
+      "fetchedAt": "2026-11-16T06:35:38.775733+00:00",
+      "sha256": "d5759f9978af90dce2e124794f758d8052c44050b583391841d41ccdff10178f"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/prompts/gemini_head.txt",
+      "file": "mvu-src-prompts-gemini_head-txt.reference.txt",
+      "fetchedAt": "2026-11-16T06:35:38.775733+00:00",
+      "sha256": "c99e4060a99cd4a00a16c78bd2216aa61dd7a323b9ecf4bb970d6c7a798291f4"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/prompts/gemini_tail.txt",
+      "file": "mvu-src-prompts-gemini_tail-txt.reference.txt",
+      "fetchedAt": "2026-11-16T06:35:38.775733+00:00",
+      "sha256": "b004c484eb10e8b364bab1029e49e3661da9cf8ecf35472199cefd1e2b8bc634"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/cleanup/index.ts",
+      "file": "mvu-src-function-cleanup-index-ts.reference.txt",
+      "fetchedAt": "2026-11-16T07:25:28.200Z",
+      "sha256": "51c99a53d45351e522e7ac48abe229f5f659870ce73f9d0d75c980c118ba2813"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/cleanup/cleanup_variables.ts",
+      "file": "mvu-src-function-cleanup-cleanup-variables-ts.reference.txt",
+      "fetchedAt": "2026-11-16T07:25:27.658Z",
+      "sha256": "c8f3f06a31c4847a0cb863d7c1c48eb4ac1d5dfb10302999fbc0818df4648fcc"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/cleanup/restore_variables.ts",
+      "file": "mvu-src-function-cleanup-restore-variables-ts.reference.txt",
+      "fetchedAt": "2026-11-16T07:27:15.249Z",
+      "sha256": "95c6c85539d21611383801610ffe51d394b500e0c9b77cec561755991d8e4dd9"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/cleanup/chat_variables.ts",
+      "file": "mvu-src-function-cleanup-chat-variables-ts.reference.txt",
+      "fetchedAt": "2026-11-16T07:25:27.810Z",
+      "sha256": "497c083e28f04653b6d02e1e070a413d1cfd8546e3d727b31263d19b14c2c6f3"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update/pi/non_streaming_fetch.ts",
+      "file": "mvu-src-function-update-pi-non-streaming-fetch-ts.reference.txt",
+      "fetchedAt": "2026-11-16T07:25:28.056Z",
+      "sha256": "586119a91c39419a33f6dee0212c8a6bdb2dacc4f47be7bcf608bfb71d60e3a1"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update/pi/payload.ts",
+      "file": "mvu-src-function-update-pi-payload-ts.reference.txt",
+      "fetchedAt": "2026-11-16T07:25:28.177Z",
+      "sha256": "2edc802bb378c273f6004b2fd91ff5dd5bca87a5464a6f09e275b667f25bf407"
+    },
+    {
+      "repo": "MagicalAstrogy/MagVarUpdate",
+      "commit": "d03b7dc8a6ebf9bd611c7e2dc91f3b35462deebc",
+      "path": "src/function/update/pi/tool_choice.ts",
+      "file": "mvu-src-function-update-pi-tool-choice-ts.reference.txt",
+      "fetchedAt": "2026-11-16T07:25:28.452Z",
+      "sha256": "6800761565a485a33d4c3a3575997f91a70e749e80d4dafee982acdd06af88e4"
+    }
+  ],
+  "failures": []
+}

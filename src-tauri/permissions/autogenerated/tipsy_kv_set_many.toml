@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-tipsy-kv-set-many"
+description = "Enables the tipsy_kv_set_many command without any pre-configured scope."
+commands.allow = ["tipsy_kv_set_many"]
+
+[[permission]]
+identifier = "deny-tipsy-kv-set-many"
+description = "Denies the tipsy_kv_set_many command without any pre-configured scope."
+commands.deny = ["tipsy_kv_set_many"]

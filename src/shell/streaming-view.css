@@ -1,0 +1,21 @@
+.tipsy-stream-parts { min-width: 0; }
+.tipsy-stream-parts .tipsy-reader-prose { padding-bottom: 12px; }
+.tipsy-stream-slot { position: relative; min-width: 0; margin: 12px 28px; overflow: hidden; border-radius: 8px; background: var(--reader-surface, var(--ti-bg-surface)); }
+.tipsy-stream-wait { height: 100%; min-height: 64px; display: grid; place-content: center; color: var(--reader-muted, var(--ti-text-muted)); background: color-mix(in srgb, currentColor 4%, transparent); }
+.tipsy-stream-label { font: 12px/1.6 system-ui, sans-serif; text-align: center; padding: 12px; margin: 0; }
+.tipsy-stream-track { height: 40px; margin-inline: 20px; width: 220px; max-width: calc(100% - 40px); justify-self: center; position: relative; overflow: hidden; }
+.tipsy-stream-traveler { width: 32px; height: 32px; border-bottom: 2px solid var(--reader-accent, var(--ti-accent)); animation: tipsy-stream-travel 4s linear infinite alternate; animation-play-state: paused; position: absolute; bottom: 0; left: 0; }
+.tipsy-stream-traveler.has-art { border: 0; background: var(--tipsy-stream-sprite) center / contain no-repeat; image-rendering: pixelated; }
+.tipsy-stream-slot.is-visible .tipsy-stream-traveler { animation-play-state: running; }
+.tipsy-stream-slot.is-terminal .tipsy-stream-traveler { animation: none; left: calc(50% - 16px); }
+.tipsy-stream-static { display: block; width: 100%; border: 0; background: transparent; }
+.tipsy-stream-slot.is-ready { background: transparent; animation: tipsy-stream-reveal 160ms ease-out; }
+.tipsy-stream-reasoning { margin: 10px 28px; color: var(--reader-muted, var(--ti-text-muted)); font-size: 12px; }
+.tipsy-stream-reasoning summary { cursor: pointer; }
+.tipsy-stream-reasoning pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow-y: auto; }
+.tipsy-stream-status { margin: 0; padding: 14px 28px; color: var(--reader-muted, var(--ti-text-muted)); font: 12px/1.6 system-ui, sans-serif; }
+@keyframes tipsy-stream-travel { to { transform: translate(180px, -4px); } }
+@keyframes tipsy-stream-reveal { from { opacity: .25; } to { opacity: 1; } }
+@media (max-width: 600px) { .tipsy-stream-slot { margin-inline: 16px; } .tipsy-stream-status { padding-inline: 16px; } .tipsy-stream-reasoning { margin-inline: 16px; } }
+@media (prefers-reduced-motion: reduce) { .tipsy-stream-traveler, .tipsy-stream-slot.is-ready { animation: none; } }
+

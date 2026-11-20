@@ -1,0 +1,39 @@
+{
+  "identifier": "main",
+  "description": "App-owned UI only; imported author frames receive no native permissions.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "https://**"
+        },
+        {
+          "url": "http://**"
+        },
+        {
+          "url": "http://*:5192/hello"
+        },
+        {
+          "url": "http://*:5192/exchange"
+        }
+      ]
+    },
+    "core:app:allow-exit",
+    "allow-tipsy-kv-get",
+    "allow-tipsy-kv-set-many",
+    "allow-tipsy-runtime-info",
+    "allow-tipsy-gallery-write",
+    "allow-tipsy-gallery-remove",
+    "allow-tipsy-extension-files",
+    "allow-tipsy-lan-control"
+  ]
+}
