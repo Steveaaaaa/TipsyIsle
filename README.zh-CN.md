@@ -150,3 +150,7 @@ npm start
 **愿你去过万千世界，最终在这里靠岸。**
 
 感谢 SillyTavern 及 AIRP 社区长期积累的创作与探索。使用的第三方代码与许可见[第三方声明](docs/THIRD_PARTY_NOTICES.zh-CN.md)。
+
+## 许可证
+
+TipsyIsle 及其插件 SDK 采用 [Apache License 2.0](LICENSE) 许可证。第三方组件保留各自的许可证，详见[第三方声明](docs/THIRD_PARTY_NOTICES.zh-CN.md)。

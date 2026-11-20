@@ -150,3 +150,7 @@ Players: tell us what breaks your immersion and what makes you want to stay. Cre
 **Explore countless worlds. Find your harbor here.**
 
 With thanks to SillyTavern and the AIRP community for years of creativity and exploration. See [third-party notices](docs/THIRD_PARTY_NOTICES.md) for reused code and licenses.
+
+## License
+
+TipsyIsle and its plugin SDK are licensed under the [Apache License 2.0](LICENSE). Third-party components retain their respective licenses; see [third-party notices](docs/THIRD_PARTY_NOTICES.md).
