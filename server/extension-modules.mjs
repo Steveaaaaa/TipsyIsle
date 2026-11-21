@@ -23,7 +23,12 @@ export const extension_prompt_roles={SYSTEM:0,USER:1,ASSISTANT:2};
 export const substituteParams=(text)=>globalThis.substitudeMacros(text);
 export const substituteParamsExtended=(text)=>globalThis.substitudeMacros(text);
 export const generateQuietPrompt=(text)=>globalThis.generateRaw({user_input:text,should_silence:true});
+export const callPopup=(...args)=>context().callPopup(...args);
 ` ;
+    if (pathname === '/scripts/popup.js') return `
+const api=globalThis.__tipsyHostContext();
+export const { Popup, PopupUtils, POPUP_TYPE, POPUP_RESULT, callGenericPopup, getTopmostModalLayer, fixToastrForDialogs }=api;
+`;
     if (pathname === '/scripts/extensions.js') return `
 const context=()=>globalThis.__tipsyHostContext();
 export const getContext=context;

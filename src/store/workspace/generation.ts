@@ -1,4 +1,5 @@
 import { rollbackStateChanges } from '../state-rollback';
+import { diagnosticErrorKind, recordDiagnostic } from '../../core/diagnostics';
 import { NO_PRESET } from '../../core/empty-workspace';
 import { streamLlmCompletion, type CompletionResult } from '../../core/platform-bridge';
 import { StorySummaryChannel, summaryContentHash } from '../../pipeline/story-summary';
@@ -272,6 +273,7 @@ async function generateFreeReply(userText: string | undefined, regenerate: boole
         return content;
     } catch (error) {
         const stopped = controller.signal.aborted;
+        if (!stopped && !placeholder) recordDiagnostic('生成', '夜灯畅谈', '失败', { stage: '准备对话', code: diagnosticErrorKind(error) });
         if (placeholder) workspaceStore.setState(draft => {
             if (content) {
                 const reply = draft.messages.at(-1)!;
@@ -384,6 +386,7 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
         }
         ({ assembled, assemblyInput, nativeContributions } = await prepareStoryPrompt(prepared, generationType, controller));
     } catch (error) {
+        if (!controller.signal.aborted) recordDiagnostic('生成', '故事续写', '失败', { stage: '准备提示词与故事状态', code: diagnosticErrorKind(error) });
         generationNotificationMessage = undefined;
         if (originalLeaf) {
             workspaceStore.setState(draft => {
@@ -446,6 +449,7 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
     let replyBase: BranchState | undefined;
     let failed = false;
     let resultContent = '';
+    let stage = '准备回复节点';
     const summaryChannel = new StorySummaryChannel();
     try {
         if (prevNode) captureMessageSnapshot(prevNode.id);
@@ -461,10 +465,12 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
         captureMessageSnapshot(placeholderId);
         replyBase = readBranchState(workspaceStore.getState(), workspaceStore.getState().messages.find(node => node.id === placeholderId)!);
 
+        stage = '生成回复';
         const streamed = await streamStoryReply(controller, state, assembled, assemblyInput, nativeContributions, placeholderId, floor, summaryChannel,
             { apiSource, baseUrl, apiKey, model, schemaVals });
         controller.signal.throwIfAborted();
 
+        stage = '应用回复与分支状态';
         const firstContent = await settleStoryCandidates(streamed, summaryChannel, controller, state, card, assembled, placeholderId, floor, () => { firstCandidateSettled = true; });
         workspaceStore.setState(draft => {
             const target = draft.messages.find(message => message.id === placeholderId)!;
@@ -473,12 +479,14 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
         completed = true;
         resultContent = firstContent;
         generationNotificationMessage = placeholderId;
+        stage = '触发回复事件与渲染';
         await commandCompatibilityRuntime('settledMessageReceived', [floor]);
         await tavernEventBus.emit('message_received', workspaceStore.getState().messages.find(message => message.id === placeholderId));
         await refreshMessageTemplates(true);
         await commandCompatibilityRuntime('event', ['character_message_rendered', floor]);
         resultContent = workspaceStore.getState().messages.find(message => message.id === placeholderId)?.content ?? firstContent;
     } catch (err) {
+        if (!controller.signal.aborted) recordDiagnostic('生成', '故事续写', '失败', { stage, code: diagnosticErrorKind(err) });
         failed = true;
         const msg = err instanceof Error ? err.message : String(err);
         workspaceStore.setState((draft) => {

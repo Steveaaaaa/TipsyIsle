@@ -38,6 +38,7 @@ import { applyRegexScripts, orderedRegexScripts } from '../pipeline/macro-regex-
 import vueBrowserRuntimeUrl from 'vue/dist/vue.global.prod.js?url';
 import { defaultHelperPreset, systemPromptIds, placeholderPromptIds } from './preset-codec';
 import { normalizeScriptTrees, scriptsFromTrees, type ScriptScope } from './script-trees';
+import type { CompatibilityLoadReport } from './contracts';
 import { formatTemplateMarkdown } from '../pipeline/template-formatting';
 import { renderMessageMarkdown, renderMixedMessage } from '../pipeline/message-markdown';
 import { normalizeRegexScripts } from '../pipeline/normalizer';
@@ -63,6 +64,7 @@ import type { TemplateAssets } from './template-transport';
 import { observeReadingActivity } from '../shell/reading-navigation';
 import { swipeId } from '../store/chat-tree';
 import { captureReadingBookmark, isReadingBookmark, readingBookmarkAdjustment, readingSwipeId, trackReadingBookmark, type ReadingBookmark } from '../shell/reading-bookmark';
+import { disposePopups, focusPopup, onPopupVisibility, popupApi } from './popup-runtime';
 
 let transportedTemplateAssets: Partial<TemplateAssets> = {};
 
@@ -73,6 +75,7 @@ const retainedResources: Partial<SessionResources> = {};
 const root = document.getElementById('compat-root')!;
 root.id = 'chat';
 const globals = window as any;
+const hostPopupApi = popupApi();
 const extensionMenu = document.createElement('div');
 extensionMenu.id = 'extensionsMenu'; extensionMenu.hidden = true;
 document.body.append(extensionMenu);
@@ -444,7 +447,12 @@ async function readHelperWorldbook(name: string) {
 
 const escapeScript = (text: string) => text.replace(/<\/script/gi, '<\\/script');
 const safeJson = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c');
-function diagnostic(name: string, error: unknown, scriptId = '', level: 'error' | 'warning' = 'error') {
+function reportComponent(type: CompatibilityLoadReport['type'], component: Pick<CardScript, 'id' | 'name' | 'version'>,
+    state: CompatibilityLoadReport['state'], code?: CompatibilityLoadReport['code'], stage: CompatibilityLoadReport['stage'] = 'load') {
+    const { id, name, version } = component;
+    outer.postMessage({ kind: 'compat:load-report', token, report: { type, id, name, version, state, stage, code } satisfies CompatibilityLoadReport }, '*');
+}
+function diagnostic(name: string, error: unknown, scriptId = '', level: 'error' | 'warning' = 'error', logRuntime = true) {
     // Author errors originate in another window, so instanceof Error is unreliable.
     const detail = error as { message?: unknown; stack?: unknown } | null;
     const message = typeof detail?.stack === 'string' ? detail.stack : typeof detail?.message === 'string' ? detail.message : String(error);
@@ -452,6 +460,11 @@ function diagnostic(name: string, error: unknown, scriptId = '', level: 'error' 
     diagnostics.push(item);
     if (diagnostics.length > 100) diagnostics.shift();
     if (!(name.startsWith('MVU 命令') && !snapshot?.mvuSettings.notifyError)) outer.postMessage({ kind: 'compat:diagnostic', token, diagnostic: item }, '*');
+    if (logRuntime && level === 'error') {
+        const script = scriptId && initialScripts.find(item => item.id === scriptId);
+        if (script) reportComponent('script', script, 'failed', 'RUNTIME_ERROR', 'runtime');
+        else outer.postMessage({ kind: 'compat:runtime-error', token, area: name.startsWith('互动界面') ? 'author' : 'runtime' }, '*');
+    }
     appendRuntimeDiagnostic(root, item.name, item.message, level, scriptId);
     console.error(`[兼容运行环境 / ${name}]`, error);
 }
@@ -737,6 +750,7 @@ function applySnapshot(next: CompatSnapshot) {
         }
     }
     if (routeChanged) {
+        disposePopups();
         for (const row of rows.values()) disposeRow(row.element);
         rows.clear();
         chat.length = 0;
@@ -890,7 +904,7 @@ async function getWorldInfoPrompt(...args: Parameters<typeof checkWorldInfo>) {
 const context = () => {
     const session = snapshot.session;
     const ensureSession = () => { if (snapshot.session !== session) throw new Error('操作所属聊天已切换'); };
-    return { chat, chatId: session, name1: snapshot.userName, name2: snapshot.character.name,
+    return { ...hostPopupApi, chat, chatId: session, name1: snapshot.userName, name2: snapshot.character.name,
     ChatCompletionService: chatCompletionService,
     setExtensionPrompt,
     extension_prompt_types: { NONE: -1, IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT: 2 },
@@ -1817,6 +1831,8 @@ function installApi(win: any, floor?: number, scriptId?: string) {
     api.triggerSlashWithResult = api.triggerSlash;
     const owned = new Map<string, Map<(...args: any[]) => any, { wrapper: (...args: any[]) => any; stop: () => void }>>();
     const cleanups = new Set<() => void>();
+    const childPopupApi = popupApi(win);
+    cleanups.add(() => disposePopups(win));
     if (scriptId && win.frameElement) {
         const expose = () => { if (!disposed) cleanups.add(exposeScriptSurface(win.frameElement)); };
         win.addEventListener('DOMContentLoaded', expose, { once: true });
@@ -1938,7 +1954,7 @@ function installApi(win: any, floor?: number, scriptId?: string) {
         cleanups.add(result.uninject);
         return result;
     };
-    const childContext = () => ({ ...context(), ...childSlashRegistration,
+    const childContext = () => ({ ...context(), ...childPopupApi, ...childSlashRegistration,
         registerMacro: (name: string, value: string | ((nonce: string) => string)) => registerHostMacro(name, value, win),
         eventSource: { on: api.eventOn, makeFirst: api.eventMakeFirst, makeLast: api.eventMakeLast, removeListener: api.eventRemoveListener, emit } });
     if (win !== window) for (const eventName of ['tipsy-host-context', 'tipsy-host-worldbooks']) {
@@ -1981,7 +1997,8 @@ function installApi(win: any, floor?: number, scriptId?: string) {
         };
     }
     win.toastr = Object.fromEntries(['info', 'success', 'warning', 'error'].map(level => [level, (message: string, title?: string) => notify(`${title ? title + '：' : ''}${message}`, level)]));
-    win.__compatReport = (error: unknown) => diagnostic(scriptId ? initialScripts.find(script => script.id === scriptId)?.name ?? scriptId : `互动界面 #${floor}`, error, scriptId);
+    win.__compatReport = (error: unknown) => diagnostic(scriptId ? initialScripts.find(script => script.id === scriptId)?.name ?? scriptId : `互动界面 #${floor}`,
+        error, scriptId, 'error', !scriptJobs.has(win.frameElement?.dataset.compatChild ?? ''));
     const resizeNested = (event: MessageEvent) => {
         if (event.data?.type !== 'tipsy-template-resize' || typeof event.data.id !== 'string' || !Number.isFinite(event.data.height)) return;
         const frame = win.document.getElementById(event.data.id);
@@ -2021,6 +2038,7 @@ function importMap(source: string) {
         const url = match[1]!;
         const slash = /(?:^|\/)slash-commands\/(\w+)(?:\.js)?(?:\?|$)/.exec(url);
         if (slash && slashModules[slash[1]]) imports[url] = `data:text/javascript,${encodeURIComponent(slashModules[slash[1]].map(name => `export const ${name}=globalThis.${name};`).join(''))}`;
+        else if (/(?:^|\/)scripts\/popup\.js(?:[?#]|$)/.test(url)) imports[url] = '/scripts/popup.js';
         else if (/(?:^|\/)scripts\/slash-commands(?:\.js)?(?:\?|$)/.test(url)) imports[url] = `data:text/javascript,${encodeURIComponent('const c=globalThis.SillyTavern.getContext();export const executeSlashCommands=c.executeSlashCommands;export const executeSlashCommandsWithOptions=c.executeSlashCommandsWithOptions;export const registerSlashCommand=c.registerSlashCommand;')}`;
         else if (/(?:^|\/)extensions\/quick-reply\/index\.js(?:\?|$)/.test(url)) imports[url] = `data:text/javascript,${encodeURIComponent('export const quickReplyApi=globalThis.quickReplyApi;')}`;
         else if (/\/mvu_zod\.js(?:\?|$)/i.test(url)) imports[url] = `data:text/javascript,${encodeURIComponent('export const registerMvuSchema=(...a)=>globalThis.registerMvuSchema(...a);')}`;
@@ -2085,7 +2103,9 @@ async function refreshScripts() {
     const desired = [...new Map([...scriptsFromTrees(trees.global), ...scriptsFromTrees(trees.preset), ...scriptsFromTrees(trees.character)].map(script => [script.id, script])).values()];
     initialScripts = desired;
     const enabled = new Map(desired.filter(script => script.enabled).map(script => [script.id, script]));
-    for (const id of scriptFailures.keys()) if (!enabled.has(id)) scriptFailures.delete(id);
+    for (const [id, failure] of scriptFailures) if (!enabled.has(id)) {
+        reportComponent('script', { id, name: failure.name }, 'removed'); scriptFailures.delete(id);
+    }
     for (const [id, running] of runningScripts) {
         const next = enabled.get(id);
         if (!next || running.source.content !== next.content || running.source.name !== next.name) {
@@ -2094,6 +2114,7 @@ async function refreshScripts() {
                 childDisposers.get(running.frame.contentWindow)?.();
             }
             children.delete(running.frame); running.frame.remove(); runningScripts.delete(id); scriptFailures.delete(id); scriptButtons.delete(id); scriptInfo.delete(id);
+            reportComponent('script', running.source, 'removed');
         } else {
             if (!_.isEqual(next.buttons, running.source.buttons)) scriptButtons.set(id, next.buttons.map(button => ({ name: button.name, visible: button.visible !== false })));
             if (next.info !== running.source.info) scriptInfo.set(id, next.info);
@@ -2110,7 +2131,7 @@ async function mountScript(script: CardScript): Promise<{ completion: Promise<vo
     const frame = createChild('', undefined, { ...script, content: await adaptAuthorWindow(script.content) });
     const id = frame.dataset.compatChild!;
     const promise = new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => { scriptJobs.delete(id); reject(new Error(`脚本初始化超时：${script.name}`)); }, 20000);
+        const timer = setTimeout(() => { scriptJobs.delete(id); reject(new DOMException(`脚本初始化超时：${script.name}`, 'TimeoutError')); }, 20000);
         scriptJobs.set(id, { resolve: () => { clearTimeout(timer); resolve(); }, reject: error => { clearTimeout(timer); reject(error); } });
     });
     void promise.catch(() => {});
@@ -2125,7 +2146,8 @@ async function loadScripts(scripts: CardScript[], bindingToken: string): Promise
         const message = await explainAuthorScriptFailure(script.content, error).catch(() => String(error));
         if (token !== bindingToken) return;
         scriptFailures.set(script.id, { name: script.name, message });
-        diagnostic(script.name, message, script.id);
+        reportComponent('script', script, 'failed', error instanceof Error && error.name === 'TimeoutError' ? 'TIMEOUT' : 'LOAD_ERROR');
+        diagnostic(script.name, message, script.id, 'error', false);
     };
     // Mount in declared order, but allow modules awaiting another script's shared
     // globals to settle after that provider has mounted.
@@ -2137,6 +2159,7 @@ async function loadScripts(scripts: CardScript[], bindingToken: string): Promise
             completions.push(completion.then(() => {
                 if (token !== bindingToken) return;
                 scriptFailures.delete(script.id);
+                reportComponent('script', script, 'ready');
                 appendRuntimeDiagnostic(root, script.name, '', 'entry', script.id);
             }, error => recordFailure(script, error)));
         } catch (error) { completions.push(recordFailure(script, error)); }
@@ -2424,19 +2447,26 @@ async function loadInstalledExtensions(): Promise<void> {
     while (pending.length) {
         const index = pending.findIndex(entry => (entry.dependencies ?? []).every(id => loaded.has(id.replace(/^third-party\//, ''))));
         if (index < 0) {
-            for (const entry of pending) diagnostic(entry.name, new Error(`扩展依赖缺失或未能加载：${entry.dependencies?.join('、')}`));
+            for (const entry of pending) {
+                reportComponent('extension', entry, 'failed', 'DEPENDENCY_MISSING');
+                diagnostic(entry.name, new Error(`扩展依赖缺失或未能加载：${entry.dependencies?.join('、')}`), entry.id, 'error', false);
+            }
             break;
         }
         const [extension] = pending.splice(index, 1);
         outer.postMessage({ kind: 'compat:progress', token }, '*');
         try {
             await install(extension); loaded.add(extension.id);
+            reportComponent('extension', extension, 'ready');
             if (extension.generateInterceptor) {
                 if (typeof globals[extension.generateInterceptor] === 'function') loadedInterceptors.push({ name: extension.name, key: extension.generateInterceptor });
                 else diagnostic(`扩展 ${extension.name}`, new Error(`未注册生成拦截器 ${extension.generateInterceptor}`), extension.id, 'warning');
             }
         }
-        catch (error) { diagnostic(`扩展 ${extension.name}`, error, extension.id); }
+        catch (error) {
+            reportComponent('extension', extension, 'failed', extension.error ? 'CATALOG_ERROR' : extension.requires?.length ? 'UNSUPPORTED_MODULE' : 'LOAD_ERROR');
+            diagnostic(`扩展 ${extension.name}`, error, extension.id, 'error', false);
+        }
     }
 }
 let commandQueue = Promise.resolve();
@@ -2446,6 +2476,7 @@ async function switchCompatibilitySession(next: CompatSnapshot, scripts: CardScr
     let releaseSessionData!: () => void;
     sessionDataReady = new Promise(resolve => { releaseSessionData = resolve; });
     switchingSession = true; initialized = false;
+    disposePopups();
     const error = new Error('聊天已切换，旧任务已取消');
     for (const job of waiting.values()) { clearTimeout(job.timer); job.reject(error); }
     waiting.clear();
@@ -2472,9 +2503,12 @@ async function switchCompatibilitySession(next: CompatSnapshot, scripts: CardScr
             childDisposers.get(running.frame.contentWindow)?.();
         }
         children.delete(running.frame); running.frame.remove(); runningScripts.delete(id);
+        reportComponent('script', running.source, 'removed');
         scriptButtons.delete(id); scriptInfo.delete(id);
     }
-    for (const id of scriptFailures.keys()) if (!retained.has(id)) scriptFailures.delete(id);
+    for (const [id, failure] of scriptFailures) if (!retained.has(id)) {
+        reportComponent('script', { id, name: failure.name }, 'removed'); scriptFailures.delete(id);
+    }
     diagnostics.length = 0; document.getElementById('compat-diagnostics')?.remove();
     initialScripts = scripts; reconciledScriptTrees = undefined;
     prepareReadingBookmark(bookmark);
@@ -2491,9 +2525,14 @@ async function switchCompatibilitySession(next: CompatSnapshot, scripts: CardScr
     await startupEventsTask;
     await finishStartupForSync(bindingToken);
 }
+onPopupVisibility(visible => {
+    document.documentElement.toggleAttribute('data-compat-popup', visible);
+    outer.postMessage({ kind: 'compat:popup', session: snapshot?.session, visible }, '*');
+});
 window.addEventListener('message', event => {
     if (event.source !== outer || !event.data) return;
     const data = event.data;
+    if (data.kind === 'compat:popup-focus' && data.session === snapshot?.session) { focusPopup(); return; }
     if (data.kind === 'compat:reading-target' && data.session === snapshot?.session) {
         readingReplyId = typeof data.replyId === 'string' ? data.replyId : undefined;
         lastReadingPosition = ''; scheduleReadingPosition(); return;

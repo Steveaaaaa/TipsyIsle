@@ -23,6 +23,7 @@ export function scriptsFromTrees(trees: unknown): CardScript[] {
             const active = enabled && item.enabled !== false;
             if (Array.isArray(item.scripts)) visit(item.scripts, active);
             else if (typeof item.content === 'string') result.push({ id: String(item.id ?? result.length), name: String(item.name ?? ''), info: String(item.info ?? ''), content: item.content,
+                version: typeof item.version === 'string' ? item.version : undefined,
                 enabled: active, data: item.data ?? {}, buttons: item.button?.enabled !== false ? item.button?.buttons ?? [] : [] });
         }
     };

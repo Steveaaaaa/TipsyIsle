@@ -1,0 +1,93 @@
+/* The author content stays in the compatibility document, in the dialog's top layer. */
+:root[data-compat-popup] #chat { visibility: hidden; }
+
+.tipsy-compat-popup {
+    --popup-inset: 16px;
+    --SmartThemeBodyColor: var(--reader-text);
+    --SmartThemeQuoteColor: var(--reader-accent);
+    --SmartThemeEmColor: var(--reader-muted);
+    --SmartThemeBorderColor: var(--reader-border);
+    --SmartThemeBlurTintColor: var(--reader-surface);
+    --SmartThemeShadowColor: color-mix(in srgb, var(--reader-text) 14%, transparent);
+    --SmartThemeBlurStrength: 0px;
+    --black30a: var(--reader-selection);
+    --mainFontSize: 15px;
+    width: min(36rem, calc(100% - var(--popup-inset) * 2));
+    max-width: calc(100% - var(--popup-inset) * 2);
+    max-height: calc(100% - var(--popup-inset) * 2);
+    padding: 0;
+    border: 1px solid var(--reader-border);
+    border-radius: var(--reader-radius, 14px);
+    background: var(--reader-surface, Canvas);
+    color: var(--reader-text, CanvasText);
+    font: 14px/1.55 system-ui, sans-serif;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+.tipsy-compat-popup::backdrop { background: #10162380; }
+.tipsy-compat-popup.wide_dialogue_popup { width: min(54rem, calc(100% - var(--popup-inset) * 2)); }
+.tipsy-compat-popup.wider_dialogue_popup { width: min(66rem, calc(100% - var(--popup-inset) * 2)); }
+.tipsy-compat-popup.large_dialogue_popup { width: 90%; max-height: min(90%, calc(100% - var(--popup-inset) * 2)); }
+.tipsy-compat-popup.transparent_dialogue_popup { background: transparent; border-color: transparent; }
+.tipsy-compat-popup > .popup-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px;
+    max-height: calc(100dvh - var(--popup-inset) * 2 - 2px);
+    text-align: center;
+}
+.tipsy-compat-popup.left_aligned_dialogue_popup > .popup-body { text-align: start; }
+.tipsy-compat-popup > .popup-body > .popup-content { min-width: 0; overflow-wrap: anywhere; overflow: hidden; }
+.tipsy-compat-popup.vertical_scrolling_dialogue_popup > .popup-body > .popup-content { overflow-y: auto; }
+.tipsy-compat-popup.horizontal_scrolling_dialogue_popup > .popup-body > .popup-content { overflow-x: auto; }
+.tipsy-compat-popup > .popup-body > .popup-content > :first-child { margin-block-start: 0; }
+.tipsy-compat-popup > .popup-body > .popup-content > :last-child { margin-block-end: 0; }
+.tipsy-compat-popup > .popup-body > .popup-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+.tipsy-compat-popup > .popup-body > .popup-inputs { overflow: auto; }
+.tipsy-compat-popup > .popup-body > .popup-inputs > label { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-block: 8px; }
+.tipsy-compat-popup > .popup-body > .popup-inputs > label.checkbox_label { justify-content: flex-start; }
+.tipsy-compat-popup > .popup-body > .popup-input,
+.tipsy-compat-popup > .popup-body > .popup-inputs .text_pole {
+    max-width: 100%; min-width: 0; padding: 8px 10px;
+    background: var(--reader-surface, Canvas); color: inherit; font: inherit;
+    border: 1px solid var(--reader-border); border-radius: 8px;
+}
+.tipsy-compat-popup > .popup-body > .popup-crop-wrap { min-height: min(48dvh, 22rem); height: min(58dvh, 34rem); }
+.tipsy-compat-popup .popup-crop-image { display: block; max-width: 100%; max-height: 100%; }
+.tipsy-compat-popup > .popup-button-close,
+.tipsy-compat-popup > .popup-body > .popup-controls > button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 40px; padding: 8px 14px;
+    border: 1px solid var(--reader-border); border-radius: 8px;
+    background: var(--reader-surface, Canvas); color: inherit; font: inherit; cursor: pointer;
+}
+.tipsy-compat-popup > .popup-body > .popup-controls > button:hover:not(:disabled),
+.tipsy-compat-popup > .popup-button-close:hover:not(:disabled) { background: var(--reader-selection); }
+.tipsy-compat-popup > .popup-body > .popup-controls > button.menu_button_default {
+    border-color: var(--reader-accent); color: var(--reader-text);
+    background: color-mix(in srgb, var(--reader-accent) 21%, var(--reader-surface));
+}
+.tipsy-compat-popup > .popup-body > .popup-controls > button.menu_button_default:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--reader-accent) 31%, var(--reader-surface));
+}
+.tipsy-compat-popup:has(> .popup-button-close:not([hidden])) > .popup-body { padding-block-start: 52px; }
+.tipsy-compat-popup > .popup-button-close { position: absolute; inset: 6px 6px auto auto; width: 40px; padding: 0; border-color: transparent; }
+.tipsy-compat-popup > [hidden], .tipsy-compat-popup > .popup-body > [hidden], .tipsy-compat-popup .popup-controls > [hidden] { display: none; }
+.tipsy-compat-popup { --animation-duration: 150ms; }
+.tipsy-compat-popup.popup--animation-slow { --popup-duration: 220ms; }
+.tipsy-compat-popup.popup--animation-fast { --popup-duration: var(--animation-duration); }
+.tipsy-compat-popup.popup--animation-none { --animation-duration: 0ms; }
+@media (prefers-reduced-motion: no-preference) {
+    .tipsy-compat-popup:is(.popup--animation-slow, .popup--animation-fast)[opening] { animation: compat-popup-in var(--popup-duration) cubic-bezier(.16, 1, .3, 1); }
+    .tipsy-compat-popup:is(.popup--animation-slow, .popup--animation-fast)[closing] { animation: compat-popup-out var(--popup-duration) ease-out; }
+}
+@media (prefers-reduced-motion: reduce) { .tipsy-compat-popup { --animation-duration: 0ms; } }
+@keyframes compat-popup-in { from { opacity: .65; transform: translateY(5px); } }
+@keyframes compat-popup-out { to { opacity: 0; } }
+@media (max-width: 600px) {
+    .tipsy-compat-popup { --popup-inset: 10px; width: calc(100% - var(--popup-inset) * 2); }
+    .tipsy-compat-popup > .popup-body { padding: 14px; }
+    .tipsy-compat-popup > .popup-body > .popup-controls > button, .tipsy-compat-popup > .popup-button-close { min-height: 44px; }
+    .tipsy-compat-popup > .popup-body > .popup-input, .tipsy-compat-popup > .popup-body > .popup-inputs .text_pole { font-size: 16px; }
+}

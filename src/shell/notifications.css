@@ -7,11 +7,17 @@ body > .ttm-notifications:has([data-notification-id="app-update"]) { top: calc(e
 .ttm-notification.is-warning .ttm-notification-state { background: #a47928; }
 .ttm-notification.is-success .ttm-notification-state { background: #478064; }
 .ttm-notification.is-progress .ttm-notification-state { animation: tipsy-notice-pulse 1.6s ease-in-out infinite alternate; }
-.ttm-notification > button { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
-.ttm-notification > button:hover { background: var(--ti-selection); }
-.ttm-notification > button:focus-visible { outline: 2px solid var(--ti-accent); outline-offset: 1px; }
-.ttm-notification > .ttm-notification-action { width: auto; min-height: 36px; height: auto; padding: 5px 9px; color: var(--ti-accent); font: inherit; font-weight: 600; }
-@media (pointer: coarse) { .ttm-notification > .ttm-notification-action { min-height: 44px; } }
+.ttm-notification :is(.ttm-notification-close, .ttm-notification-action) { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.ttm-notification :is(.ttm-notification-close, .ttm-notification-action):hover { background: var(--ti-selection); }
+.ttm-notification :is(.ttm-notification-close, .ttm-notification-action):focus-visible { outline: 2px solid var(--ti-accent); outline-offset: 1px; }
+.ttm-notification .ttm-notification-close { width: 30px; height: 30px; }
+.ttm-notification .ttm-notification-action { gap: 6px; min-height: 36px; padding: 5px 9px; color: var(--ti-accent); font: inherit; font-weight: 600; }
+.ttm-notification.is-error { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 2px; }
+.ttm-notification.is-error .ttm-notification-close { grid-area: 1 / 3; align-self: start; }
+.ttm-notification-error-actions { grid-column: 2 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+@media (pointer: coarse) { .ttm-notification .ttm-notification-action { min-height: 44px; } }
+.ttm-diagnostic-export-dialog .ttm-asset-dialog-content > p:first-child { margin-top: 0; }
+.ttm-diagnostic-export-dialog .ttm-editor-actions { justify-content: flex-end; flex-wrap: wrap; margin-top: 18px; }
 @keyframes tipsy-notice-enter { from { opacity: 0; transform: translateY(-4px); } }
 @keyframes tipsy-notice-pulse { to { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .ttm-notification, .ttm-notification.is-progress .ttm-notification-state { animation: none; } }

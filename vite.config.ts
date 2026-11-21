@@ -7,7 +7,7 @@ export default defineConfig({
     name: 'bundle-author-host-modules',
     generateBundle() {
       const paths = ['script.js', 'scripts/extensions.js', 'scripts/world-info.js', 'scripts/user.js',
-        'scripts/slash-commands.js', 'scripts/extensions/quick-reply/index.js',
+        'scripts/slash-commands.js', 'scripts/popup.js', 'scripts/extensions/quick-reply/index.js',
         ...['SlashCommand','SlashCommandArgument','SlashCommandScope','SlashCommandClosure','SlashCommandParser',
           'SlashCommandAbortController','SlashCommandBreakController','SlashCommandClosureResult']
           .map(name => 'scripts/slash-commands/' + name + '.js')];

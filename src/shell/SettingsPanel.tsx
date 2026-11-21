@@ -14,6 +14,7 @@ import type { StreamDisplayMode } from '../pipeline/streaming-message';
 import { NativePluginManager } from '../plugins/native/PluginManager';
 import { nativeAppUpdates } from '../core/native-runtime';
 import { checkAppUpdate, showCurrentReleaseNotes } from '../core/app-update';
+import { DiagnosticLogPanel } from './DiagnosticLogPanel';
 import app from '../../package.json';
 
 type SettingsPanelProps = {
@@ -147,6 +148,7 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
                         {nativeAppUpdates && <button type="button" className="ttm-btn-secondary" onClick={() => void checkAppUpdate(true)}><Icon name="refresh" width={16} height={16} />检查更新</button>}
                     </div>
                 </SettingsSection>
+                <SettingsDisclosure title="错误日志"><DiagnosticLogPanel /></SettingsDisclosure>
                 <SettingsSection title="运行诊断与作者配置" description="普通阅读通常无需打开。遇到脚本或变量问题时，可查看诊断或按作者说明调整。">{advancedTools}</SettingsSection>
                 {ids.some(id => settingsCategoryForField(id) === 'advanced') && <SettingsDisclosure title="其他扩展参数">{renderFields(ids.filter(id => settingsCategoryForField(id) === 'advanced'))}</SettingsDisclosure>}
             </>}

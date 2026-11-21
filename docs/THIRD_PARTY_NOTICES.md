@@ -32,6 +32,7 @@ Additional standalone dependencies and attributions are listed below. Production
 | cyrb53, bryc, 2018 | String hashing in `src/pipeline/content-hash.ts`. | `public/licenses/cyrb53.txt`, retaining the reference file's public-domain statement. This does not imply that the original host's entry structure was copied in full. |
 | QuickJS and quickjs-emscripten 0.32.0 | TipsyIsle plugin sandbox. | `public/licenses/quickjs-emscripten.txt`. |
 | Ajv 8.17.1 and semver 7.7.3 | Plugin manifest and API version validation. | `public/licenses/ajv*.txt` and `public/licenses/semver.txt`. |
+| Cropper.js 1.6.2, Chen Fengyuan | Loaded on demand for the compatibility layer's image crop popup. | `public/licenses/cropperjs.txt` (MIT). |
 
 Pi and its SDK dependencies remain in the local Node gateway; their licenses are retained in the installation packages. They are not bundled into the frontend build. Reference source code from Tavern Helper, Prompt Template, and SillyTavern is used only to check behavior during development and is not part of the product's runtime modules.
 

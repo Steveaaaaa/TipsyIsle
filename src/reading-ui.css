@@ -462,6 +462,8 @@ a { color: var(--ti-accent); text-underline-offset: 3px; }
 .ttm-sandbox-iframe { display: block; width: 100%; border: 0; }
 .ttm-compatibility-chat { flex: 1; width: 100%; min-height: 0; border: 0; background: transparent; }
 .ttm-reading-viewport .ttm-extension-panel-frame { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 5; }
+.ttm-reading-viewport .ttm-compat-popup-frame { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 10030; visibility: visible; pointer-events: auto; }
+.ttm-active-conversation[hidden]:has(.ttm-compat-popup-frame) { display: contents !important; visibility: hidden; }
 .ttm-extension-panel-close { position: absolute; top: .5rem; right: .75rem; z-index: 6; }
 .ttm-illustration-form { display: grid; gap: .75rem; }
 .ttm-illustration-form textarea { width: 100%; resize: vertical; }
@@ -514,6 +516,7 @@ a { color: var(--ti-accent); text-underline-offset: 3px; }
     .ttm-topbar .ttm-home-link, .ttm-topbar .ttm-quick-chat, .ttm-sidebar .ttm-library-imports > button { min-height: 44px; }
     .ttm-sidebar, .ttm-center-stage, .ttm-inspector, .has-inspector .ttm-inspector { display: none; width: 100%; }
     .ttm-sidebar.is-mobile-active, .is-focused .ttm-sidebar.is-mobile-active, .ttm-center-stage.is-mobile-active, .ttm-inspector.is-mobile-active { display: flex; }
+    .ttm-center-stage:not(.is-mobile-active):has(.ttm-compat-popup-frame) { display: block; position: fixed; inset: 0; visibility: hidden; pointer-events: none; }
     .ttm-sidebar-scroll { padding: 24px; }
     .ttm-sidebar .ttm-char-item { padding: 15px 12px; }
     .ttm-sidebar .ttm-char-item:not(:last-child)::after { left: 12px; right: 12px; }

@@ -68,7 +68,10 @@ ${authorBrowserRuntime}
     for (const [key, value] of Object.entries(values || {})) {
       if (themeKeys.has(key) && typeof value === 'string') document.documentElement.style.setProperty(key, value);
     }
-    if (scheme === 'light' || scheme === 'dark') document.documentElement.style.colorScheme = scheme;
+    if (scheme === 'light' || scheme === 'dark') {
+      document.documentElement.style.colorScheme = scheme;
+      document.documentElement.dataset.colorScheme = scheme;
+    }
   }
   applyTheme(CTX.themeVars, CTX.colorScheme);
   let seq = 1;

@@ -1,4 +1,5 @@
 import { saveExport } from '../../core/platform-files';
+import { diagnosticErrorKind, diagnosticOperation } from '../../core/diagnostics';
 import { listChatArchives, loadChatArchive, clearChatArchives, summarizeChat, type ArchivedChat } from '../chat-archives';
 import { batchReactiveUpdates, cloneStateValue, withoutStoreNotifications } from '../reactive-store';
 import { normalizeCharacterCard, normalizeLorebook, normalizePreset } from '../../pipeline/normalizer';
@@ -527,19 +528,36 @@ export async function importStoryCharacter(file: File): Promise<string> {
 
 export async function importAssetFile(file: File): Promise<string> {
     if (workspaceStore.getState().isGenerating || workspaceStore.getState().helperGenerationCount) throw new Error('请等待生成结束后导入角色卡或预设');
-    if (isPngAssetName(file.name)) {
+    const png = isPngAssetName(file.name);
+    const report = diagnosticOperation('导入', '导入素材', png ? 'PNG' : 'JSON');
+    let stage = '读取文件', format = png ? 'PNG 角色卡' : 'JSON';
+    try {
+        const result = await importLibraryAsset(file, png, (next, kind) => { stage = next; if (kind) format = kind; });
+        report('成功', { stage, detail: format });
+        return result;
+    } catch (error) {
+        report('失败', { stage, detail: format, code: diagnosticErrorKind(error) });
+        throw error;
+    }
+}
+
+async function importLibraryAsset(file: File, png: boolean, progress: (stage: string, format?: string) => void): Promise<string> {
+    if (png) {
+        progress('读取并解析角色卡');
         const card = await importCharacterFile(file);
-
+        progress('加入角色库');
         addImportedCharacter(card);
-
+        progress('保存到本机');
         await persistWorkspaceNow();
         const book = card.characterBook ?? card.embeddedLorebook;
         return `已导入故事「${card.name}」：世界书 ${book?.entries.length ?? 0} 条，正则 ${card.regexScripts.length} 条。选择故事即可进入，附带世界书自动启用。`;
     }
 
     const text = await file.text();
+    progress('解析 JSON');
     const raw = JSON.parse(text) as Record<string, unknown>;
     const format = classifyLibraryJson(raw);
+    progress('转换素材格式', format.kind);
 
     if (format.kind === 'quick-reply') {
         const settings = structuredClone(readExtensionVariables(scopedVariableStore.getState().extension, 'quickReplyV2'));
@@ -549,7 +567,8 @@ export async function importAssetFile(file: File): Promise<string> {
         settings.config ??= { setList: [] }; settings.config.setList ??= [];
         if (!settings.config.setList.some((link: any) => (typeof link.set === 'string' ? link.set : link.set?.name) === set.name)) settings.config.setList.push({ set: set.name, isVisible: true });
         settings.isEnabled = true;
-        replaceExtensionVariables('quickReplyV2', settings); await persistWorkspaceNow();
+        replaceExtensionVariables('quickReplyV2', settings);
+        progress('保存到本机'); await persistWorkspaceNow();
         return `已导入快捷回复集合「${set.name}」（${set.qrList.length} 条），已启用全局绑定`;
     }
 
@@ -564,7 +583,7 @@ export async function importAssetFile(file: File): Promise<string> {
         workspaceStore.setState((draft) => {
             draft.presets.push(preset);
         });
-        await persistWorkspaceNow();
+        progress('保存到本机'); await persistWorkspaceNow();
         return `已导入预设「${preset.name}」，可在「叙事预设」中选择使用。当前对话继续使用原预设。`;
     }
 
@@ -572,13 +591,14 @@ export async function importAssetFile(file: File): Promise<string> {
         const book = normalizeLorebook(raw, String(raw.name ?? file.name.replace(/\.json$/i, '')));
         assertNewAsset('世界书', book, getAvailableWorldbooks());
         workspaceStore.setState(draft => { draft.lorebooks.push(book); draft.activeLorebookIds.push(book.id); });
-        persistWorkspace(); schedulePreview();
+        progress('提交本地保存'); persistWorkspace(); schedulePreview();
         return `已导入世界书「${book.name}」`;
     }
 
     const card = await importCharacterFile(file, false);
+    progress('加入角色库', 'JSON 角色卡');
     addImportedCharacter(card);
-    await persistWorkspaceNow();
+    progress('保存到本机'); await persistWorkspaceNow();
     return `已导入故事「${card.name}」，选择故事即可进入，附带世界书自动启用。`;
 }
 

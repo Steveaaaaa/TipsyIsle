@@ -32,6 +32,7 @@ Vue 3.5.21 的官方 `vue.global.prod.js` 完整浏览器构建用于作者 ifra
 | cyrb53，bryc，2018 | `src/pipeline/content-hash.ts` 中的字符串哈希算法 | `public/licenses/cyrb53.txt`，保留参考文件的公共领域声明；不将原宿主条目结构视为已完整复制 |
 | QuickJS 与 quickjs-emscripten 0.32.0 | 原生插件沙箱 | `public/licenses/quickjs-emscripten.txt` |
 | Ajv 8.17.1 与 semver 7.7.3 | 校验插件清单和 API 版本 | `public/licenses/ajv*.txt`、`public/licenses/semver.txt` |
+| Cropper.js 1.6.2，Chen Fengyuan | 兼容层的图片裁剪弹窗按需加载 | `public/licenses/cropperjs.txt`（MIT） |
 
 Pi 及其 SDK 依赖留在本地 Node 网关，安装包中的许可证继续保留；前端构建不打包它们。酒馆助手、提示词模板和 SillyTavern 的参考源码仅供开发时核对行为，不属于产品运行模块。
 

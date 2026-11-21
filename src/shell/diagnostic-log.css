@@ -1,0 +1,14 @@
+.ttm-diagnostic-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ttm-diagnostic-list { margin: 0 0 8px; padding: 0; list-style: none; border-top: 1px solid var(--ti-border); }
+.ttm-diagnostic-list li { border-bottom: 1px solid var(--ti-border); }
+.ttm-diagnostic-list summary {
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: start; gap: 8px;
+    padding: 10px 4px; cursor: pointer; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere;
+}
+.ttm-diagnostic-list summary::-webkit-details-marker { display: none; }
+.ttm-diagnostic-list summary > svg { margin-top: 3px; color: var(--ti-text-muted); }
+.ttm-diagnostic-list details[open] > summary > svg { transform: rotate(90deg); }
+.ttm-diagnostic-list time { color: var(--ti-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ttm-diagnostic-list [data-result='失败'] { font-weight: 650; }
+.ttm-diagnostic-list details > p { margin: 0; padding: 0 4px 10px; font-size: 12px; line-height: 1.7; color: var(--ti-text-muted); overflow-wrap: anywhere; }
+.ttm-diagnostic-list summary:focus-visible { outline: 2px solid var(--ti-accent); outline-offset: -2px; }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { pickNativeAsset, pickNativeStorySave, saveExport } from '../core/platform-files';
 import { isNativeRuntime } from '../core/native-runtime';
+import { diagnosticErrorKind, diagnosticOperation } from '../core/diagnostics';
 import { makeStorySave, readStorySave, storyResourceName, storySaveExcerpt } from '../core/story-save';
 import { countStoryRoutes, type StoryImport } from '../core/story-save-format';
 import { getActivePreset, getAvailableWorldbooks, importStoryCharacter, importStorySave, readStoryForExport, storySaveDuplicate, workspaceStore } from '../store/workspace-store';
@@ -53,12 +54,17 @@ export function StorySaveDialog({ anchor, mode, onClose, onOpened, onExported, s
     const read = async (file: File) => {
         const controller = new AbortController(); parse.current?.abort(); parse.current = controller;
         setBusy('reading'); setError(''); setData(undefined); setFileName(file.name);
+        const report = diagnosticOperation('导入', '打开故事存档');
         try {
             const result = await readStorySave(file, controller.signal);
-            if (controller.signal.aborted) return;
+            if (controller.signal.aborted) { report('取消'); return; }
+            report('成功', { stage: '读取并解析存档' });
             if (result.kind === 'tavern') setCharacterId(cards.find(card => card.name.trim().toLowerCase() === result.characterName.trim().toLowerCase())?.id ?? '');
             setData(result);
-        } catch (failure) { if (!controller.signal.aborted) setError(errorText(failure)); }
+        } catch (failure) {
+            report(controller.signal.aborted ? '取消' : '失败', { stage: '读取并解析存档', code: diagnosticErrorKind(failure) });
+            if (!controller.signal.aborted) setError(errorText(failure));
+        }
         finally { if (parse.current === controller && !controller.signal.aborted) setBusy(''); }
     };
     const choose = async () => {
@@ -81,13 +87,18 @@ export function StorySaveDialog({ anchor, mode, onClose, onOpened, onExported, s
     const open = async () => {
         if (!data) return;
         setBusy('saving'); setError('');
+        const report = diagnosticOperation('导入', '导入故事存档');
         try {
             await importStorySave(data, characterId, duplicate, chat => {
                 const last = activePath(chat.messages, chat.activeLeafId).filter(node => !hostMessageHidden(node, chat.continuation?.chatMetadata)).at(-1);
                 if (last) writeReadingBookmark(chat.id, { messageId: last.id, swipeId: readingSwipeId(last), offset: 0 });
             });
+            report('成功', { stage: '导入并打开存档' });
             onOpened();
-        } catch (failure) { setError(errorText(failure)); }
+        } catch (failure) {
+            report('失败', { stage: '导入并打开存档', code: diagnosticErrorKind(failure) });
+            setError(errorText(failure));
+        }
         finally { setBusy(''); }
     };
     const exportFile = async () => {

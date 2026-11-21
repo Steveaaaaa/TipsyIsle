@@ -1,5 +1,6 @@
 import { gt } from 'semver';
 import { platformStorage } from '../../core/platform-bridge';
+import { diagnosticErrorKind, diagnosticLabel, recordDiagnostic } from '../../core/diagnostics';
 import { createReactiveStore } from '../../store/reactive-store';
 import { enqueuePersistentOperation } from '../../store/persistence';
 import { supportedHostApi, validSetting } from '../../../packages/plugin-sdk/package-format.mjs';
@@ -45,14 +46,21 @@ export const activePlugins = () => nativePluginStore.getState().catalog.plugins.
 export function initializeNativePlugins(): Promise<void> {
     return initialization ??= platformStorage.loadSnapshot<Catalog>(catalogKey, { plugins: [], publishers: {} })
         .then(catalog => { nativePluginStore.setState({ ready: true, error: '', catalog }); })
-        .catch(error => { initialization = undefined; nativePluginStore.setState({ ready: false, error: errorMessage(error) }); throw error; });
+        .catch(error => {
+            recordDiagnostic('插件', '原生插件', '失败', { stage: '读取插件目录', code: diagnosticErrorKind(error) });
+            initialization = undefined; nativePluginStore.setState({ ready: false, error: errorMessage(error) }); throw error;
+        });
 }
 export const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
-export function reportPlugin(id: string, task: string, status: PluginDiagnostic['status'], elapsed = 0, detail?: string) {
+export function reportPlugin(id: string, task: string, status: PluginDiagnostic['status'], elapsed = 0, detail?: string, manifest = pluginById(id)?.manifest) {
     nativePluginStore.setState(draft => {
         const rows = draft.diagnostics[id] ??= [];
         rows.unshift({ at: Date.now(), task, status, elapsed: Math.round(elapsed), detail: detail?.slice(0, 800) });
         if (rows.length > 30) rows.length = 30;
+    });
+    if (status === 'error') recordDiagnostic('插件', '原生插件', '失败', {
+        stage: task.startsWith('操作 · ') ? '运行插件命令' : task, code: 'PLUGIN_ERROR', elapsedMs: Math.round(elapsed),
+        component: diagnosticLabel(manifest?.name ?? id), componentVersion: manifest && diagnosticLabel(manifest.version),
     });
 }
 export function assertPluginActive(plugin: InstalledPlugin) {
@@ -220,11 +228,11 @@ export function installPlugin(approved: InstallReview, enable: boolean): Promise
                 await platformStorage.saveSnapshots({ [catalogKey]: catalog, [packageKey(id)]: pkg, ...(data && { [deviceKey(id)]: data }) }, false);
                 pkgCache.set(id, Promise.resolve(pkg));
                 if (data) rememberPluginDevice(id, data);
-                nativePluginStore.setState({ catalog });
+                nativePluginStore.setState(draft => { draft.catalog = catalog; delete draft.diagnostics[id]; });
             });
             reportPlugin(id, current ? '更新' : '安装', 'ok', performance.now() - start);
         } catch (error) {
-            reportPlugin(id, current ? '更新' : '安装', 'error', performance.now() - start, errorMessage(error)); throw error;
+            reportPlugin(id, current ? '更新' : '安装', 'error', performance.now() - start, errorMessage(error), pkg.manifest); throw error;
         } finally { maintenance(id, false); }
     });
 }

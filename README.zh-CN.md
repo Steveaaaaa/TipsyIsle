@@ -12,13 +12,13 @@
 
 **好看的界面是相遇的开始。值得留下的，是故事、自由，以及能一起生长的社区。**
 
-**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.1 更新日志](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.1) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
+**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.2 更新日志](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.2) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
 
-## 1.1.1 新变化
+## 1.1.2 新变化
 
-- **同一个故事，不同的路线，各有自己的记忆。** 兼容原版柏宝书 1.3.5。分叉时继承已保存的记忆，分叉后各自保存摘要和召回结果。
-- **夜灯下聊过什么，一翻就能找到。** 「夜灯畅谈」有了独立的会话列表。新建、找回旧对话都在这里，角色馆藏照旧。
-- **安装版可直连 Gemini。** Windows 和 Android 新增 Google Gemini（AI Studio）接口支持，也可以继续使用 OpenAI 兼容接口。
+- **遇到问题，不必只靠截图。** 从错误通知或设置一键导出诊断日志，把运行环境、插件和故障线索交给开发者，帮我们更快找到问题。
+- **作者做好的互动，少一点水土不服。** 兼容层补齐了角色卡和预设会用到的弹窗接口，包括输入、确认和图片裁剪。
+- **连接更顺手，台词更醒目。** 安装版可从使用自定义端口的 HTTP 服务获取模型列表；普通正文中的引号与 `「」` 台词也更易辨认。
 
 ## 为什么值得换
 

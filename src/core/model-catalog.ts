@@ -1,6 +1,7 @@
 import { platformFetch } from './native-runtime';
 import { detectRuntimeFlavor, platformStorage } from './platform-bridge';
 import { geminiEndpoint, geminiHeaders, isGeminiSource } from './gemini-endpoint';
+import { diagnosticErrorKind, diagnosticOperation, diagnosticTransport } from './diagnostics';
 
 export interface ModelListConnection {
     baseUrl: string;
@@ -48,48 +49,62 @@ export function modelListConnection(fieldId: string, settings: Record<string, un
 
 /** The settings UI and author API share one transport on web and installed clients. */
 export async function fetchModelCatalog(connection: ModelListConnection, signal?: AbortSignal): Promise<CatalogModel[]> {
-    const flavor = await detectRuntimeFlavor();
-    const gateway = flavor === 'local-gateway';
-    const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000);
-    let response: Response;
-    if (connection.catalogProvider) {
-        if (!gateway) throw new Error('服务商内置目录需要本机网页网关；安装版请填写 API 地址后获取模型列表。');
-        response = await fetch(`/api/tipsy-isle/llm/catalog?provider=${encodeURIComponent(connection.catalogProvider)}`, { signal: requestSignal });
-    } else if (flavor === 'tauri-native' && isGeminiSource(connection.source)) {
-        const endpoint = geminiEndpoint(connection.baseUrl, 'models');
-        response = await platformFetch(endpoint.href, { headers: geminiHeaders(connection.apiKey ?? '', connection.includeHeaders), signal: requestSignal });
-    } else {
-        if (!connection.baseUrl.trim()) throw new Error('请先填写 API 地址，再获取模型列表。');
-        const base = connection.baseUrl.trim().replace(/\/+$/, '').replace(/\/(?:chat\/completions|messages|responses|embeddings|models)$/, '');
-        const headers: Record<string, string> = {};
-        let endpointBase = base;
-        if (['claude', 'anthropic'].includes(connection.source ?? '')) {
-            if (!endpointBase.endsWith('/v1')) endpointBase += '/v1';
-            headers['x-api-key'] = connection.apiKey ?? '';
-            headers['anthropic-version'] = '2023-06-01';
-        } else if (isGeminiSource(connection.source)) headers['x-goog-api-key'] = connection.apiKey ?? '';
-        else if (connection.apiKey) headers.Authorization = `Bearer ${connection.apiKey}`;
-        Object.assign(headers, connection.includeHeaders);
-        const endpoint = new URL(`${endpointBase}/models`);
-        if (!['http:', 'https:'].includes(endpoint.protocol)) throw new Error('API 地址需要以 http:// 或 https:// 开头。');
-        response = gateway ? await fetch('/api/tipsy-isle/llm/models', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ baseUrl: base, apiKey: connection.apiKey, source: connection.source, includeHeaders: connection.includeHeaders }), signal: requestSignal })
-            : await platformFetch(endpoint.href, { headers, signal: requestSignal });
+    const report = diagnosticOperation('模型', '获取模型列表');
+    let stage = '准备请求', httpStatus: number | undefined, detail: string | undefined;
+    const request = (run: () => Promise<Response>) => { stage = '发送请求'; return run(); };
+    try {
+        const flavor = await detectRuntimeFlavor();
+        detail = diagnosticTransport(flavor, connection.baseUrl);
+        const gateway = flavor === 'local-gateway';
+        const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000);
+        let response: Response;
+        if (connection.catalogProvider) {
+            if (!gateway) throw new Error('服务商内置目录需要本机网页网关；安装版请填写 API 地址后获取模型列表。');
+            response = await request(() => fetch(`/api/tipsy-isle/llm/catalog?provider=${encodeURIComponent(connection.catalogProvider!)}`, { signal: requestSignal }));
+        } else if (flavor === 'tauri-native' && isGeminiSource(connection.source)) {
+            const endpoint = geminiEndpoint(connection.baseUrl, 'models');
+            response = await request(() => platformFetch(endpoint.href, { headers: geminiHeaders(connection.apiKey ?? '', connection.includeHeaders), signal: requestSignal }));
+        } else {
+            if (!connection.baseUrl.trim()) throw new Error('请先填写 API 地址，再获取模型列表。');
+            const base = connection.baseUrl.trim().replace(/\/+$/, '').replace(/\/(?:chat\/completions|messages|responses|embeddings|models)$/, '');
+            const headers: Record<string, string> = {};
+            let endpointBase = base;
+            if (['claude', 'anthropic'].includes(connection.source ?? '')) {
+                if (!endpointBase.endsWith('/v1')) endpointBase += '/v1';
+                headers['x-api-key'] = connection.apiKey ?? '';
+                headers['anthropic-version'] = '2023-06-01';
+            } else if (isGeminiSource(connection.source)) headers['x-goog-api-key'] = connection.apiKey ?? '';
+            else if (connection.apiKey) headers.Authorization = `Bearer ${connection.apiKey}`;
+            Object.assign(headers, connection.includeHeaders);
+            const endpoint = new URL(`${endpointBase}/models`);
+            if (!['http:', 'https:'].includes(endpoint.protocol)) throw new Error('API 地址需要以 http:// 或 https:// 开头。');
+            response = await request(() => gateway ? fetch('/api/tipsy-isle/llm/models', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ baseUrl: base, apiKey: connection.apiKey, source: connection.source, includeHeaders: connection.includeHeaders }), signal: requestSignal })
+                : platformFetch(endpoint.href, { headers, signal: requestSignal }));
+        }
+        httpStatus = response.status;
+        stage = 'HTTP 响应';
+        if (!response.ok) {
+            const detail = gateway ? await response.json().catch(() => ({})) : {};
+            throw new Error(response.status === 401 || response.status === 403 || /\b(?:401|403)\b/.test(String(detail.error ?? ''))
+                ? '无法读取模型列表，请检查 API Key 和访问权限。'
+                : `读取模型列表失败（${response.status}），请检查 API 地址；服务商也可能未提供模型列表接口。`);
+        }
+        stage = '解析模型列表';
+        const payload = await response.json();
+        if (payload.error) throw new Error('服务商返回了模型列表错误，请检查连接设置。');
+        const entries = Array.isArray(payload) ? payload : payload.data ?? payload.models;
+        if (!Array.isArray(entries)) throw new Error('接口未返回可识别的模型列表，仍可手动填写模型名称。');
+        const models = new Map<string, CatalogModel>();
+        for (const entry of entries) {
+            const id = String(typeof entry === 'string' ? entry : entry?.id ?? entry?.name ?? '').trim().replace(/^models\//, '');
+            if (id) models.set(id, { id, ...(typeof entry?.api === 'string' ? { api: entry.api } : {}), ...(typeof entry?.contextWindow === 'number' ? { contextWindow: entry.contextWindow } : {}) });
+        }
+        report('成功', { stage, httpStatus, detail });
+        return [...models.values()].sort((a, b) => a.id.localeCompare(b.id));
+    } catch (error) {
+        report(signal?.aborted ? '取消' : '失败', { stage, httpStatus, detail,
+            code: httpStatus && httpStatus >= 400 ? 'HTTP_ERROR' : diagnosticErrorKind(error) });
+        throw error;
     }
-    if (!response.ok) {
-        const detail = gateway ? await response.json().catch(() => ({})) : {};
-        throw new Error(response.status === 401 || response.status === 403 || /\b(?:401|403)\b/.test(String(detail.error ?? ''))
-            ? '无法读取模型列表，请检查 API Key 和访问权限。'
-            : `读取模型列表失败（${response.status}），请检查 API 地址；服务商也可能未提供模型列表接口。`);
-    }
-    const payload = await response.json();
-    if (payload.error) throw new Error('服务商返回了模型列表错误，请检查连接设置。');
-    const entries = Array.isArray(payload) ? payload : payload.data ?? payload.models;
-    if (!Array.isArray(entries)) throw new Error('接口未返回可识别的模型列表，仍可手动填写模型名称。');
-    const models = new Map<string, CatalogModel>();
-    for (const entry of entries) {
-        const id = String(typeof entry === 'string' ? entry : entry?.id ?? entry?.name ?? '').trim().replace(/^models\//, '');
-        if (id) models.set(id, { id, ...(typeof entry?.api === 'string' ? { api: entry.api } : {}), ...(typeof entry?.contextWindow === 'number' ? { contextWindow: entry.contextWindow } : {}) });
-    }
-    return [...models.values()].sort((a, b) => a.id.localeCompare(b.id));
 }

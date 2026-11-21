@@ -1,4 +1,5 @@
 import { platformFetch } from './native-runtime';
+import { diagnosticErrorKind, diagnosticOperation, diagnosticTransport } from './diagnostics';
 import { geminiReplyAdapter, requestGeminiCompletion } from './gemini-completion';
 import { isGeminiSource } from './gemini-endpoint';
 import { encodeSnapshots, decodeSnapshot, usesImmutableStorySnapshot } from './snapshot-codec';
@@ -84,15 +85,29 @@ const candidateFrom = (message: any): CompletionCandidate => ({ content: typeof 
     reasoning: typeof message.reasoning_content === 'string' ? message.reasoning_content : typeof message.reasoning === 'string' ? message.reasoning : '',
     ...(message.reasoning_signature ? { reasoning_signature: message.reasoning_signature } : {}), ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}) });
 export async function streamLlmCompletion(req: StreamCompletionRequest): Promise<CompletionResult> {
-    const flavor = await detectRuntimeFlavor();
-    const nativeGemini = flavor === 'tauri-native' && !req.provider && isGeminiSource(req.source);
-    if (flavor !== 'local-gateway' && !nativeGemini && (req.provider || isGeminiSource(req.source) || ['claude', 'anthropic', 'vertexai', 'openai-responses'].includes(req.source))) {
-        throw new Error(flavor === 'tauri-native'
-            ? '安装版暂不支持此连接方式。请选择 OpenAI 兼容或 Google Gemini (AI Studio)，或在电脑上用 npm start 打开本地网页版。'
-            : '当前网页未连接模型网关。请用 npm start 打开本地网页版，或改用浏览器可直连的 OpenAI 兼容接口。');
+    const report = diagnosticOperation('生成', '请求模型');
+    let stage = '选择请求方式', httpStatus: number | undefined, detail: string | undefined;
+    try {
+        const flavor = await detectRuntimeFlavor();
+        detail = diagnosticTransport(flavor, req.baseUrl);
+        const nativeGemini = flavor === 'tauri-native' && !req.provider && isGeminiSource(req.source);
+        if (flavor !== 'local-gateway' && !nativeGemini && (req.provider || isGeminiSource(req.source) || ['claude', 'anthropic', 'vertexai', 'openai-responses'].includes(req.source))) {
+            throw new Error(flavor === 'tauri-native'
+                ? '安装版暂不支持此连接方式。请选择 OpenAI 兼容或 Google Gemini (AI Studio)，或在电脑上用 npm start 打开本地网页版。'
+                : '当前网页未连接模型网关。请用 npm start 打开本地网页版，或改用浏览器可直连的 OpenAI 兼容接口。');
+        }
+        stage = '发送请求';
+        const response = nativeGemini ? await requestGeminiCompletion(req) : await requestChatCompletion(req, flavor === 'local-gateway');
+        httpStatus = response.status;
+        stage = !response.ok ? 'HTTP 响应' : req.stream === false ? '读取回复' : '读取回复流';
+        const result = await readCompletionResponse(response, req, nativeGemini ? geminiReplyAdapter() : undefined);
+        report('成功', { stage, httpStatus, detail });
+        return result;
+    } catch (error) {
+        report(req.signal?.aborted ? '取消' : '失败', { stage, httpStatus, detail,
+            code: httpStatus && httpStatus >= 400 ? 'HTTP_ERROR' : diagnosticErrorKind(error) });
+        throw error;
     }
-    const response = nativeGemini ? await requestGeminiCompletion(req) : await requestChatCompletion(req, flavor === 'local-gateway');
-    return readCompletionResponse(response, req, nativeGemini ? geminiReplyAdapter() : undefined);
 }
 
 async function requestChatCompletion(req: StreamCompletionRequest, gateway: boolean): Promise<Response> {

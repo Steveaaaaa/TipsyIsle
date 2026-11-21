@@ -1,7 +1,8 @@
 import { showNotification } from '../store/notification-store';
 import { compatibilityOrigin } from '../core/native-runtime';
+import { compatibilityDiagnosticStates, diagnosticLabel, diagnosticOperation, recordDiagnostic } from '../core/diagnostics';
 import { sessionResources, sessionSnapshot, type SessionResources } from './session-resources';
-import type { CompatibilityHost, CompatibilityScriptButton, CompatSnapshot, CompatSnapshotDelta, RuntimeResult } from './contracts';
+import type { CompatibilityHost, CompatibilityLoadReport, CompatibilityScriptButton, CompatSnapshot, CompatSnapshotDelta, RuntimeResult } from './contracts';
 import { templateAssetFields, type TemplateAssets } from './template-transport';
 import { compatibilityComposer } from './composer-bridge';
 import { setStoryRuntimeLoading, noteSyncInteraction } from '../core/sync/activity';
@@ -145,12 +146,15 @@ export function connectCompatibilityFrame(win: Window, session: string): () => v
     let startupComplete = false;
     let templateStartup: Promise<unknown> = Promise.resolve();
     let startupStage = '等待兼容服务连接';
+    let logStage = '等待兼容服务连接';
+    const logStartup = diagnosticOperation('兼容', '初始化作者运行环境');
     const reportStartupTimeout = () => {
         if (startupComplete || endpoint !== binding) return;
         const message = `角色初始化未完成：${startupStage}`;
         const error = new Error(message);
         binding.rejectTransport(error); binding.rejectReady(error);
         if (endpoint === binding) {
+            logStartup('失败', { stage: logStage, code: 'TIMEOUT' });
             host?.diagnostic({ name: '初始化', scriptId: '', level: 'error', message });
             disconnect(error);
             window.dispatchEvent(new CustomEvent('tipsy-compatibility-fault', { detail: { session, message } }));
@@ -194,12 +198,15 @@ export function connectCompatibilityFrame(win: Window, session: string): () => v
         }
         if (data.kind === 'compat:interaction') { noteSyncInteraction(); return; }
         if (data.kind === 'compat:startup-complete') {
+            if (!startupComplete) logStartup('成功', { stage: '初始化完成' });
             startupComplete = true; binding.startupComplete = true; clearTimeout(timer);
             setStoryRuntimeLoading(false);
             window.dispatchEvent(new CustomEvent('tipsy-compatibility-ready', { detail: session }));
             return;
         }
         if (data.kind === 'compat:fault') {
+            if (!startupComplete) logStartup('失败', { stage: logStage, code: 'INITIALIZATION_ERROR' });
+            else recordDiagnostic('兼容', '作者运行环境', '失败', { stage: '运行中', code: 'RUNTIME_FAULT' });
             setStoryRuntimeLoading(false);
             const error = new Error(String(data.message ?? '作者运行环境已失效'));
             clearTimeout(timer); disconnect(error);
@@ -207,6 +214,7 @@ export function connectCompatibilityFrame(win: Window, session: string): () => v
             return;
         }
         if (data.kind === 'compat:bound') {
+            logStage = '加载角色资源与脚本';
             startupStage = '读取角色状态'; binding.resolveTransport();
             win.postMessage({ kind: 'compat:composer', token: binding.token, text: compatibilityComposer() }, compatibilityOrigin);
             return;
@@ -214,6 +222,10 @@ export function connectCompatibilityFrame(win: Window, session: string): () => v
         if (data.kind === 'compat:stage') {
             if (startupComplete) return;
             startupStage = String(data.stage);
+            if (['读取角色状态', '加载扩展', '作者脚本入口已完成', '初始化 MVU 变量', '生成角色消息界面', '确认故事状态已保存'].includes(startupStage)) logStage = startupStage;
+            else if (startupStage.startsWith('加载作者脚本：')) logStage = '加载作者脚本';
+            else if (startupStage.startsWith('等待角色页面载入：')) logStage = '等待作者互动界面';
+            else if (startupStage.startsWith('准备故事事件：')) logStage = '触发故事启动事件';
             window.dispatchEvent(new CustomEvent('tipsy-compatibility-stage', { detail: { session, stage: startupStage } }));
             return;
         }
@@ -238,6 +250,25 @@ export function connectCompatibilityFrame(win: Window, session: string): () => v
         if (data.kind === 'compat:notice') {
             const kind = ['success', 'warning', 'error'].includes(data.level) ? data.level as 'success' | 'warning' | 'error' : 'info';
             showNotification(String(data.message), { kind, id: `compat:${binding.session}:${String(data.message)}` }); return;
+        }
+        if (data.kind === 'compat:load-report') {
+            const row = data.report as CompatibilityLoadReport | undefined;
+            if (!row || (row.type !== 'extension' && row.type !== 'script') || typeof row.id !== 'string') return;
+            const observed = compatibilityDiagnosticStates[row.type];
+            if (row.state === 'removed') { observed.delete(row.id); return; }
+            if (row.state !== 'ready' && row.state !== 'failed') return;
+            observed.set(row.id, row.state);
+            if (row.state === 'failed') recordDiagnostic('兼容', row.type === 'extension' ? '酒馆扩展' : '作者脚本', '失败', {
+                stage: row.stage === 'runtime' ? '运行中' : '初始化',
+                code: ['DEPENDENCY_MISSING', 'UNSUPPORTED_MODULE', 'CATALOG_ERROR', 'LOAD_ERROR', 'TIMEOUT', 'RUNTIME_ERROR'].includes(row.code ?? '') ? row.code : 'ERROR',
+                component: diagnosticLabel(typeof row.name === 'string' && row.name ? row.name : row.id),
+                componentVersion: typeof row.version === 'string' ? diagnosticLabel(row.version) : undefined,
+            });
+            return;
+        }
+        if (data.kind === 'compat:runtime-error') {
+            recordDiagnostic('兼容', data.area === 'author' ? '作者互动界面' : '作者运行环境', '失败', { stage: '运行中', code: 'RUNTIME_ERROR' });
+            return;
         }
         if (data.kind === 'compat:diagnostic') { host?.diagnostic(data.diagnostic); return; }
         if (data.kind === 'compat:result') {
@@ -324,6 +355,7 @@ function disconnect(error: Error) {
     endpoint?.rejectTransport(error);
     endpoint?.rejectReady(error);
     endpoint = undefined; lastSnapshot = undefined;
+    compatibilityDiagnosticStates.extension.clear(); compatibilityDiagnosticStates.script.clear();
     publishScriptButtons(emptyScriptButtons);
     publishExtensionMenu(emptyScriptButtons);
     for (const job of pending.values()) { clearTimeout(job.timer); job.reject(error); }

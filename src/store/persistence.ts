@@ -1,4 +1,5 @@
 import { platformStorage } from '../core/platform-bridge';
+import { diagnosticErrorKind, recordDiagnostic } from '../core/diagnostics';
 
 const sources = new Map<string, () => unknown>();
 const savedSources = new Map<string, unknown>();
@@ -34,7 +35,11 @@ function changedSnapshots(): Record<string, unknown> {
 }
 async function saveChangedSnapshots(extra: Record<string, unknown> = {}, track = true): Promise<Record<string, unknown>> {
     const snapshots = { ...changedSnapshots(), ...extra };
-    await platformStorage.saveSnapshots(snapshots, track);
+    try { await platformStorage.saveSnapshots(snapshots, track); }
+    catch (error) {
+        recordDiagnostic('保存', '写入本地数据', '失败', { code: diagnosticErrorKind(error) });
+        throw error;
+    }
     for (const [key, value] of Object.entries(snapshots)) savedSources.set(key, value);
     return snapshots;
 }

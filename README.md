@@ -12,13 +12,13 @@ We want this to become the place every AIRP player can eventually call home. Som
 
 **A beautiful interface draws you in. Stories, freedom, and a community with room to grow give you reasons to stay.**
 
-**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.1](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.1) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
+**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.2](docs/releases/1.1.2.en.md) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
 
-## New in 1.1.1
+## New in 1.1.2
 
-- **Keep a separate memory for each story route.** The compatibility layer supports the original ST-BaiBai-Book (柏宝书) 1.3.5. Routes inherit saved memories at the fork; subsequent summaries and vector recall stay on their own route.
-- **Find your Lamplight Chats in one place.** Conversations with your model have their own list, separate from your character library. Open a saved chat or start another without going through story history.
-- **Connect to Google Gemini from the installed app.** Windows and Android can connect directly to Gemini (AI Studio) as well as OpenAI-compatible endpoints.
+- **Get help without piecing together screenshots.** Export a local diagnostic report from an error notification or from Settings. You decide whether to share it with the developers.
+- **Bring more of a creator's interface with you.** The compatibility layer supports more of the dialogs that cards and presets use, including prompts and image cropping.
+- **Connect and read with fewer interruptions.** Model discovery supports HTTP-only services on custom ports, and dialogue now stands out in ordinary prose, including lines in `「…」`.
 
 ## Why make the move?
 

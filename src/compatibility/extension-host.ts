@@ -1,4 +1,5 @@
 import { detectRuntimeFlavor } from '../core/platform-bridge';
+import { diagnosticErrorKind, recordDiagnostic } from '../core/diagnostics';
 import { createReactiveStore } from '../store/reactive-store';
 import { integratedExtensions, type ExtensionCatalog } from './extensions';
 import { readExtensionVariables } from './extension-variables';
@@ -9,6 +10,7 @@ export const extensionCatalogStore = createReactiveStore<ExtensionCatalog>(() =>
 let refreshTask: Promise<void> | undefined;
 export function refreshExtensionCatalog(): Promise<void> {
     return refreshTask ??= (async () => {
+        let httpStatus: number | undefined;
         try {
             const flavor = await detectRuntimeFlavor();
             if (flavor === 'tauri-native') {
@@ -21,10 +23,14 @@ export function refreshExtensionCatalog(): Promise<void> {
                 extensionCatalogStore.setState({ extensions: integratedExtensions, canManage: false, error: '请使用本地网页服务或安装版管理扩展。' }); return;
             }
             const response = await fetch('/api/tipsy-isle/extensions/list');
+            httpStatus = response.status;
             if (!response.ok) throw new Error('读取扩展目录失败，请重启已更新的本地网关');
             const data = await response.json();
             extensionCatalogStore.setState({ extensions: [...integratedExtensions, ...data.extensions], canManage: data.canManage === true, error: undefined });
-        } catch (error) { extensionCatalogStore.setState({ canManage: false, error: error instanceof Error ? error.message : String(error) }); }
+        } catch (error) {
+            recordDiagnostic('兼容', '酒馆扩展', '失败', { stage: '读取扩展目录', httpStatus, code: httpStatus && httpStatus >= 400 ? 'HTTP_ERROR' : diagnosticErrorKind(error) });
+            extensionCatalogStore.setState({ canManage: false, error: error instanceof Error ? error.message : String(error) });
+        }
     })().finally(() => { refreshTask = undefined; });
 }
 const emptySettings = {};

@@ -1,6 +1,11 @@
 import type { AssembledPromptResult, ChatMessageNode, NormalizedCharacterCard, NormalizedLorebook, VariableScopeLevel } from '../types';
 
-export interface CardScript { id: string; name: string; info: string; content: string; enabled: boolean; data: Record<string, unknown>; buttons: Array<{ name: string; visible?: boolean }> }
+export interface CardScript { id: string; name: string; version?: string; info: string; content: string; enabled: boolean; data: Record<string, unknown>; buttons: Array<{ name: string; visible?: boolean }> }
+export interface CompatibilityLoadReport {
+    type: 'extension' | 'script'; id: string; name: string; version?: string;
+    state: 'ready' | 'failed' | 'removed'; stage: 'load' | 'runtime';
+    code?: 'DEPENDENCY_MISSING' | 'UNSUPPORTED_MODULE' | 'CATALOG_ERROR' | 'LOAD_ERROR' | 'TIMEOUT' | 'RUNTIME_ERROR';
+}
 export interface CompatibilityScriptButton { id: string; name: string }
 export interface HelperVariableOption { type?: string; message_id?: number | 'latest'; script_id?: string; extension_id?: string }
 export interface WorldbookBindingsSnapshot { names: string[]; global: string[]; chat: string | null; characters: Array<{ id: string; name: string; avatar: string; books: { primary: string | null; additional: string[] } }> }
