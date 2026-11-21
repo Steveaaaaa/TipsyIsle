@@ -4,7 +4,7 @@ import { streamLlmCompletion, type CompletionResult, type StreamCompletionReques
 import { presetSamplingParameters } from '../core/generation-settings';
 import { getSchemaValues } from '../registry/schema-registry';
 import { finishPromptTemplateTask, runPromptPipelineAsync } from '../pipeline/pipeline-worker-client';
-import { createPromptAssemblyInput, commitPromptTask, workspaceStore, getActivePreset, setStatusBanner, ensureTemplatePreload } from '../store/workspace-store';
+import { createPromptAssemblyInput, commitPromptTask, workspaceStore, getActivePreset, setStatusBanner, ensureTemplatePreload, updateHelperGenerationCount } from '../store/workspace-store';
 import { placeholderPromptDefaultOrder, type HelperGenerationConfig, type HelperRolePrompt, type HelperPlaceholder, type PromptInjection } from './contracts';
 import { normalizePromptInjection } from './prompt-injections';
 import type { PresetPromptSlot } from '../types';
@@ -82,7 +82,7 @@ function rawSlots(order: Array<HelperPlaceholder | HelperRolePrompt>): PresetPro
         content: typeof prompt === 'string' ? '' : prompt.content, enabled: true, injectionOrder: index }));
 }
 function updateTaskCount(): void {
-    workspaceStore.setState(draft => { draft.helperGenerationCount = [...tasks.values()].filter(task => !task.silent).length; });
+    updateHelperGenerationCount(() => [...tasks.values()].filter(task => !task.silent).length);
 }
 export function stopHelperGeneration(id?: string, session?: string, nonSilentOnly = false): boolean {
     let stopped = false;

@@ -6,7 +6,14 @@ import type { TemplatePromptInjection } from '../pipeline/template-injections';
 import { activePath } from './chat-tree';
 import type { ScopedVariableState } from './scoped-variable-store';
 
+export type ChatSessionKind = 'character' | 'free';
+export const freeChatName = '夜灯畅谈';
+export interface FreeChatDetails { title?: string; model?: string }
+
 export interface ArchivedChat {
+    kind?: ChatSessionKind;
+    freeChat?: FreeChatDetails;
+    importedFrom?: string;
     deletedMessageIds?: string[];
     id: string; characterId: string; messages: ChatMessageNode[];
     activeLeafId: string | null; timedStates: Record<string, LorebookTimedState>;
@@ -15,6 +22,7 @@ export interface ArchivedChat {
     templateActivations?: Array<{ world: string; uid: string | number; force: boolean }>;
     syncLabel?: string;
     continuation?: {
+        portable?: boolean;
         chatMetadata?: Record<string, unknown>;
         nativePluginRoute?: import('../plugins/native/storage').PluginBuckets;
         extensionKeys?: string[];
@@ -33,6 +41,9 @@ export interface ArchivedChat {
     };
 }
 export interface ChatArchiveSummary {
+    kind?: ChatSessionKind;
+    freeChat?: FreeChatDetails;
+    importedFrom?: string;
     id: string; characterId: string; messageCount: number; activeCount: number;
     lastMessage: string; lastDate: ChatMessageNode['sendDate'];
     syncLabel?: string;
@@ -41,7 +52,7 @@ const indexKey = 'chat_archive_index';
 const chatKey = (id: string) => `chat_archive:${id}`;
 let writes: Promise<unknown> = Promise.resolve();
 export function summarizeChat(chat: ArchivedChat): ChatArchiveSummary {
-    return { id: chat.id, characterId: chat.characterId, syncLabel: chat.syncLabel, messageCount: chat.messages.length,
+    return { id: chat.id, kind: chat.kind, freeChat: chat.freeChat, characterId: chat.characterId, importedFrom: chat.importedFrom, syncLabel: chat.syncLabel, messageCount: chat.messages.length,
         activeCount: activePath(chat.messages, chat.activeLeafId).length,
         lastMessage: activePath(chat.messages, chat.activeLeafId).at(-1)?.content ?? '', lastDate: activePath(chat.messages, chat.activeLeafId).at(-1)?.sendDate };
 }
@@ -68,6 +79,14 @@ export function publishChatArchive(chat: ArchivedChat, extras: Record<string, un
     return updateChatArchive(chat.id, () => ({ chat, extras }), false).then(() => {});
 }
 type ArchiveUpdate<T> = { chat: ArchivedChat; extras: Record<string, unknown>; result?: T; silent?: boolean };
+export function deleteChatArchive(id: string, extras: Record<string, unknown> = {}): Promise<void> {
+    const job = writes.catch(() => {}).then(async () => {
+        const index = await platformStorage.loadSnapshot<ChatArchiveSummary[]>(indexKey, []);
+        await platformStorage.saveSnapshots({ ...extras, [indexKey]: index.filter(item => item.id !== id), [chatKey(id)]: null });
+    });
+    writes = job;
+    return job;
+}
 export function updateChatArchive<T>(id: string, update: (current: ArchivedChat | null) => Promise<ArchiveUpdate<T>> | ArchiveUpdate<T>, read = true): Promise<T | undefined> {
     const job = writes.catch(() => {}).then(async () => {
         const index = await platformStorage.loadSnapshot<ChatArchiveSummary[]>(indexKey, []);

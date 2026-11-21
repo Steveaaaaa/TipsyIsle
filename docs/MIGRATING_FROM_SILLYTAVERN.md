@@ -18,9 +18,11 @@ Export from SillyTavern, or use the original files supplied by the creator:
 | Your persona | Your name, avatar, and persona description. | Enter these in Settings → Persona (设置 → 个人资料). You can set a global persona and a story-specific identity. |
 | Model connection | Endpoint, API key, protocol, and model name. | Configure and save these in Settings → Model Connection (设置 → 模型连接). |
 
-The import entry handles character cards, worldbooks, and presets. **It does not provide a one-click migration of an entire SillyTavern data directory, chat history, or all settings.** Appearance packs and TipsyIsle plugins also have their own formats. Existing SillyTavern themes, CSS, and extensions need to be considered against the interfaces and page structure they use.
+In SillyTavern's chat manager, choose **Export as JSONL**, then select the file and its character under Library → Import Save (馆藏 → 导入存档) in TipsyIsle. Review the preview and confirm to create a new chat with its messages, alternate replies, and recognized variables. Worldbook timers restart. Group chats, branches stored in other chat files, third-party plugin state, and whole-directory migration are outside this import's scope. Existing themes, CSS, and extensions still need individual compatibility checks.
 
 You can export a character card from its menu as a standard V2 / V3 PNG, including character data such as its embedded worldbook and regex scripts. This export does not include chat saves.
+
+To back up a TipsyIsle chat, choose Story Saves (故事存档) next to Saved Chats (已保存会话) and export a `.tipsy-story` file. It contains all routes in that chat, saved story state, and bundled resources. You can restore it on another device offline. Model connections and keys are configured separately; plugins and standalone galleries are not bundled.
 
 ## Start with familiar scenes and interactions
 

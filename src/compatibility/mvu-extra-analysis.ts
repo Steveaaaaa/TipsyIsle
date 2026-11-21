@@ -1,4 +1,4 @@
-import { workspaceStore, getActiveChatMessages, getActiveCharacter, getActiveLorebooks, getCharacterWorldbooks, getEffectiveMvuSettings, setStatusBanner } from '../store/workspace-store';
+import { workspaceStore, getActiveChatMessages, getActiveCharacter, getActiveLorebooks, getCharacterWorldbooks, getEffectiveMvuSettings, setStatusBanner, setMvuExtraAnalysisActive } from '../store/workspace-store';
 import { compileMvuRegex } from '../pipeline/mvu-settings';
 import { supportsMvuExtraAnalysis } from '../pipeline/mvu-worldbooks';
 import { generateForHelper, stopHelperGeneration } from './helper-generation';
@@ -96,7 +96,7 @@ export async function analyzeMvuReply(text: string, variables: Record<string, un
     parentSignal.addEventListener('abort', cancel, { once: true });
     const signal = controller.signal;
     activeAnalyses++;
-    workspaceStore.setState(draft => { draft.mvuExtraAnalysisActive = true; });
+    setMvuExtraAnalysisActive(true);
     const notificationId = settings['mvu.notify_analysis'] !== false
         ? showNotification('正在解析变量…', { kind: 'progress' }) : undefined;
     let analysisCompleted = false;
@@ -170,6 +170,6 @@ export async function analyzeMvuReply(text: string, variables: Record<string, un
     } finally {
         if (notificationId && analysisCompleted) showNotification('变量解析完成', { id: notificationId, kind: 'success' });
         parentSignal.removeEventListener('abort', cancel);
-        activeAnalyses--; workspaceStore.setState(draft => { draft.mvuExtraAnalysisActive = activeAnalyses > 0; });
+        activeAnalyses--; setMvuExtraAnalysisActive(() => activeAnalyses > 0);
     }
 }

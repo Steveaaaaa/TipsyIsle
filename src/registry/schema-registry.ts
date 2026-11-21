@@ -13,9 +13,9 @@ export interface SchemaRegistryState {
 }
 
 const BUILTIN_SAMPLER_AND_UI_SCHEMAS: SchemaFieldDescriptor[] = [
-    { id: 'helper.render_depth', title: '渲染范围（渲染深度）', type: 'number', defaultValue: 0,
+    { id: 'helper.render_depth', title: '互动页面预加载楼数', type: 'number', defaultValue: 0,
         group: '酒馆助手 · 渲染', mobileWeight: 'essential', validation: { min: 0, step: 1 },
-        description: '从最新楼层向前计数；0 表示渲染全部楼层。同层前端通常需要保留最初的界面楼层，请按作者要求设置。' },
+        description: '从最新楼层向前计数；0 为自动。开场页面会预加载，其余楼层翻到附近时加载。' },
     ...mvuFields,
     ...vectorFields,
     { id: 'sampler.tokenizer', type: 'select', defaultValue: 'auto', group: '核心采样 (Core Sampling)', title: 'Token 分词器', mobileWeight: 'advanced',

@@ -1,8 +1,6 @@
 import { openStoryRoutes } from './StoryRoutes';
 import { routesAt } from '../store/chat-tree';
 import { workspaceStore, setStatusBanner } from '../store/workspace-store';
-import { schemaRegistryStore } from '../registry/schema-registry';
-import { helperRenderDepth, rendersMessageHtml } from '../compatibility/render-settings';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { extractHtmlSandboxBlocks } from '../pipeline/macro-regex-engine';
 import { renderMessageMarkdown, renderMixedMessage } from '../pipeline/message-markdown';
@@ -13,6 +11,7 @@ import { SlotMount } from '../plugins/slot-registry';
 import { PluginButtons } from '../plugins/native/PluginCommands';
 import { Icon } from './Icon';
 import { CharacterAvatar } from './CharacterAvatar';
+import { GenerationActivity } from './GenerationActivity';
 import { storySpeakerName } from '../core/story-identity';
 import { observeReadingActivity, type ReadingNavigationProps } from './reading-navigation';
 import { captureReadingBookmark, readReadingBookmark, readingBookmarkAdjustment, readingSwipeId, trackReadingBookmark, writeReadingBookmark } from './reading-bookmark';
@@ -21,6 +20,7 @@ import type { ChatMessageNode, LayoutMode } from '../types';
 
 export interface VirtualChatStreamProps extends ReadingNavigationProps {
     introduction?: ReactNode;
+    freeChat?: boolean;
     messages: ChatMessageNode[];
     characterId: string;
     characterName: string;
@@ -52,6 +52,7 @@ function MessageProse({ source }: { source: string }) {
 
 export function VirtualChatStream({
     introduction,
+    freeChat,
     messages,
     characterId,
     characterName,
@@ -75,7 +76,6 @@ export function VirtualChatStream({
 }: VirtualChatStreamProps) {
     const allMessages = workspaceStore.useStore(state => state.messages);
     const branchEpoch = workspaceStore.useStore(state => state.branchEpoch);
-    const renderDepth = schemaRegistryStore.useStore(state => helperRenderDepth(state.values['helper.render_depth']));
     const containerRef = useRef<HTMLDivElement | null>(null);
     const introductionRef = useRef<HTMLDivElement | null>(null);
     const [introductionHeight, setIntroductionHeight] = useState(0);
@@ -282,7 +282,7 @@ export function VirtualChatStream({
         if (!t) return;
         const dx = t.clientX - st.startX;
         const dy = t.clientY - st.startY;
-        if (node.floor > 0 && Math.abs(dx) > 56 && Math.abs(dy) < 40) {
+        if (!freeChat && node.floor > 0 && Math.abs(dx) > 56 && Math.abs(dy) < 40) {
             openStoryRoutes(node.id, e.currentTarget as HTMLElement);
         }
     };
@@ -312,9 +312,8 @@ export function VirtualChatStream({
             {visibleSlice.map((node) => {
                 const speakerName = node.role === 'user' ? userName : node.role === 'assistant' ? storySpeakerName(node.speakerName, characterName) : node.speakerName;
                 const formatted = renderFormattedContent(node);
-                const streaming = getMessageStreamPreview(node);
-                const blocks = streaming ? [] : extractHtmlSandboxBlocks(formatted);
-                const renderHtml = rendersMessageHtml(node.floor, messages.length, renderDepth);
+                const streaming = freeChat ? undefined : getMessageStreamPreview(node);
+                const blocks = freeChat || streaming ? [] : extractHtmlSandboxBlocks(formatted);
 
                 return (
                     <article
@@ -337,8 +336,8 @@ export function VirtualChatStream({
                         <header className="ttm-msg-header">
                             <div className="ttm-msg-identity"><CharacterAvatar className="ttm-message-avatar" name={speakerName} avatar={node.role === 'assistant' ? characterAvatar : node.role === 'user' ? userAvatar : undefined} fallback={node.role === 'user' ? 'user' : 'initial'} /><strong className="ttm-speaker-name">{speakerName}</strong><small className="ttm-floor-badge">#{node.floor}</small></div>
                             <div className="ttm-msg-toolbar">
-                            {node.floor > 0 && <button type="button" className="ttm-route-entry" onClick={event => openStoryRoutes(node.id, event.currentTarget)} aria-label={`查看第 ${node.floor} 楼的故事路线`}><Icon name="branch" width={15} height={15} />路线 · {routesAt(allMessages, node.id).length}</button>}
-                            {node.floor === 0 && messages.length === 1 && node.swipes.length > 1 && <div className="ttm-msg-toolbar" role="group" aria-label="切换开场">
+                            {!freeChat && node.floor > 0 && <button type="button" className="ttm-route-entry" onClick={event => openStoryRoutes(node.id, event.currentTarget)} aria-label={`查看第 ${node.floor} 楼的故事路线`}><Icon name="branch" width={15} height={15} />路线 · {routesAt(allMessages, node.id).length}</button>}
+                            {!freeChat && node.floor === 0 && messages.length === 1 && node.swipes.length > 1 && <div className="ttm-msg-toolbar" role="group" aria-label="切换开场">
                                 <button type="button" className="ttm-icon-btn" aria-label="上一个开场" disabled={node.activeSwipeIndex === 0} onClick={() => onSwipeMessage(node.id, 'prev')}><Icon name="chevron" width={16} height={16} style={{ transform: 'rotate(180deg)' }} /></button>
                                 <small>开场 {node.activeSwipeIndex + 1} / {node.swipes.length}</small>
                                 <button type="button" className="ttm-icon-btn" aria-label="下一个开场" disabled={node.activeSwipeIndex === node.swipes.length - 1} onClick={() => onSwipeMessage(node.id, 'next')}><Icon name="chevron" width={16} height={16} /></button>
@@ -347,7 +346,10 @@ export function VirtualChatStream({
                             </div>
                         </header>
                             <div className="ttm-msg-body ttm-msg-bubble">
-                                {streaming ? <StreamingMessage preview={streaming} renderComponents={renderHtml} /> : blocks.map((block, idx) => block.type === 'markdown' ? <MessageProse key={`${node.id}_prose_${idx}`} source={block.content} /> : !renderHtml ? <p key={`${node.id}_notice_${idx}`}>此楼互动内容超出渲染范围，可在角色卡运行设置中调整。</p> : (
+                                {freeChat ? <>
+                                    {node.reasoning && <details className="ttm-reasoning-drawer"><summary>思考过程</summary><p>{node.reasoning}</p></details>}
+                                    {node.extra?.tipsy_generation_incomplete && !formatted ? <GenerationActivity phase="waiting" /> : <MessageProse source={formatted} />}
+                                </> : streaming ? <StreamingMessage preview={streaming} renderComponents /> : blocks.map((block, idx) => block.type === 'markdown' ? <MessageProse key={`${node.id}_prose_${idx}`} source={block.content} /> : (
                                     <SandboxFrame
                                         key={`${node.id}_${branchEpoch}_sbx_${idx}`}
                                         htmlContent={block.type === 'mixed' ? renderMixedMessage(block.content) : block.content}
@@ -368,9 +370,9 @@ export function VirtualChatStream({
                                 ))}
                             </div>
 
-                        <footer className="ttm-msg-footer">
+                        {!freeChat && <footer className="ttm-msg-footer">
                             <SlotMount name="message.footer" slotProps={{ message: node }} />
-                        </footer>
+                        </footer>}
                     </article>
                 );
             })}
@@ -384,8 +386,8 @@ export function VirtualChatStream({
                         <div className="ttm-section-head-row"><h3 id="message-actions-title">{actionSheetNode.speakerName} · #{actionSheetNode.floor}</h3><button type="button" className="ttm-icon-btn" aria-label="关闭消息操作" onClick={() => setActionSheetNode(null)}><Icon name="close" /></button></div>
                         <div className="ttm-bottom-sheet-actions">
                             {actionSheetNode.isHidden && <p>已从模型上下文隐藏</p>}
-                            <SlotMount name="message.actions" slotProps={{ message: actionSheetNode }} />
-                            <PluginButtons message={actionSheetNode} onOpen={() => setActionSheetNode(null)} />
+                            {!freeChat && <><SlotMount name="message.actions" slotProps={{ message: actionSheetNode }} />
+                            <PluginButtons message={actionSheetNode} onOpen={() => setActionSheetNode(null)} /></>}
                             {onIllustrateMessage && actionSheetNode.role === 'assistant' && !actionSheetNode.extra?.tipsy_generation_incomplete && <button type="button" className="ttm-btn-ghost" onClick={() => { onIllustrateMessage(actionSheetNode.id); setActionSheetNode(null); }}>本楼配图</button>}
                             {canRetry && <button
                                 type="button"
@@ -395,7 +397,7 @@ export function VirtualChatStream({
                                     catch (error) { setStatusBanner(error instanceof Error ? error.message : String(error)); }
                                 }}
                             >
-                                从这里重新选择
+                                {freeChat ? '从这里新建分支' : '从这里重新选择'}
                             </button>}
                             <button
                                 type="button"

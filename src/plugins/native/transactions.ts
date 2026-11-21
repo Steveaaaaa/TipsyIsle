@@ -124,8 +124,7 @@ export function commitEdit(kind: Entry['kind'], args: unknown, access: EditAcces
             const after = prepareAssetPublication(state, planned), publication = assetPublication(state, after);
             const assets = await Promise.all(planned.after.map(asset => assetInfo(assetAt(after, asset.kind, asset.value.id)!)));
             const result = { operationId, undo: undoId, assets };
-            await w.commitNativeWorkspace(() => { access.check(); publication.validate(w.workspaceStore.getState()); },
-                () => w.workspaceStore.setState(publication.patch), extra(result));
+            await w.commitNativeAssetEdit(() => { access.check(); publication.validate(w.workspaceStore.getState()); }, publication.patch, extra(result));
             entry.plan = planned; entry.publication = publication;
             receipt = result;
         }
@@ -189,8 +188,7 @@ export function undoEdit(kind: Entry['kind'], args: unknown, access: EditAccess)
             const patch = entry.publication!.reverse(state), after = { ...state, ...patch };
             result = { operationId: receipt.operationId, undo: '', assets: await Promise.all(entry.plan.before.map(asset => assetInfo(assetAt(after, asset.kind, asset.value.id)!))) };
             const publication = assetPublication(state, after);
-            await w.commitNativeWorkspace(() => { access.check(); publication.validate(w.workspaceStore.getState()); },
-                () => w.workspaceStore.setState(patch), extra(result));
+            await w.commitNativeAssetEdit(() => { access.check(); publication.validate(w.workspaceStore.getState()); }, patch, extra(result));
         }
         undo.delete(token); return result;
     });

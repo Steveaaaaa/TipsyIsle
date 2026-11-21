@@ -33,11 +33,22 @@ export async function pickNativePlugin(): Promise<File | undefined> {
     return new File([new Uint8Array(await readFile(path)).buffer], await basename(path));
 }
 
+export async function pickNativeStorySave(): Promise<File | undefined> {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const path = await open({ multiple: false, directory: false, pickerMode: 'document',
+        filters: /Android/i.test(navigator.userAgent) ? undefined : [{ name: '故事存档', extensions: ['jsonl', 'tipsy-story'] }] });
+    if (!path) return;
+    const { readFile } = await import('@tauri-apps/plugin-fs');
+    const { basename } = await import('@tauri-apps/api/path');
+    return new File([new Uint8Array(await readFile(path)).buffer], await basename(path));
+}
+
 export async function saveExport(blob: Blob, name: string): Promise<boolean> {
     if (isNativeRuntime()) {
         const { save } = await import('@tauri-apps/plugin-dialog');
         const extension = name.split('.').pop() || 'json';
-        const path = await save({ defaultPath: name, filters: [{ name: extension.toUpperCase(), extensions: [extension] }] });
+        const path = await save({ defaultPath: name, filters: extension === 'tipsy-story' && /Android/i.test(navigator.userAgent)
+            ? undefined : [{ name: extension.toUpperCase(), extensions: [extension] }] });
         if (!path) return false;
         const { writeFile } = await import('@tauri-apps/plugin-fs');
         await writeFile(path, new Uint8Array(await blob.arrayBuffer()));

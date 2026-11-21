@@ -39,7 +39,7 @@ export const settingsFieldLabels: Record<string, Partial<SchemaFieldDescriptor>>
     'sampler.frequency_penalty': help('频率惩罚', '按词语的重复次数降低其出现概率，用于减少重复表达。'),
     'sampler.presence_penalty': help('存在惩罚', '降低已出现词语的概率，可能使回复引入更多新内容。'),
     'sampler.reasoning_effort': help('模型推理强度', '只对支持此参数的模型生效。较高强度可能增加等待时间和 Token 消耗。'),
-    'helper.render_depth': help('作者页面渲染范围', '从最新消息向前保留多少层互动页面；0 表示全部。作者要求“渲染范围改为 0”时，在这里设置。'),
+    'helper.render_depth': help('互动页面预加载楼数', '设为 0 时自动选择预加载楼数。翻阅旧消息时，互动页面会随滚动加载。'),
     'sandbox.enable_html_frames': help('显示作者互动页面', '呈现故事自带的 HTML 封面、状态栏和按钮。关闭后这些互动内容将无法显示。'),
     'lorebook.scan_depth': help('世界书扫描消息数', '默认读取最近多少条消息来匹配世界书关键词；故事和条目自身的配置也会参与。'),
     'lorebook.max_recursion_steps': help('世界书递归触发层数', '已激活条目还可以触发其他条目；此值限制递归层数。通常按作者或预设要求设置。'),

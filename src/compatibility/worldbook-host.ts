@@ -1,19 +1,18 @@
-import { removeWorldbookFromWorkspace, workspaceStore, getActiveCharacter, persistWorkspaceNow, worldbooksChanged, getAvailableWorldbooks, getCharacterWorldbooks } from '../store/workspace-store';
+import { removeLibraryWorldbook, workspaceStore, persistWorkspaceNow, worldbooksChanged, getAvailableWorldbooks, getCharacterWorldbooks,
+    writeHelperWorldbook, replaceHelperGlobalWorldbookBindings, bindHelperCharacterWorldbooks, bindHelperChatWorldbook,
+    updateWorldbookTimedEffects, getActiveChatMessages } from '../store/workspace-store';
 import { normalizeLorebook } from '../pipeline/normalizer';
-import { serializeCharacterCard } from '../pipeline/asset-serializer';
 import { fromHelperWorldbookEntries, toHelperWorldbook, toNativeWorldbookEntry } from './worldbook-codec';
 import type { NormalizedLorebook } from '../types';
 import { fromLegacyWorldbookEntries, toLegacyWorldbook, filterLegacyEntries } from './legacy-worldbook-codec';
 import _ from 'lodash';
-import { cloneStateValue } from '../store/reactive-store';
 import { characterAvatarId } from './asset-identity';
 import { scopedVariableStore, replaceExtensionVariables } from '../store/scoped-variable-store';
 import { defaultWorldinfoSettings } from '../pipeline/worldinfo-settings';
 import { serializeLorebook } from '../pipeline/asset-serializer';
-import { getSchemaValues, setSchemaValue, schemaRegistryStore } from '../registry/schema-registry';
+import { setSchemaValue, schemaRegistryStore } from '../registry/schema-registry';
 import { WorldInfoTimedEffects } from '../pipeline/worldinfo-effects';
 import { mvuCharacterConfigEntries, serializeMvuCharacterConfig } from '../pipeline/mvu-settings';
-import { captureMessageSnapshot, getActiveChatMessages } from '../store/workspace-store';
 
 let settingsSources: unknown[] = [];
 let cachedSettings: typeof defaultWorldinfoSettings & { selected_global_lorebooks: string[] };
@@ -57,15 +56,6 @@ function renderOption(options: any = {}) {
     if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => key !== 'render') ||
         options.render !== undefined && !['immediate', 'debounced', 'none'].includes(options.render)) throw new Error('世界书 render 参数无效');
 }
-function setBook(book: NormalizedLorebook) {
-    workspaceStore.setState(draft => {
-        if (draft.storyWorldbooks?.some(item => item.id === book.id)) { draft.storyWorldbooks = draft.storyWorldbooks.map(item => item.id === book.id ? book : item); return; }
-        const exists = draft.lorebooks.some(item => item.id === book.id);
-        draft.lorebooks = exists ? draft.lorebooks.map(item => item.id === book.id ? book : item) : [...draft.lorebooks, book];
-        draft.characters = draft.characters.map(card => card.characterBook?.id === book.id || card.embeddedLorebook?.id === book.id
-            ? { ...card, ...(card.characterBook?.id === book.id ? { characterBook: book } : {}), ...(card.embeddedLorebook?.id === book.id ? { embeddedLorebook: book } : {}) } : card);
-    });
-}
 async function saved() { await persistWorkspaceNow(); worldbooksChanged(); }
 function ensureCurrentChat(chat: unknown) { if (chat !== 'current') throw new Error('目前仅支持当前聊天世界书'); }
 function names(values: unknown): string[] {
@@ -104,7 +94,7 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
         const existing = mvuCharacterConfigEntries(book)[0];
         if (existing) entries.find(entry => entry.uid === Number(existing.uid))!.content = content;
         else entries.push({ uid: Math.max(-1, ...entries.map(entry => entry.uid)) + 1, name: '[config_override]', enabled: false, content } as any);
-        setBook(fromHelperWorldbookEntries(book, entries)); await saved(); return;
+        writeHelperWorldbook(fromHelperWorldbookEntries(book, entries)); await saved(); return;
     }
     if (method === 'worldbook.effect.get' || method === 'worldbook.effect.set') {
         const book = find(params.name)!;
@@ -119,8 +109,7 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
         const value = String(params.value).trim().toLowerCase();
         const enabled = ['toggle', 't', ''].includes(value) ? !metadata : /^(true|on|yes|1)$/.test(value) ? true : /^(false|off|no|0)$/.test(value) ? false : !!metadata;
         effects.setTimedEffect(effect, entry, enabled);
-        workspaceStore.setState({ timedStates: effects.snapshot() });
-        if (state.activeLeafId) captureMessageSnapshot(state.activeLeafId);
+        updateWorldbookTimedEffects(effects.snapshot(), state.activeLeafId);
         await persistWorkspaceNow();
         return '';
     }
@@ -134,7 +123,7 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
             const book = find(params.name, false);
             const entries = Object.values(params.data.entries ?? {}).map((entry: any) => ({ ...entry, extensions: { ...entry.extensions, position: entry.position } }));
             const updated = normalizeLorebook({ ...params.data, name: params.name, entries }, params.name);
-            setBook({ ...updated, ...(book ? { id: book.id } : {}) }); await saved(); return;
+            writeHelperWorldbook({ ...updated, ...(book ? { id: book.id } : {}) }); await saved(); return;
         }
         const book = find(params.name)!;
         const document = serializeLorebook(book) as Record<string, any>;
@@ -144,7 +133,7 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
             const used = new Set(entries.map(entry => Number(entry.uid ?? entry.id))); let uid = 0; while (used.has(uid)) uid++;
             entries.push({ uid, key: params.key ? [params.key] : [], keysecondary: [], comment: params.key ?? '', content: params.content ?? '',
                 constant: false, selective: true, order: 100, position: 0, disable: false });
-            setBook({ ...normalizeLorebook({ ...document, name: book.name, entries }), id: book.id }); await saved(); return String(uid);
+            writeHelperWorldbook({ ...normalizeLorebook({ ...document, name: book.name, entries }), id: book.id }); await saved(); return String(uid);
         }
         if (method !== 'worldbook.native.field') throw new Error(`未知世界书操作：${method}`);
         const entry = entries.find(entry => String(entry.uid ?? entry.id) === String(params.uid));
@@ -166,7 +155,7 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
             const aliases: Record<string, string> = { position: 'position', scanDepth: 'scan_depth', caseSensitive: 'case_sensitive', matchWholeWords: 'match_whole_words', useGroupScoring: 'use_group_scoring' };
             if (aliases[field]) (entry.extensions ??= {})[aliases[field]] = value;
         }
-        setBook({ ...normalizeLorebook({ ...document, name: book.name, entries }), id: book.id }); await saved(); return '';
+        writeHelperWorldbook({ ...normalizeLorebook({ ...document, name: book.name, entries }), id: book.id }); await saved(); return '';
     }
     if (method === 'worldbook.settings') {
         const { selected_global_lorebooks, ...settings } = params.settings;
@@ -174,7 +163,7 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
         if (settings.scan_depth !== undefined) setSchemaValue('lorebook.scan_depth', settings.scan_depth);
         if (settings.max_recursion_steps !== undefined) setSchemaValue('lorebook.max_recursion_steps', settings.max_recursion_steps);
         if (settings.context_percentage !== undefined) setSchemaValue('lorebook.budget_percent', settings.context_percentage);
-        if (selected_global_lorebooks) workspaceStore.setState(draft => { draft.activeLorebookIds = names(selected_global_lorebooks).map(name => find(name)!.id); });
+        if (selected_global_lorebooks) replaceHelperGlobalWorldbookBindings(() => names(selected_global_lorebooks).map(name => find(name)!.id));
         await saved(); return;
     }
     if (method === 'worldbook.read') {
@@ -196,7 +185,7 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
         }
         if (!_.isEqual(entries, current.entries)) {
             const updated = fromHelperWorldbookEntries(book, entries);
-            setBook(updated); await saved();
+            writeHelperWorldbook(updated); await saved();
         }
         const updated = helperBook(find(params.name)!);
         // Return normalization changes too, without retransmitting unchanged content.
@@ -237,12 +226,12 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
             } else throw new Error(`未知旧版世界书接口：${method}`);
         }
         const updated = fromLegacyWorldbookEntries(book, next);
-        setBook(updated); await saved();
+        writeHelperWorldbook(updated); await saved();
         return { entries: toLegacyWorldbook(updated), new_uids, delete_occurred };
     }
     if (method === 'worldbook.bindGlobal') {
         const selected = names(params.names);
-        workspaceStore.setState(draft => { draft.activeLorebookIds = selected.map(name => find(name)!.id); });
+        replaceHelperGlobalWorldbookBindings(() => selected.map(name => find(name)!.id));
         await saved(); return;
     }
     if (method === 'worldbook.bindCharacter') {
@@ -252,19 +241,13 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
         if (!binding || (binding.primary !== null && typeof binding.primary !== 'string')) throw new Error('角色世界书 primary 必须是名称或 null');
         if (binding.primary !== null) find(binding.primary);
         const additional = names(binding.additional);
-        const card = candidates[0];
-        workspaceStore.setState(draft => {
-            if (draft.storyCharacter && card.id === draft.activeCharacterId) { draft.storyCharacterBinding = { primary: binding.primary, additional }; return; }
-            draft.characterWorldbookBindings[card.id] = { primary: binding.primary, additional };
-            draft.characters = draft.characters.map(item => item.id === card.id ? { ...item, primaryWorldbook: binding.primary, additionalWorldbooks: additional,
-                extensions: { ...item.extensions, world: binding.primary ?? '', extra_worlds: additional } } : item);
-        });
+        bindHelperCharacterWorldbooks(candidates[0].id, binding.primary, additional);
         await saved(); return;
     }
     if (method === 'worldbook.bindChat' || method === 'worldbook.getOrCreateChat') {
         ensureCurrentChat(params.chat);
         if (method === 'worldbook.bindChat' && params.name === null) {
-            workspaceStore.setState(draft => { draft.chatWorldbookBindings[state.activeChatId] = null; });
+            bindHelperChatWorldbook(state.activeChatId, null);
             await saved(); return;
         }
         const existing = state.chatWorldbookBindings[state.activeChatId];
@@ -272,15 +255,15 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
         const name = method.endsWith('bindChat') ? params.name : params.name ?? `Chat_${state.activeChatId}`;
         if (!find(name, false)) {
             if (method.endsWith('bindChat')) throw new Error(`未能找到世界书「${name}」`);
-            setBook(normalizeLorebook({ name, entries: [] }));
+            writeHelperWorldbook(normalizeLorebook({ name, entries: [] }));
         }
-        workspaceStore.setState(draft => { draft.chatWorldbookBindings[state.activeChatId] = name; });
+        bindHelperChatWorldbook(state.activeChatId, name);
         await saved(); return method.endsWith('getOrCreateChat') ? name : undefined;
     }
     const book = find(params.name, false);
     if (method === 'worldbook.delete') {
         if (!book) return false;
-        workspaceStore.setState(draft => { removeWorldbookFromWorkspace(draft, book.id); });
+        removeLibraryWorldbook(book.id);
         await saved(); return true;
     }
     renderOption(params.options);
@@ -299,7 +282,7 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
     if (book && method === 'worldbook.replace' && _.isEqual(values, toHelperWorldbook(book))) return values;
     const updated = fromHelperWorldbookEntries(source, values);
     const worldbook = toHelperWorldbook(updated);
-    setBook(updated); await saved();
+    writeHelperWorldbook(updated); await saved();
     if (method === 'worldbook.replace') return worldbook;
     if (method === 'worldbook.append') return { worldbook, new_entries: worldbook.slice(source.entries.length) };
     return !book;

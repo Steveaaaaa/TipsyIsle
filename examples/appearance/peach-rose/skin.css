@@ -1,0 +1,193 @@
+:scope {
+    --rose-ink: #492735;
+    --rose-muted: #75515c;
+    --rose-accent: #963e5d;
+    --rose-burgundy: #7f2f4a;
+    --rose-paper: #fff6f3;
+    --rose-surface: #fffafa;
+    --rose-petal: #f7dce1;
+    --rose-line: #dab2b5;
+    --rose-foil: #a76c58;
+    --rose-herb: #49614f;
+    --rose-serif: "FangSong", "Songti SC", "Noto Serif CJK SC", SimSun, Georgia, serif;
+    --ti-text-primary: var(--rose-ink);
+    --ti-text-muted: var(--rose-muted);
+    --ti-accent: var(--rose-accent);
+    --ti-bg-surface: var(--rose-surface);
+    --ti-bg-primary: var(--rose-paper);
+    --ti-border: var(--rose-line);
+    --ti-soft: var(--rose-petal);
+    --ti-selection: var(--rose-petal);
+    color: var(--rose-ink);
+    scrollbar-color: var(--rose-line) transparent;
+}
+
+:where([data-color-scheme="dark"]) :scope {
+    --rose-ink: #ffe8e7;
+    --rose-muted: #e0bfc7;
+    --rose-accent: #f2a5b8;
+    --rose-burgundy: #912f51;
+    --rose-paper: #2d1b25;
+    --rose-surface: #39232f;
+    --rose-petal: #532e41;
+    --rose-line: #84576a;
+    --rose-foil: #dbac88;
+    --rose-herb: #c7d8bc;
+}
+
+:scope :is(button, a, input, textarea, select, summary):focus-visible { outline: 2px solid var(--rose-accent); outline-offset: 2px; }
+:scope ::selection { color: var(--rose-ink); background: var(--rose-petal); }
+:scope :is(.ttm-btn-primary, [data-ti-part="send"]) {
+    color: #fff4ee;
+    background: var(--rose-burgundy);
+    border: 1px solid var(--rose-foil);
+    border-radius: 8px;
+    box-shadow: inset 0 0 0 2px var(--rose-burgundy), inset 0 0 0 3px #edb79779;
+}
+:scope :is(.ttm-btn-primary, [data-ti-part="send"]):hover:not(:disabled) { background: #a04460; color: #fff4ee; }
+:scope[data-ti-shell="composer-row"] [data-ti-part="send"]:disabled {
+    color: var(--rose-muted);
+    background: var(--rose-petal);
+    border-color: var(--rose-line);
+    box-shadow: none;
+    opacity: 1;
+}
+:scope[data-ti-shell="composer-row"] [data-ti-part="send"]:disabled > .ttm-skin-art { display: none; }
+:scope[data-ti-shell="composer-row"] [data-ti-part="send"]:disabled::before {
+    content: "";
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    background: currentColor;
+    mask: url(asset:send) center / contain no-repeat;
+}
+:scope :is(.ttm-btn-secondary, .ttm-chip-btn, .ttm-mini-btn) { border-color: var(--rose-line); color: var(--rose-ink); border-radius: 8px; }
+:scope :is(.ttm-btn-secondary, .ttm-chip-btn, .ttm-mini-btn):hover:not(:disabled) { background: var(--rose-petal); }
+
+:scope[data-ti-shell="wallpaper"] { background-color: var(--rose-paper); }
+:where([data-color-scheme="dark"]) :scope[data-ti-shell="wallpaper"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: #4b233b;
+    mix-blend-mode: multiply;
+    opacity: .89;
+}
+:scope[data-ti-shell="topbar"] {
+    background: var(--rose-surface);
+    border-bottom: 3px double var(--rose-foil);
+}
+.ttm-brand-logo > img { width: 34px; height: 34px; }
+.ttm-brand-name { letter-spacing: 0; font-family: var(--rose-serif); }
+.ttm-brand-name::after { display: none; }
+.ttm-brand-english { font-family: Georgia, serif; font-style: italic; }
+.ttm-topbar-location strong { color: var(--rose-herb); }
+.ttm-topbar-actions > .ttm-home-link[aria-current] { background: var(--rose-petal); color: var(--rose-accent); }
+
+:scope[data-ti-shell="library"] {
+    color-scheme: light;
+    --ti-rail: var(--rose-paper);
+    --ti-rail-raised: var(--rose-petal);
+    --ti-rail-text: var(--rose-ink);
+    --ti-rail-muted: var(--rose-muted);
+    border-inline-end: 3px double var(--rose-foil);
+    background-color: var(--rose-paper);
+    background-image: url(asset:ornament);
+    background-position: center calc(100% - 64px);
+    background-repeat: no-repeat;
+    background-size: 172px auto;
+}
+:where([data-color-scheme="dark"]) :scope[data-ti-shell="library"] { color-scheme: dark; }
+.ttm-library-title { font-family: var(--rose-serif); font-weight: 700; font-size: 19px; }
+.ttm-library-title small { color: var(--rose-herb); }
+:scope[data-ti-shell="library"] :is(.ttm-library-import-primary, .ttm-char-item.is-active) { background: var(--rose-petal); border-color: var(--rose-foil); }
+.ttm-char-item { border-radius: 8px; }
+.ttm-library-shortcuts { border-top: 3px double var(--rose-line); }
+.ttm-library-footnote { background: color-mix(in srgb, var(--rose-paper) 94%, transparent); }
+.ttm-sidebar-bottom-actions { background: var(--rose-paper); }
+
+:scope[data-ti-shell="empty"].ttm-start-page {
+    margin-block: auto;
+    padding-block: 40px 32px;
+}
+:scope[data-ti-shell="empty"] .ttm-welcome-mark {
+    position: relative;
+    width: 236px;
+    max-width: 100%;
+    height: 160px;
+    display: grid;
+    place-items: start center;
+    justify-content: center;
+    margin: 0 auto;
+    background: url(asset:ornament) center bottom / 216px auto no-repeat;
+}
+:scope[data-ti-shell="empty"] .ttm-welcome-mark::before,
+:scope[data-ti-shell="empty"] .ttm-welcome-mark::after { display: none; }
+:scope[data-ti-shell="empty"] .ttm-welcome-mark > img {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 1px solid var(--rose-foil);
+    box-shadow: 0 7px 17px #79284823;
+}
+:scope[data-ti-shell="empty"] h2 {
+    margin: 10px 0 0;
+    font: 700 36px/1.24 var(--rose-serif);
+    text-wrap: balance;
+}
+.ttm-home-actions, .ttm-home-links { width: min(100%, 408px); }
+.ttm-home-actions { margin-top: 24px; gap: 12px; }
+.ttm-home-actions > button { min-height: 48px; font-size: 13px; }
+.ttm-home-actions > .ttm-home-model-chat { border-color: var(--rose-foil); box-shadow: inset 0 0 0 2px var(--rose-surface), inset 0 0 0 3px var(--rose-line); }
+.ttm-home-links { position: relative; border-top: 1px solid var(--rose-foil); margin-top: 24px; }
+.ttm-home-links::before { position: absolute; content: ""; width: 5px; height: 5px; top: -3px; left: calc(50% - 2.5px); background: var(--rose-foil); transform: rotate(45deg); }
+.ttm-home-links > button { color: var(--rose-ink); }
+:scope[data-ti-shell="empty"] > [data-ti-part="import"] { margin-top: 24px; }
+
+:scope:is([data-ti-shell="conversation"], [data-ti-shell="history"], [data-ti-shell="navigation"], [data-ti-shell="settings"], [data-ti-shell="dialog"]) { background: var(--rose-surface); border-color: var(--rose-line); }
+:scope[data-ti-shell="conversation"] { border-bottom: 3px double var(--rose-foil); }
+.ttm-conversation-person h2, .ttm-inspector-heading h2, .ttm-asset-dialog-heading h2 { font-family: var(--rose-serif); }
+:scope[data-ti-shell="composer-row"] {
+    background: var(--rose-surface);
+    outline: none;
+    border: 3px double var(--rose-foil);
+    border-radius: 12px;
+    caret-color: var(--rose-accent);
+}
+:scope[data-ti-shell="composer-row"]:focus-within { border-color: var(--rose-accent); }
+:scope[data-ti-shell="composer-row"] textarea:focus-visible { outline: none; }
+:scope[data-ti-shell="composer-hint"] { color: var(--rose-muted); }
+:scope[data-ti-shell="composer-controls"].ttm-composer-tools { background: var(--rose-paper); }
+:scope[data-ti-shell="navigation"] { border-top: 3px double var(--rose-foil); }
+:scope[data-ti-shell="navigation"] button.is-active { color: var(--rose-accent); background: var(--rose-petal); border-radius: 8px; }
+:scope[data-ti-shell="settings"] input, :scope[data-ti-shell="settings"] select { accent-color: var(--rose-accent); }
+:scope[data-ti-shell="notifications"] .ttm-notification { border-color: var(--rose-line); }
+
+:scope[data-ti-shell="startup"] { background: var(--rose-paper) url(asset:folio) center / cover no-repeat; }
+:scope[data-ti-shell="startup"] .ttm-loading-emblem { width: 104px; height: 104px; border-radius: 50%; border-color: var(--rose-foil); }
+:scope[data-ti-shell="startup"] h1 { font-family: var(--rose-serif); }
+:where([data-color-scheme="dark"]) :scope[data-ti-shell="startup"] { background-blend-mode: multiply; }
+
+@media (max-width: 1024px) {
+    :scope[data-ti-shell="empty"] h2 { font-size: 30px; }
+    :scope[data-ti-shell="library"] { border-inline-end: 0; }
+}
+@media (max-width: 760px) and (orientation: portrait) {
+    :scope[data-ti-shell="wallpaper"]::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: var(--rose-paper) url(asset:mobile-folio) center / cover no-repeat;
+    }
+    :scope[data-ti-shell="startup"] { background-image: url(asset:mobile-folio); }
+}
+@media (max-width: 540px) {
+    .ttm-brand-logo > img { width: 27px; height: 27px; }
+    .ttm-topbar .ttm-brand { gap: 6px; }
+    :scope[data-ti-shell="empty"].ttm-start-page { padding-block: 24px; }
+    :scope[data-ti-shell="empty"] .ttm-welcome-mark { height: 128px; background-size: 168px auto; }
+    :scope[data-ti-shell="empty"] .ttm-welcome-mark > img { width: 96px; height: 96px; }
+    :scope[data-ti-shell="empty"] h2 { font-size: 26px; }
+    .ttm-home-actions { gap: 8px; }
+    .ttm-home-actions > button { font-size: 12px; }
+}

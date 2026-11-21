@@ -31,7 +31,7 @@ export type StoryRequest = z.infer<typeof storyEditSchema>;
 export async function readChat(id: string): Promise<ArchivedChat> {
     const w = await workspace();
     const chat = w.readNativeChat(id) ?? await loadChatArchive(id);
-    if (!chat) throw missing('会话');
+    if (!chat || chat.kind === 'free') throw missing('会话');
     return chat;
 }
 export const selectedLeaf = (chat: ArchivedChat) => chat.messages.find(node => node.id === chat.activeLeafId);
@@ -94,7 +94,7 @@ export async function storyRead(method: string, args: unknown) {
     if (method === 'listChats') {
         const { characterId, cursor, limit } = z.strictObject({ characterId: idSchema.optional(), ...paging }).parse(args);
         const w = await workspace(), current = w.readNativeChat(w.workspaceStore.getState().activeChatId);
-        const list = (await listChatArchives()).filter(item => item.id !== current?.id);
+        const list = (await listChatArchives()).filter(item => item.kind !== 'free' && item.id !== current?.id);
         const rows = [...(current ? [{ id: current.id, characterId: current.characterId, messageCount: current.messages.length }] : []),
             ...list.map(({ id, characterId, messageCount, syncLabel }) => ({ id, characterId, messageCount, label: syncLabel }))]
             .filter(row => !characterId || row.characterId === characterId).sort((a, b) => a.id.localeCompare(b.id));

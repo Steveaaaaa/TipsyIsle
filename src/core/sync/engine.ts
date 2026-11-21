@@ -4,9 +4,9 @@ import { Immer } from 'immer';
 import { rollbackStateChanges } from '../../store/state-rollback';
 import { platformStorage, registerSnapshotCommitHook } from '../platform-bridge';
 import { batchReactiveUpdates, createReactiveStore } from '../../store/reactive-store';
-import { workspaceStore, captureMessageSnapshot, captureChatContinuation, getActiveCharacter, getActiveLorebooks, getActivePersona, getCharacterWorldbooks, persistWorkspaceNow, preserveAuthorMessageRevision, SYNC_EXTENSIONS, worldbooksChanged } from '../../store/workspace-store';
+import { workspaceStore, captureMessageSnapshot, captureChatContinuation, getActiveCharacter, getActiveLorebooks, getActivePersona, getCharacterWorldbooks, persistWorkspaceNow, preserveAuthorMessageRevision, publishSyncedWorkspace, rollbackWorkspacePublication, restoreChatExtensions, SYNC_EXTENSIONS, worldbooksChanged } from '../../store/workspace-store';
 import { scopedVariableStore } from '../../store/scoped-variable-store';
-import { APPEARANCE_SNAPSHOT, appearanceStore, decodeAppearance } from '../../theme/appearance-store';
+import { APPEARANCE_SNAPSHOT, appearanceStore, decodeAppearance, isAppearanceLibrarySnapshot } from '../../theme/appearance-store';
 import { listChatArchives, loadChatArchive, summarizeChat, type ArchivedChat } from '../../store/chat-archives';
 import { enqueuePersistentOperation, persistStateTransaction, registeredSnapshots } from '../../store/persistence';
 import { lanControl, requestPeer } from './transport';
@@ -131,13 +131,14 @@ function capture(target: SyncState, sources: Record<string, any>, previous: Reco
     }
     const chats = new Set<string>();
     for (const summary of sources.chat_archive_index ?? []) {
+        if (summary.kind === 'free') continue;
         chats.add(`chat:${summary.id}`);
         const chat = sources[`chat_archive:${summary.id}`];
         if (chat && (chat !== previous[`chat_archive:${summary.id}`] || !target.records[`chat:${chat.id}`]) && chat.id !== workspace.activeChatId && !chat.messages.some(message => message.extra?.tipsy_generation_incomplete && !message.extra?.tipsy_generation_terminal)) revise(target, `chat:${chat.id}`, chat);
     }
     const key = `chat:${workspace.activeChatId}`; chats.add(key);
-    if (['workspace_snapshot', 'workspace_assets', 'scoped_variables', 'story_settings'].some(key => sources[key] !== previous[key]) && workspace.activeChatId && !workspace.messages.some(message => message.extra?.tipsy_generation_incomplete && !message.extra?.tipsy_generation_terminal)) {
-        const chat: ArchivedChat = { id: workspace.activeChatId, characterId: workspace.activeCharacterId, messages: workspace.messages, deletedMessageIds: workspace.deletedMessageIds,
+    if (workspace.sessionKind !== 'free' && ['workspace_snapshot', 'workspace_assets', 'scoped_variables', 'story_settings'].some(key => sources[key] !== previous[key]) && workspace.activeChatId && !workspace.messages.some(message => message.extra?.tipsy_generation_incomplete && !message.extra?.tipsy_generation_terminal)) {
+        const chat: ArchivedChat = { id: workspace.activeChatId, characterId: workspace.activeCharacterId, importedFrom: workspace.storyImportFingerprint, messages: workspace.messages, deletedMessageIds: workspace.deletedMessageIds,
             activeLeafId: workspace.activeLeafId, timedStates: workspace.timedStates,
             worldbookName: workspace.chatWorldbookBindings[workspace.activeChatId] ?? null,
             templateInjections: workspace.templateInjections, templateActivations: workspace.templateActivations,
@@ -209,7 +210,7 @@ async function receive(remote: SyncPacket) {
 async function applyInbox(repairGuides = false, resolution?: SyncRevision, force = false): Promise<void> {
     if (!historyReady) return;
     if (busy() || !syncRuntimeReady() || syncAssetsEditing() || !state.inbox?.length && !repairGuides && !resolution) return;
-    const resumeStory = force || canResumeRemoteStory() && !compatibilityComposer().trim();
+    const resumeStory = workspaceStore.getState().sessionKind !== 'free' && (force || canResumeRemoteStory() && !compatibilityComposer().trim());
     const canApply = () => force || syncIsQuiet() && (!resumeStory || canResumeRemoteStory() && !compatibilityComposer().trim());
     if (!canApply()) { publishView('远端更新已暂存，空闲后处理'); return; }
     await enqueuePersistentOperation(async () => {
@@ -270,7 +271,8 @@ async function applyInbox(repairGuides = false, resolution?: SyncRevision, force
             settings: schemaRegistryStore.getState().values, appearance: appearanceStore.getState() };
         const incomingSkin = changed.has('appearance:shell') ? next.records['appearance:shell'].value : undefined;
         const remoteAppearance = incomingSkin && Object.hasOwn(incomingSkin, 'skin')
-            ? { ...before.appearance, saved: incomingSkin.skin ? decodeAppearance(incomingSkin.skin) : null, previous: before.appearance.saved }
+            ? { ...before.appearance, saved: incomingSkin.skin ? decodeAppearance(incomingSkin.skin) : null, activePackId: null,
+                previous: before.appearance.saved, previousPackId: before.appearance.activePackId }
             : before.appearance;
         const authorResourcesChanged = [...changed].some(id => /^(characters|lorebooks|binding|personas|profile|presets|extension):/.test(id));
         let restore = false, missing = false, pluginOnly = false;
@@ -347,7 +349,7 @@ async function applyInbox(repairGuides = false, resolution?: SyncRevision, force
             if (missing) active = chats.find(chat => workspace.characters.some(card => card.id === chat.characterId));
             if (active && restore && !missing && !authorResourcesChanged) {
                 const local = before.workspace;
-                const rendered: ArchivedChat = { id: local.activeChatId, characterId: local.activeCharacterId, messages: local.messages,
+                const rendered: ArchivedChat = { id: local.activeChatId, characterId: local.activeCharacterId, importedFrom: local.storyImportFingerprint, messages: local.messages,
                     activeLeafId: local.activeLeafId, deletedMessageIds: local.deletedMessageIds, timedStates: local.timedStates,
                     worldbookName: local.chatWorldbookBindings[local.activeChatId] ?? null, templateInjections: local.templateInjections,
                     templateActivations: local.templateActivations, continuation: captureChatContinuation(local, before.variables, before.settings) };
@@ -367,13 +369,14 @@ async function applyInbox(repairGuides = false, resolution?: SyncRevision, force
                     nativePluginRoute: active.continuation?.nativePluginRoute,
                     templateActivations: active.templateActivations ?? [], lastAssembledPrompt: null,
                     storyWorldbooks: active.continuation?.worldbooks, storyCharacterBinding: active.continuation?.characterBinding,
-                    storyCharacter: active.continuation?.character, storyPersona: active.continuation?.persona });
+                    storyCharacter: active.continuation?.character, storyPersona: active.continuation?.persona,
+                    storyImportFingerprint: active.importedFrom, portableStory: active.continuation?.portable });
                 workspace.chatWorldbookBindings[active.id] = active.worldbookName ?? null;
                 if (active.continuation) {
                     const c = active.continuation;
-                    variables.global = removeStarterGlobals(c.variables.global);
+                    if (!c.portable) variables.global = removeStarterGlobals(c.variables.global);
                     for (const scope of ['character', 'preset', 'chat', 'message'] as const) Object.assign(variables[scope], c.variables[scope] ?? {});
-                    for (const key of new Set([...SYNC_EXTENSIONS, ...workspace.branchExtensionKeys ?? [], ...c.extensionKeys ?? []])) { if (key in c.extensions) variables.extension[key] = c.extensions[key]; else delete variables.extension[key]; }
+                    restoreChatExtensions(variables.extension, c, active.id, workspace.branchExtensionKeys);
                     workspace.branchExtensionKeys = c.extensionKeys ?? []; Object.assign(settings, c.settings);
                     Object.assign(workspace, { activePresetId: c.activePresetId, inUsePreset: c.inUsePreset,
                         activeLorebookIds: c.activeLorebookIds, userName: c.userName, activePersonaId: c.activePersonaId });
@@ -408,7 +411,7 @@ async function applyInbox(repairGuides = false, resolution?: SyncRevision, force
                 // One synchronous publication: text, branches and variables change together.
                 // Input remains live throughout the subsequent disk write.
                 batchReactiveUpdates(() => {
-                    if (after.workspace !== before.workspace) workspaceStore.setState(after.workspace);
+                    if (after.workspace !== before.workspace) publishSyncedWorkspace(after.workspace);
                     if (after.variables !== before.variables) scopedVariableStore.setState(after.variables);
                     if (after.settings !== before.settings) schemaRegistryStore.setState({ values: after.settings });
                     if (remoteAppearance !== before.appearance) appearanceStore.setState(remoteAppearance);
@@ -417,11 +420,7 @@ async function applyInbox(repairGuides = false, resolution?: SyncRevision, force
                 if (restore || missing || [...changed].some(id => /^(characters|lorebooks|binding|presets):/.test(id))) worldbooksChanged();
             }, () => {
                 if (published) batchReactiveUpdates(() => {
-                    if (after.workspace !== before.workspace) {
-                        const current = workspaceStore.getState(), restored = rollbackStateChanges(current, before.workspace, after.workspace);
-                        if (pluginOnly) preserveAuthorMessageRevision(current.messages, restored.messages);
-                        workspaceStore.setState(restored);
-                    }
+                    if (after.workspace !== before.workspace) rollbackWorkspacePublication(before.workspace, after.workspace, pluginOnly);
                     if (after.variables !== before.variables) scopedVariableStore.setState(rollbackStateChanges(scopedVariableStore.getState(), before.variables, after.variables));
                     if (after.settings !== before.settings) schemaRegistryStore.setState({ values: rollbackStateChanges(schemaRegistryStore.getState().values, before.settings, after.settings) });
                     if (remoteAppearance !== before.appearance) appearanceStore.setState(rollbackStateChanges(appearanceStore.getState(), before.appearance, remoteAppearance));
@@ -475,7 +474,7 @@ export function initializeLanSync(): Promise<void> {
         }
         state['copyMigration'] = true;
         registerSnapshotCommitHook(async (snapshots, sourceReferences) => {
-            const shareable = (values: Record<string, unknown> = {}) => Object.fromEntries(Object.entries(values).filter(([key]) => !key.startsWith('native_plugin')));
+            const shareable = (values: Record<string, unknown> = {}) => Object.fromEntries(Object.entries(values).filter(([key]) => !key.startsWith('native_plugin') && !isAppearanceLibrarySnapshot(key)));
             const sources = { ...cache, ...shareable(snapshots) };
             const nextReferences = { ...references, ...shareable(sourceReferences) };
             // Local saves finish without preparing a sync revision on every write.

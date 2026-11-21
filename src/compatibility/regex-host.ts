@@ -1,7 +1,6 @@
-import { getActiveCharacter, getActivePreset, workspaceStore, persistWorkspaceNow } from '../store/workspace-store';
+import { getActiveCharacter, getActivePreset, workspaceStore, persistWorkspaceNow, replaceHelperCharacterRegexes, replaceHelperPresetRegexes } from '../store/workspace-store';
 import { replaceExtensionVariables } from '../store/scoped-variable-store';
 import { workspaceGlobalRegexes } from '../store/global-regex-store';
-import { serializeRegexRule } from '../pipeline/asset-serializer';
 import { fromTavernRegexes } from './regex-codec';
 import { characterAvatarId } from './asset-identity';
 export function regexCatalog() {
@@ -17,16 +16,12 @@ export async function replaceHostRegexes(values: any[], option: any = {}): Promi
             const card = !name || name === 'current' ? getActiveCharacter() : state.characters.find(card => [card.id, card.name, characterAvatarId(card)].includes(name));
             if (!card) throw new Error(`找不到角色：${name}`);
             const rules = fromTavernRegexes(input, card.regexScripts);
-            workspaceStore.setState(draft => { const target = draft.characters.find(item => item.id === card.id)!;
-                target.regexScripts = rules; target.extensions = { ...target.extensions, regex_scripts: rules.map(serializeRegexRule) }; });
+            replaceHelperCharacterRegexes(card.id, rules);
         } else if (type === 'preset') {
             const preset = !name || name === 'in_use' ? getActivePreset() : state.presets.find(preset => preset.name === name || preset.id === name);
             if (!preset) throw new Error(`找不到预设：${name}`);
             const rules = fromTavernRegexes(input, preset.regexScripts);
-            workspaceStore.setState(draft => {
-                if ((!name || name === 'in_use') && !draft.inUsePreset) draft.inUsePreset = structuredClone(preset);
-                const target = !name || name === 'in_use' ? draft.inUsePreset! : draft.presets.find(item => item.id === preset.id)!;
-                target.regexScripts = rules; target.rawData = { ...target.rawData, extensions: { ...(target.rawData?.extensions as object ?? {}), regex_scripts: rules.map(serializeRegexRule) } }; });
+            replaceHelperPresetRegexes(preset, rules, !name || name === 'in_use');
         } else throw new Error(`未知正则类型：${type}`);
     };
     if (option.type) write(option.type, values, option.name);

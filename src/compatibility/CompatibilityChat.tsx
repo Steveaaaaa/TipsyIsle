@@ -102,5 +102,5 @@ export function CompatibilityChat({ session, visible = true, extensionPanel = fa
         publishPresentation();
         publishView();
         frame.current?.contentWindow?.postMessage({ kind: 'compat:ping' }, compatibilityOrigin);
-    }} className={`ttm-compatibility-chat${panelOverlay ? ' ttm-extension-panel-frame' : ''}`} title="角色卡兼容运行环境" allow="autoplay" sandbox="allow-scripts allow-same-origin allow-modals" src={`${compatibilityOrigin}/compat.html?session=${encodeURIComponent(initialSession.current)}&view=${initialVisible.current ? 'chat' : 'worker'}`} /></>;
+    }} className={`ttm-compatibility-chat${panelOverlay ? ' ttm-extension-panel-frame' : ''}`} title="角色卡兼容运行环境" allow="autoplay; fullscreen" allowFullScreen sandbox="allow-scripts allow-same-origin allow-modals" src={`${compatibilityOrigin}/compat.html?session=${encodeURIComponent(initialSession.current)}&view=${initialVisible.current ? 'chat' : 'worker'}`} /></>;
 }

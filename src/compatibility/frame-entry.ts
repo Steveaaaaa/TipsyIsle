@@ -1,4 +1,4 @@
-import { rendersMessageHtml } from './render-settings';
+import { preloadsMessageHtml } from './render-settings';
 import { storySpeakerName } from '../core/story-identity';
 import { appendRuntimeDiagnostic } from './runtime-diagnostics';
 import { loadGallery, installGallery, galleryMarkup } from './gallery-runtime';
@@ -28,7 +28,7 @@ import { tavernEvents as events, mvuEvents, canonicalEvent } from './event-contr
 import { hostHiddenKey, hostMessageHidden, messageExtra } from './chat-message-codec';
 import { defaultTemplateFeatures, normalizeTemplateFeatures } from '../pipeline/template-features';
 import { ResidentTemplateHost } from './template-host';
-import { exposeScriptSurface } from './script-surface';
+import { exposeScriptSurface, preserveScriptFrameMoves } from './script-surface';
 import type { TemplateRuntime } from '../pipeline/template-runtime';
 import { compileAuthorTemplate, templateSyntaxError } from '../pipeline/template-compiler';
 import { parseTemplateJSON, patchTemplateJSON } from '../pipeline/template-json';
@@ -1946,6 +1946,7 @@ function createChild(html: string, floor?: number, script?: CardScript, componen
     if (!script && componentTargets?.length) html += `<script>addEventListener('DOMContentLoaded',()=>{(${observeComponentSizes.toString()})(${safeJson(componentTargets)},values=>parent.__compatMeasureComponents(values))},{once:true});</script>`;
     const frame = document.createElement('iframe');
     frame.className = script ? 'compat-script' : 'compat-message-frame';
+    frame.allowFullscreen = true;
     frame.title = script ? `脚本：${script.name}` : `互动界面 #${floor}`;
     const id = crypto.randomUUID(); frame.dataset.compatChild = id;
     frame.id = script ? `TH-script--${script.name}--${script.id}` : `TH-message--${floor}--${[...children].filter(child => child.id.startsWith(`TH-message--${floor}--`)).length}`;
@@ -2058,6 +2059,17 @@ async function loadScripts(scripts: CardScript[], bindingToken: string): Promise
 }
 const streamViews = new WeakMap<HTMLElement, StreamingView>();
 const authorLoaders = new WeakMap<HTMLIFrameElement, () => void>();
+const deferredAuthorPages = new Map<Element, () => void>();
+const authorPageObserver = new IntersectionObserver(entries => {
+    if (!showMessages || !window.innerHeight) return;
+    for (const entry of entries) if (entry.isIntersecting) loadDeferredAuthorPage(entry.target);
+}, { root: document, rootMargin: '100% 0px' });
+function loadDeferredAuthorPage(slot: Element) {
+    const load = deferredAuthorPages.get(slot);
+    authorPageObserver.unobserve(slot);
+    deferredAuthorPages.delete(slot);
+    if (slot.isConnected) load?.();
+}
 const messageActionUpdates = new WeakMap<HTMLElement, () => void>();
 const messageFrames = new Map<string, HTMLIFrameElement>();
 const pendingFrameSizes = new Map<HTMLIFrameElement, number>();
@@ -2099,19 +2111,17 @@ function renderMessages(previous?: CompatSnapshot) {
         const oldNode = samePrefix ? prior[index] : undefined;
         const oldRow = rows.get(node.id);
         if (oldRow && oldNode !== node) oldRow.element.dataset.readingSwipe = readingSwipeId(node);
-        const renderHtml = rendersMessageHtml(node.floor, messages.length, snapshot.helperRenderDepth);
         const openingSelector = node.floor === 0 && messages.length === 1 && node.swipes.length > 1;
         if (oldNode === node && oldRow && canRetry === oldRow.element.hasAttribute('data-can-retry') &&
-            (index !== 0 || (prior!.length === 1) === (messages.length === 1)) &&
-            renderHtml === rendersMessageHtml(node.floor, prior!.length, snapshot.helperRenderDepth)) continue;
+            (index !== 0 || (prior!.length === 1) === (messages.length === 1))) continue;
         const content = node.formatted;
         const incomplete = !!node.extra?.tipsy_generation_incomplete || !!node.templatePending;
         const avatar = node.role === 'assistant' ? characterAvatar : node.role === 'user' ? userAvatar : undefined;
         const speakerName = node.role === 'user' ? snapshot.userName : node.role === 'assistant' ? storySpeakerName(node.speakerName, snapshot.character.name) : node.speakerName;
-        const identity = JSON.stringify([speakerName, node.role, node.isHidden, node.floor, node.swipes.length, node.routeCount, renderHtml, node.streamStatus, openingSelector, canRetry]);
+        const identity = JSON.stringify([speakerName, node.role, node.isHidden, node.floor, node.swipes.length, node.routeCount, node.streamStatus, openingSelector, canRetry]);
         const old = oldRow;
         if (old && node.streamPreview && streamViews.has(old.element) && old.swipe === node.activeSwipeIndex && old.avatar === avatar) {
-            streamViews.get(old.element)!.update(node.streamPreview, renderHtml);
+            streamViews.get(old.element)!.update(node.streamPreview, true);
             old.content = content; old.identity = identity; old.incomplete = incomplete;
             continue;
         }
@@ -2200,7 +2210,7 @@ function renderMessages(previous?: CompatSnapshot) {
             body.style.setProperty('--compat-row-estimate', `${Math.max(72, Math.ceil(content.length / 44) * 24 + 48)}px`);
         }
         if (node.streamPreview) {
-            const view = new StreamingView(body, () => readingPresentation?.streamLoadingSprite ?? '', renderHtml);
+            const view = new StreamingView(body, () => readingPresentation?.streamLoadingSprite ?? '');
             streamViews.set(element, view); view.update(node.streamPreview);
         } else if (node.templatePending) {
             const pending = document.createElement('p'); pending.setAttribute('role', 'status'); pending.textContent = '正在渲染消息模板…'; body.append(pending);
@@ -2208,14 +2218,29 @@ function renderMessages(previous?: CompatSnapshot) {
             let notified = false;
             for (const block of extracted) {
                 if (block.type === 'markdown') { const prose = document.createElement('div'); prose.className = 'compat-prose message-markdown'; prose.innerHTML = renderMessageMarkdown(block.content); body.append(prose); }
-                else if (!incomplete && renderHtml) {
-                    const frame = createChild(block.type === 'mixed' ? renderMixedMessage(block.content) : block.content, node.floor, undefined, node.componentTargets);
-                    const loader = mountAuthorLoading(frame, node.componentTargets, () => readingPresentation?.streamLoadingSprite ?? '');
-                    authorLoaders.set(frame, loader.dispose); body.append(loader.wrapper);
+                else if (!incomplete) {
+                    const mount = () => {
+                        const frame = createChild(block.type === 'mixed' ? renderMixedMessage(block.content) : block.content, node.floor, undefined, node.componentTargets);
+                        const loader = mountAuthorLoading(frame, node.componentTargets, () => readingPresentation?.streamLoadingSprite ?? '');
+                        authorLoaders.set(frame, loader.dispose);
+                        return loader.wrapper;
+                    };
+                    if (preloadsMessageHtml(node.floor, messages.length, snapshot.helperRenderDepth)) body.append(mount());
+                    else {
+                        const slot = document.createElement('p');
+                        slot.className = 'compat-deferred-author'; slot.textContent = '正在加载互动内容…';
+                        body.append(slot);
+                        deferredAuthorPages.set(slot, () => {
+                            const restore = preserveReadingAnchor(slot);
+                            slot.replaceWith(mount());
+                            restore();
+                        });
+                        authorPageObserver.observe(slot);
+                    }
                 }
                 else if (!notified) {
                     const notice = document.createElement('p'); notice.setAttribute('role', 'status');
-                    notice.textContent = incomplete ? '正在生成互动内容…' : '此楼互动内容超出渲染范围，可在角色卡运行设置中调整。';
+                    notice.textContent = '正在生成互动内容…';
                     body.append(notice); notified = true;
                 }
             }
@@ -2237,6 +2262,9 @@ function renderMessages(previous?: CompatSnapshot) {
 }
 function disposeRow(element: HTMLElement) {
     streamViews.get(element)?.dispose(); streamViews.delete(element);
+    for (const slot of element.querySelectorAll('.compat-deferred-author')) {
+        authorPageObserver.unobserve(slot); deferredAuthorPages.delete(slot);
+    }
     for (const frame of element.querySelectorAll('iframe')) {
         if (frame.contentWindow) childDisposers.get(frame.contentWindow)?.();
         authorLoaders.get(frame)?.(); authorLoaders.delete(frame);
@@ -2254,6 +2282,7 @@ Object.assign(globals, { __compatInstall: installApi, __tipsyHostContext: contex
 Object.assign(globals, authorLibraries, helper, rootSlashRegistration, { TavernHelper: helper, SillyTavern: sillyTavernApi(context), tavern_events: events, iframe_events: iframeEvents, $, jQuery: $, Mvu, EjsTemplate,
     quickReplyApi: quickReplies.api, executeQuickReplyByName: quickReplies.executeByName,
     toastr: Object.fromEntries(['info', 'success', 'warning', 'error'].map(level => [level, (message: string, title?: string) => notify(`${title ? title + '：' : ''}${message}`, level)])) });
+preserveScriptFrameMoves(window);
 installHostFetch(window, request);
 installGallery(window);
 eventOn(events.APP_READY, () => snapshot.branchEpoch ? undefined : quickReplies.automatic('executeOnStartup'));

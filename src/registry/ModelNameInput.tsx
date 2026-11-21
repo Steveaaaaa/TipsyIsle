@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { fetchModelCatalog, modelListConnection, modelCatalogIdentity, readModelCatalogCache, saveModelCatalogCache, type CatalogModel } from '../core/model-catalog';
 import { useSettingsEditor } from './settings-draft';
 
-export function ModelNameInput({ fieldId, value, settings, describedBy, placeholder, disabled }: {
+export function ModelNameInput({ fieldId, inputId, value, settings, describedBy, placeholder, disabled, onChange }: {
     fieldId: string; value: string; settings: Record<string, unknown>; describedBy?: string; placeholder?: string; disabled?: boolean;
+    inputId?: string;
+    onChange?: (value: string) => void;
 }) {
     const { setValue: setSchemaValue, setValues: setSchemaValues } = useSettingsEditor();
     const [models, setModels] = useState<CatalogModel[]>([]);
@@ -47,19 +49,20 @@ export function ModelNameInput({ fieldId, value, settings, describedBy, placehol
         } finally { if (!request.signal.aborted) setBusy(false); }
     };
     const filtered = models.filter(model => model.id.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
-    const id = `ttm-field-${fieldId}`;
+    const id = inputId ?? `ttm-field-${fieldId}`;
     const feedbackId = `${id}-catalog-status`;
     const descriptionIds = [describedBy, feedback ? feedbackId : undefined].filter(Boolean).join(' ') || undefined;
     return <div className="ttm-model-picker" aria-busy={busy}>
         <div className="ttm-model-input-row">
             <input id={id} type="text" className="ttm-text-input" value={value} placeholder={placeholder || '选择或填写模型名称'} disabled={disabled}
-                autoCapitalize="none" spellCheck={false} aria-describedby={descriptionIds} onChange={event => setSchemaValue(fieldId, event.target.value)} />
+                autoCapitalize="none" spellCheck={false} aria-describedby={descriptionIds} onChange={event => onChange ? onChange(event.target.value) : setSchemaValue(fieldId, event.target.value)} />
             <button type="button" className="ttm-btn-secondary" disabled={disabled || busy} onClick={() => void load()}>{busy ? '正在获取…' : cached ? '刷新模型列表' : '获取模型列表'}</button>
         </div>
         {!!models.length && <div className="ttm-model-catalog">
             {models.length > 12 && <input type="search" className="ttm-text-input" aria-label="筛选模型列表" placeholder="输入关键词筛选模型" value={query} disabled={disabled} autoCapitalize="none" spellCheck={false} onChange={event => setQuery(event.target.value)} />}
             <select className="ttm-select-input" aria-label="选择已获取的模型" disabled={disabled} value={filtered.some(model => model.id === value) ? value : ''} onChange={event => {
                 const model = models.find(item => item.id === event.target.value); if (!model) return;
+                if (onChange) { onChange(model.id); return; }
                 setSchemaValues({ [fieldId]: model.id, ...(fieldId === 'mvu.model' && settings['mvu.source'] === '更多' ? {
                     ...(model.api ? { 'mvu.provider_api': model.api } : {}), ...(model.contextWindow ? { 'mvu.context_window': model.contextWindow } : {}),
                 } : {}) });

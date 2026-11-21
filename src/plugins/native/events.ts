@@ -10,6 +10,7 @@ const key = 'native_plugin_journal';
 const retention = 1024;
 interface Journal { epoch: string; end: number; events: StoryChange[]; replyId?: string }
 interface PublishedStory {
+    sessionKind?: 'character' | 'free';
     activeChatId: string; messages: ChatMessageNode[]; activeLeafId: string | null; nativeStoryPending?: boolean;
     nativeStoryReply?: StoryChange; deletedMessageIds?: string[]; timedStates: object; templateInjections: unknown; templateActivations: unknown; chatMetadata?: object;
 }
@@ -43,7 +44,7 @@ export function initializeStoryChanges(authorRevision: (messages: ChatMessageNod
                 const events: StoryChange[] = [];
                 const seen = new Set<string>();
                 const changed = (chatId: string, deleted?: boolean) => {
-                    if (!chatId || seen.has(chatId)) return;
+                    if (!chatId || chatId.startsWith('free_') || seen.has(chatId)) return;
                     seen.add(chatId); events.push({ id: crypto.randomUUID(), at: Date.now(), kind: 'story.changed', origin, chatId, ...(deleted && { deleted }) });
                 };
                 const previous = baseline.story;
@@ -53,7 +54,7 @@ export function initializeStoryChanges(authorRevision: (messages: ChatMessageNod
                     const id = name.slice('chat_archive:'.length);
                     if (id !== parkedChat) changed(id, value === null);
                 }
-                if (ready) {
+                if (ready && story.sessionKind !== 'free') {
                     const before = baseline.variables;
                     const messageVariablesChanged = variables?.message !== before?.message && story.messages.some(node =>
                         variables?.message[node.id] !== before?.message[node.id]);

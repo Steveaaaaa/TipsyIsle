@@ -1,4 +1,4 @@
-param([ValidateSet('init','build','dev','native','package')][string]$Action = 'build')
+﻿param([ValidateSet('init','build','dev','native','package')][string]$Action = 'build')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $projectRoot

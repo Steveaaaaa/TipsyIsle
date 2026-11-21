@@ -1,13 +1,22 @@
 import { platformStorage } from '../core/platform-bridge';
+import _ from 'lodash';
 import { createReactiveStore } from '../store/reactive-store';
 import { acknowledgeSnapshots, enqueuePersistentOperation, registerSnapshotSource } from '../store/persistence';
 import { areas, blankAppearance, type Appearance, type AppearanceAsset, type Device, type Layout } from './appearance-model';
 
 export const APPEARANCE_SNAPSHOT = 'appearance_state';
-export interface AppearanceState { saved: Appearance | null; previous: Appearance | null; legacyCss: string }
-const initial: AppearanceState = { saved: null, previous: null, legacyCss: '' };
+const LIBRARY_SNAPSHOT = 'appearance_library';
+const packKey = (id: string) => `appearance_pack:${id}`;
+export const isAppearanceLibrarySnapshot = (key: string) => key === LIBRARY_SNAPSHOT || key.startsWith('appearance_pack:');
+export interface AppearanceState { saved: Appearance | null; previous: Appearance | null; legacyCss: string; activePackId: string | null; previousPackId: string | null }
+export interface AppearancePackEntry { id: string; name: string }
+const initial: AppearanceState = { saved: null, previous: null, legacyCss: '', activePackId: null, previousPackId: null };
 export const appearanceStore = createReactiveStore<AppearanceState>(() => initial);
+export const appearanceLibrary = createReactiveStore<{ packs: AppearancePackEntry[] }>(() => ({ packs: [] }));
 registerSnapshotSource(APPEARANCE_SNAPSHOT, appearanceStore.getState);
+
+const packName = (skin: Appearance) => skin.name.trim() || '未命名外观';
+const packEntry = (skin: Appearance): AppearancePackEntry => ({ id: crypto.randomUUID(), name: packName(skin) });
 
 const deviceKey = 'tipsy:appearance-device';
 const pauseKey = 'tipsy:appearance-paused';
@@ -66,21 +75,93 @@ export function decodeAppearance(value: unknown): Appearance {
 }
 
 export async function hydrateAppearance() {
-    const saved = await platformStorage.loadSnapshot<AppearanceState | null>(APPEARANCE_SNAPSHOT, null);
-    if (saved) { appearanceStore.setState(saved); return; }
-    const old = await platformStorage.loadSnapshot<{ tokens?: { wallpaperUrl?: string }; scopedCustomCss?: string } | null>('theme_state', null);
-    const source = old?.tokens?.wallpaperUrl ?? '';
-    const migrated = blankAppearance(); migrated.wallpaper.source = source;
-    appearanceStore.setState({ saved: source ? migrated : null, legacyCss: old?.scopedCustomCss ?? '' });
+    const saved = await platformStorage.loadSnapshot<Partial<AppearanceState> | null>(APPEARANCE_SNAPSHOT, null);
+    const next = { ...initial, ...saved };
+    const packs = await platformStorage.loadSnapshot<AppearancePackEntry[] | null>(LIBRARY_SNAPSHOT, null);
+    if (packs) { appearanceStore.setState(next); appearanceLibrary.setState({ packs }); return; }
+
+    if (!saved) {
+        const old = await platformStorage.loadSnapshot<{ tokens?: { wallpaperUrl?: string }; scopedCustomCss?: string } | null>('theme_state', null);
+        next.legacyCss = old?.scopedCustomCss ?? '';
+        if (old?.tokens?.wallpaperUrl) {
+            next.saved = blankAppearance(); next.saved.wallpaper.source = old.tokens.wallpaperUrl;
+        }
+    }
+    const entries: AppearancePackEntry[] = [];
+    const copies: Record<string, Appearance> = {};
+    const keep = (skin: Appearance) => {
+        const entry = packEntry(skin);
+        entries.push(entry); copies[packKey(entry.id)] = skin;
+        return entry.id;
+    };
+    if (next.saved) next.activePackId = keep(next.saved);
+    if (next.previous) next.previousPackId = next.activePackId && _.isEqual(next.saved, next.previous) ? next.activePackId : keep(next.previous);
+    if (entries.length) {
+        await platformStorage.saveSnapshots({ [APPEARANCE_SNAPSHOT]: next, [LIBRARY_SNAPSHOT]: entries, ...copies }, false);
+        acknowledgeSnapshots({ [APPEARANCE_SNAPSHOT]: next });
+    }
+    appearanceStore.setState(next);
+    appearanceLibrary.setState({ packs: entries });
 }
 
-export function saveAppearance(skin: Appearance | null) {
+async function writeAppearance(next: AppearanceState, extras: Record<string, unknown> = {}) {
+    await platformStorage.saveSnapshots({ ...extras, [APPEARANCE_SNAPSHOT]: next });
+    appearanceStore.setState(next);
+    acknowledgeSnapshots({ [APPEARANCE_SNAPSHOT]: next });
+}
+
+export function importAppearancePacks(skins: Appearance[]) {
+    return enqueuePersistentOperation(async () => {
+        const entries = skins.map(packEntry);
+        const packs = [...entries, ...appearanceLibrary.getState().packs];
+        await platformStorage.saveSnapshots({ [LIBRARY_SNAPSHOT]: packs, ...Object.fromEntries(entries.map((entry, index) => [packKey(entry.id), skins[index]])) }, false);
+        appearanceLibrary.setState({ packs });
+    });
+}
+
+export async function loadAppearancePack(id: string): Promise<Appearance> {
+    const pack = await platformStorage.loadSnapshot<Appearance | null>(packKey(id), null);
+    if (!pack) throw new Error('找不到这个外观包，可能已被删除。');
+    return pack;
+}
+
+function withActivePack(before: AppearanceState, skin: Appearance | null, id: string | null): AppearanceState {
+    return { ...before, saved: skin, activePackId: id, previous: before.saved, previousPackId: before.activePackId };
+}
+
+export function useAppearancePack(id: string) {
     return enqueuePersistentOperation(async () => {
         const before = appearanceStore.getState();
-        const next = { ...before, saved: skin ? decodeAppearance(skin) : null, previous: before.saved };
-        await platformStorage.saveSnapshot(APPEARANCE_SNAPSHOT, next);
-        appearanceStore.setState(next);
-        acknowledgeSnapshots({ [APPEARANCE_SNAPSHOT]: next });
+        if (before.activePackId !== id) await writeAppearance(withActivePack(before, await loadAppearancePack(id), id));
+    });
+}
+
+export function saveAppearance(skin: Appearance | null, id: string | null) {
+    return enqueuePersistentOperation(async () => {
+        const before = appearanceStore.getState();
+        if (!skin) { await writeAppearance(withActivePack(before, null, null)); return; }
+        const pack = decodeAppearance(skin);
+        const existing = appearanceLibrary.getState().packs;
+        const idInLibrary = existing.find(entry => entry.id === id)?.id;
+        const entry = idInLibrary ? { id: idInLibrary, name: packName(pack) } : packEntry(pack);
+        const packs = idInLibrary ? existing.map(item => item.id === id ? entry : item) : [entry, ...existing];
+        await writeAppearance(withActivePack(before, pack, entry.id), { [LIBRARY_SNAPSHOT]: packs, [packKey(entry.id)]: pack });
+        appearanceLibrary.setState({ packs });
+    });
+}
+
+export function deleteAppearancePack(id: string) {
+    return enqueuePersistentOperation(async () => {
+        const packs = appearanceLibrary.getState().packs.filter(entry => entry.id !== id);
+        const before = appearanceStore.getState();
+        const extras = { [LIBRARY_SNAPSHOT]: packs, [packKey(id)]: null };
+        if (before.activePackId === id || before.previousPackId === id) {
+            await writeAppearance({ ...before,
+                ...(before.activePackId === id && { saved: null, activePackId: null }),
+                ...(before.previousPackId === id && { previous: null, previousPackId: null }),
+            }, extras);
+        } else await platformStorage.saveSnapshots(extras, false);
+        appearanceLibrary.setState({ packs });
     });
 }
 

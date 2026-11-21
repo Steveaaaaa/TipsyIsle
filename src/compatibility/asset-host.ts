@@ -1,5 +1,6 @@
 import { workspaceStore, getActiveCharacter, getActivePreset, getCharacterWorldbooks, updateCharacterDocument, persistWorkspaceNow,
-    worldbooksChanged, selectPreset, applyPresetSettings, deleteWorkspaceCharacter } from '../store/workspace-store';
+    worldbooksChanged, selectPreset, applyPresetSettings, deleteWorkspaceCharacter, setHelperCharacterAvatar, addHelperCharacter,
+    importHelperCharacter, importHelperWorldbook, writeHelperPreset, removeHelperPreset, renameHelperPreset } from '../store/workspace-store';
 import { normalizeCharacterCard, normalizeLorebook, normalizePreset } from '../pipeline/normalizer';
 import { importCharacterFile } from '../core/character-import';
 import { serializeCharacterCard, serializeRegexRule } from '../pipeline/asset-serializer';
@@ -75,11 +76,11 @@ async function writeCharacter(name: string, value: Record<string, any>, previous
     });
     if (previous) {
         updateCharacterDocument(previous.id, document);
-        if (avatar !== previous.avatar) workspaceStore.setState(draft => { draft.characters.find(card => card.id === previous.id)!.avatar = avatar!; });
+        if (avatar !== previous.avatar) setHelperCharacterAvatar(previous.id, avatar!);
     } else {
         const card = normalizeCharacterCard(document); card.id = name.endsWith('.png') ? name : `${name}.png`;
         if (avatar) card.avatar = avatar;
-        workspaceStore.setState(draft => { draft.characters.push(card); });
+        addHelperCharacter(card);
     }
 }
 export async function requestAsset(method: string, params: Record<string, any>): Promise<unknown> {
@@ -93,28 +94,16 @@ export async function requestAsset(method: string, params: Record<string, any>):
             const previous = findHelperCharacter(`${name.replace(/\.(png|json)$/i, '')}.png`) ?? findHelperCharacter(name.replace(/\.(png|json)$/i, ''));
             const card = await importCharacterFile(content, png);
             card.id = previous?.id ?? `${name.replace(/\.(png|json)$/i, '')}.png`;
-            workspaceStore.setState(draft => {
-                const index = draft.characters.findIndex(item => item.id === card.id);
-                if (index >= 0) draft.characters[index] = card; else draft.characters.push(card);
-                const oldBook = previous?.characterBook ?? previous?.embeddedLorebook;
-                if (oldBook) draft.lorebooks = draft.lorebooks.filter(book => book.id !== oldBook.id);
-                if (card.embeddedLorebook) draft.lorebooks.push(card.embeddedLorebook);
-            });
+            importHelperCharacter(card, previous);
         } else if (kind === 'preset') {
             const previous = state.presets.find(item => item.name === name);
             const preset = normalizePreset({ ...JSON.parse(params.content), name }, name);
             preset.id = previous?.id ?? `preset_${crypto.randomUUID()}`;
-            workspaceStore.setState(draft => { if (previous) draft.presets[draft.presets.findIndex(item => item.id === previous.id)] = preset; else draft.presets.push(preset); });
+            writeHelperPreset(preset, previous?.id);
         } else if (kind === 'worldbook') {
             const previous = state.lorebooks.find(item => item.name === name);
             const book = normalizeLorebook({ ...JSON.parse(params.content), name }, name); book.id = previous?.id ?? book.id;
-            workspaceStore.setState(draft => {
-                if (previous) draft.lorebooks[draft.lorebooks.findIndex(item => item.id === previous.id)] = book; else draft.lorebooks.push(book);
-                if (previous) for (const card of draft.characters) {
-                    if (card.characterBook?.id === previous.id) card.characterBook = book;
-                    if (card.embeddedLorebook?.id === previous.id) card.embeddedLorebook = book;
-                }
-            });
+            importHelperWorldbook(book, previous?.id);
         } else throw new Error(`未知导入类型：${kind}`);
         await persistWorkspaceNow(); worldbooksChanged(); return true;
     }
@@ -136,26 +125,17 @@ export async function requestAsset(method: string, params: Record<string, any>):
     if (operation === 'load') { if (!previous || name === 'in_use') return false; selectPreset(previous.id); await persistWorkspaceNow(); return true; }
     if (operation === 'delete') {
         if (!previous || name === 'in_use' || state.presets.length === 1) return false;
-        workspaceStore.setState(draft => { draft.presets = draft.presets.filter(item => item.id !== previous.id); });
-        if (state.activePresetId === previous.id) selectPreset(workspaceStore.getState().presets[0].id);
+        removeHelperPreset(previous.id, state.activePresetId === previous.id);
     } else if (operation === 'rename') {
         if (!previous || name === 'in_use' || !params.newName?.trim() || params.newName === 'in_use' || state.presets.some(item => item.name === params.newName)) return false;
-        workspaceStore.setState(draft => {
-            const target = draft.presets.find(item => item.id === previous.id)!; target.name = params.newName;
-            if (target.rawData) target.rawData.name = params.newName;
-            if (draft.inUsePreset?.id === previous.id) draft.inUsePreset.name = params.newName;
-        });
+        renameHelperPreset(previous.id, params.newName);
     } else {
         if (operation === 'create' && (previous || name === 'in_use')) return false;
         if (operation === 'replace' && !previous) throw new Error(`找不到预设：${name}`);
         if (!name.trim()) throw new Error('预设名称不能为空');
         const input = params.value ?? defaultHelperPreset;
         const next = fromHelperPreset({ ...input, settings: { ...(name === 'in_use' ? assetCatalog().inUsePreset.settings : previous ? toHelperPreset(previous).settings : {}), ...input.settings } }, previous?.name ?? name, previous);
-        workspaceStore.setState(draft => {
-            if (name === 'in_use') draft.inUsePreset = next;
-            else if (previous) draft.presets[draft.presets.findIndex(item => item.id === previous.id)] = next;
-            else draft.presets.push(next);
-        });
+        writeHelperPreset(next, previous?.id, name === 'in_use');
         if (name === 'in_use' || !state.inUsePreset && state.activePresetId === next.id) applyPresetSettings(next);
         await persistWorkspaceNow(); worldbooksChanged();
         return operation === 'replace' ? undefined : !previous;

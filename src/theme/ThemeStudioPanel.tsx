@@ -6,10 +6,10 @@ import { Icon } from '../shell/Icon';
 import { saveExport } from '../core/platform-files';
 import { isNativeRuntime } from '../core/native-runtime';
 import { AppearancePreview, type PreviewPage } from './AppearancePreview';
-import { appearanceAsset, appearanceDevice, appearanceStore, decodeAppearance, pauseAppearance, saveAppearance, saveDeviceLayouts } from './appearance-store';
+import { appearanceAsset, appearanceDevice, appearanceLibrary, appearanceStore, decodeAppearance, deleteAppearancePack, importAppearancePacks,
+    loadAppearancePack, pauseAppearance, saveAppearance, saveDeviceLayouts, useAppearancePack, type AppearancePackEntry } from './appearance-store';
 import { allowedAreas, areas, artLabels, assetUrl, blankAppearance, defaultText, fontLabels, parts, placements, shellSurfaces, textLabels, widgetValues,
     type Appearance, type Area, type Device, type FontRole, type Layout, type Part, type Widget } from './appearance-model';
-import { fogHarborAppearance } from './appearance-sample';
 import { compileAppearance } from './appearance-style';
 import './appearance-workbench.css';
 
@@ -18,8 +18,11 @@ const pages: Record<PreviewPage, string> = { chat: '会话', library: '馆藏', 
 const mediaExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'svg'];
 const fontExtensions = ['woff2', 'woff', 'ttf', 'otf'];
 type DeviceLayouts = Partial<Record<Device, Layout>>;
-type Draft = { skin: Appearance; layouts: DeviceLayouts; reset: boolean };
-const currentDraft = (): Draft => ({ skin: appearanceStore.getState().saved ?? defaultPreview, layouts: appearanceDevice.getState().layouts, reset: false });
+type Draft = { skin: Appearance; layouts: DeviceLayouts; reset: boolean; packId: string | null };
+const currentDraft = (): Draft => {
+    const { saved, activePackId } = appearanceStore.getState();
+    return { skin: saved ?? defaultPreview, layouts: appearanceDevice.getState().layouts, reset: false, packId: activePackId };
+};
 const immutableDraft = new Immer({ autoFreeze: false });
 type History = { past: Draft[]; present: Draft; future: Draft[] };
 const newHistory = (present: Draft): History => ({ past: [], present, future: [] });
@@ -28,27 +31,42 @@ function Group({ title, children, selected = false }: { title: string; children:
     return <section className="ttm-skin-group" data-ti-skin-selection={selected || undefined}><h3>{title}</h3>{children}</section>;
 }
 
-function FilePick({ title, extensions, pick, onError }: { title: string; extensions: string[]; pick: (file: File) => void; onError: (error: string) => void }) {
+function FilePick({ title, extensions, pick, pickMany, onError, disabled }: { title: string; extensions: string[]; onError: (error: string) => void; disabled?: boolean } & (
+    { pick: (file: File) => void; pickMany?: never } | { pick?: never; pickMany: (files: File[], errors: string[]) => void }
+)) {
     const input = useRef<HTMLInputElement>(null);
+    const multiple = !!pickMany;
+    const accept = (files: File[], errors: string[] = []) => {
+        if (pickMany) { pickMany(files, errors); return; }
+        if (files[0]) pick?.(files[0]); else if (errors[0]) onError(errors[0]);
+    };
     const onPick = async () => {
         if (!isNativeRuntime()) { input.current?.click(); return; }
         try {
             const { open } = await import('@tauri-apps/plugin-dialog');
-            const path = await open({ multiple: false, directory: false, pickerMode: 'document', filters: [{ name: title, extensions }] });
-            if (!path) return;
+            const selected = await open({ multiple, directory: false, pickerMode: 'document', filters: [{ name: title, extensions }] });
+            if (!selected) return;
+            const paths = Array.isArray(selected) ? selected : [selected];
             const [{ readFile }, { basename }] = await Promise.all([import('@tauri-apps/plugin-fs'), import('@tauri-apps/api/path')]);
-            pick(new File([new Uint8Array(await readFile(path)).buffer], await basename(path)));
+            const files: File[] = [], errors: string[] = [];
+            for (const path of paths) {
+                let name = '';
+                try { name = await basename(path); files.push(new File([new Uint8Array(await readFile(path)).buffer], name)); }
+                catch (error) { errors.push(pickMany ? `无法读取${name ? `「${name}」` : '所选文件'}` : String(error)); }
+            }
+            accept(files, errors);
         } catch (error) { onError(String(error)); }
     };
-    return <><button type="button" className="ttm-btn-secondary" onClick={() => void onPick()}><Icon name="upload" width={16} height={16} />{title}</button>
-        <input ref={input} type="file" hidden accept={extensions.map(ext => `.${ext}`).join(',')} onChange={event => {
-            const file = event.target.files?.[0]; event.target.value = ''; if (file) pick(file);
+    return <><button type="button" className="ttm-btn-secondary" disabled={disabled} onClick={() => void onPick()}><Icon name="upload" width={16} height={16} />{title}</button>
+        <input ref={input} type="file" hidden disabled={disabled} multiple={multiple} accept={extensions.map(ext => `.${ext}`).join(',')} onChange={event => {
+            const files = Array.from(event.target.files ?? []); event.target.value = ''; if (files.length) accept(files);
         }} /></>;
 }
 
-export function ThemeStudioPanel({ open, device, onClose }: { open: boolean; device: Device; onClose: () => void }) {
+export function ThemeStudioPanel({ open, showPackages, device, onClose }: { open: boolean; showPackages: boolean; device: Device; onClose: () => void }) {
     const saved = appearanceStore.useStore();
     const savedDevice = appearanceDevice.useStore();
+    const { packs } = appearanceLibrary.useStore();
     const [history, setHistory] = useState(() => newHistory(currentDraft()));
     const [tab, setTab] = useState<keyof typeof tabs>('basic');
     const [previewDevice, setPreviewDevice] = useState<Device>(device);
@@ -59,15 +77,19 @@ export function ThemeStudioPanel({ open, device, onClose }: { open: boolean; dev
     const [selected, setSelected] = useState('routes');
     const [dragged, setDragged] = useState<string>();
     const [saving, setSaving] = useState(false);
+    const [packBusy, setPackBusy] = useState(false);
+    const [pendingDelete, setPendingDelete] = useState<{ entry: AppearancePackEntry; anchor: HTMLButtonElement }>();
+    const [deleteError, setDeleteError] = useState('');
     const [status, setStatus] = useState('');
     const [error, setError] = useState('');
-    const { skin, layouts, reset: queuedReset } = history.present;
+    const { skin, layouts, reset: queuedReset, packId } = history.present;
+    const busy = saving || packBusy;
     const editableLayout = localMode ? layouts[previewDevice] : undefined;
     const items = placements(skin, previewDevice, editableLayout);
     const narrowAreas: Area[] = ['top', 'sidebar', 'conversation', 'toolbar', 'more', 'input-before', 'input-after', ...(previewDevice === 'mobile' ? ['mobile' as const] : [])];
     const displaySkin = useDeferredValue(compare ? saved.saved ?? defaultPreview : skin);
     const previewCss = useMemo(() => open ? compileAppearance(displaySkin) : '', [open, displaySkin]);
-    const changedSkin = queuedReset ? !!saved.saved : !_.isEqual(skin, saved.saved ?? defaultPreview);
+    const changedSkin = queuedReset ? !!saved.saved : packId !== saved.activePackId || !_.isEqual(skin, saved.saved ?? defaultPreview);
     const changedDevice = !_.isEqual(layouts, savedDevice.layouts);
     const dirty = changedSkin || changedDevice;
     const selectedPart = Object.hasOwn(parts, selected) ? selected as Part : undefined;
@@ -76,9 +98,12 @@ export function ThemeStudioPanel({ open, device, onClose }: { open: boolean; dev
     const assetKeys = Object.keys(skin.assets);
     const retainedDraft = useRef(false);
     useEffect(() => {
-        if (!open || retainedDraft.current) return;
-        setHistory(newHistory(currentDraft())); setPreviewDevice(device); setCompare(false); setError(''); setStatus('');
-    }, [open]);
+        if (!open) return;
+        if (showPackages) { setTab('packages'); setPane('edit'); }
+        if (!retainedDraft.current) {
+            setHistory(newHistory(currentDraft())); setPreviewDevice(device); setCompare(false); setError(''); setStatus('');
+        }
+    }, [open, showPackages]);
 
     const update = (change: (draft: Draft) => void, reset = false) => {
         if (saving) return;
@@ -104,17 +129,49 @@ export function ThemeStudioPanel({ open, device, onClose }: { open: boolean; dev
     const save = () => void perform(async () => {
         setSaving(true);
         try {
-            if (changedSkin || changedDevice && !saved.saved && !queuedReset) await saveAppearance(queuedReset ? null : skin);
+            if (changedSkin || changedDevice && !saved.saved && !queuedReset) await saveAppearance(queuedReset ? null : skin, packId);
             if (changedDevice) saveDeviceLayouts(layouts);
             if (savedDevice.paused && !queuedReset) pauseAppearance(false);
             setHistory(newHistory(currentDraft())); setCompare(false); setStatus('外观已保存。');
         } finally { setSaving(false); }
     });
-    const loadSample = () => { edit(draft => { Object.assign(draft, fogHarborAppearance()); }); setLocalMode(false); setPage('chat'); };
-    const importPackage = (file: File) => void perform(async () => {
-        const pack = decodeAppearance(JSON.parse(await file.text()));
-        update(draft => { draft.skin = pack; }); setStatus('已读入草稿，保存后应用。');
+    const runPackAction = (task: () => Promise<void>) => void perform(async () => {
+        setPackBusy(true);
+        try { await task(); } finally { setPackBusy(false); }
     });
+    const importPackages = (files: File[], errors: string[]) => runPackAction(async () => {
+        const imported: Appearance[] = [];
+        for (const file of files) {
+            try { imported.push(decodeAppearance(JSON.parse(await file.text()))); }
+            catch { errors.push(`「${file.name}」不是有效的外观包`); }
+        }
+        if (imported.length) await importAppearancePacks(imported);
+        const result = imported.length ? `已导入 ${imported.length} 个外观包。` : '';
+        if (errors.length) setError(`${result}${errors[0]}${errors.length > 1 ? `，另有 ${errors.length - 1} 个文件未导入` : ''}。`);
+        else setStatus(result);
+    });
+    const previewPack = (entry: AppearancePackEntry) => runPackAction(async () => {
+        const pack = await loadAppearancePack(entry.id);
+        update(draft => { draft.skin = pack; draft.packId = entry.id; });
+        setLocalMode(false); setPane('preview');
+    });
+    const applyPack = (entry: AppearancePackEntry) => runPackAction(async () => {
+        await useAppearancePack(entry.id);
+        if (appearanceDevice.getState().paused) pauseAppearance(false);
+        setHistory(state => ({ past: dirty ? [...state.past.slice(-39), state.present] : [], present: { ...currentDraft(), layouts: state.present.layouts }, future: [] }));
+        setCompare(false); setLocalMode(false); setStatus(`正在使用「${entry.name}」。`);
+    });
+    const removePack = (entry: AppearancePackEntry) => void (async () => {
+        setPackBusy(true); setDeleteError('');
+        try {
+            await deleteAppearancePack(entry.id);
+            setHistory(state => ({ past: state.past.filter(draft => draft.packId !== entry.id),
+                present: state.present.packId === entry.id ? { ...currentDraft(), layouts: state.present.layouts } : state.present,
+                future: state.future.filter(draft => draft.packId !== entry.id) }));
+            setPendingDelete(undefined); setError(''); setStatus(`已删除「${entry.name}」。`);
+        } catch (reason) { setDeleteError(reason instanceof Error ? reason.message : String(reason)); }
+        finally { setPackBusy(false); }
+    })();
     const exportPackage = () => void perform(async () => {
         const name = skin.name.trim() || '微醺屿外观';
         if (await saveExport(new Blob([JSON.stringify(skin, null, 2)], { type: 'application/json' }), `${name.replace(/[\\/:*?"<>|]/g, '-')}.tipsy-appearance.json`)) setStatus('已导出当前草稿。');
@@ -156,8 +213,8 @@ export function ThemeStudioPanel({ open, device, onClose }: { open: boolean; dev
     const editWidget = (change: (widget: Widget) => void) => edit(draft => { const widget = draft.widgets.find(item => item.id === selected); if (widget) change(widget); });
 
     if (!open) return null;
-    return <AnchoredDialog title="外观工作台" anchor={document.body} centered className="ttm-appearance-dialog" closeDisabled={saving} onClose={() => { retainedDraft.current = dirty; onClose(); }}>
-        <div className="ttm-skin-workbench" data-pane={pane} aria-busy={saving}>
+    return <><AnchoredDialog title="外观工作台" anchor={document.body} centered className="ttm-appearance-dialog" closeDisabled={busy} onClose={() => { retainedDraft.current = dirty; onClose(); }}>
+        <div className="ttm-skin-workbench" data-pane={pane} aria-busy={busy}>
             <div className="ttm-skin-editor">
                 <nav className="ttm-skin-tabs" aria-label="外观工作台功能">{(Object.keys(tabs) as (keyof typeof tabs)[]).map(key => <button type="button" key={key} aria-current={tab === key ? 'page' : undefined} onClick={() => { setTab(key); setPane('edit'); }}>{tabs[key]}</button>)}</nav>
                 <div className="ttm-skin-editor-scroll" key={tab}>
@@ -212,9 +269,27 @@ export function ThemeStudioPanel({ open, device, onClose }: { open: boolean; dev
                         {saved.legacyCss && <Group title="旧版阅读 CSS"><label>保留的旧设置<textarea className="ttm-skin-code" readOnly rows={5} value={saved.legacyCss} /></label></Group>}
                     </>}
                     {tab === 'packages' && <>
-                        <Group title="外观包"><label>外观包名称<input value={skin.name} onChange={event => edit(draft => { draft.name = event.target.value; })} /></label><div className="ttm-skin-button-row">
-                            <FilePick title="导入外观包" extensions={['json']} pick={importPackage} onError={setError} /><button type="button" className="ttm-btn-secondary" onClick={exportPackage}><Icon name="download" width={16} height={16} />导出外观包</button>
-                            </div><button type="button" className="ttm-settings-link" onClick={loadSample}>试用「雾港阅读器」<Icon name="chevron" width={16} height={16} /></button></Group>
+                        <Group title="我的外观包">
+                            <div className="ttm-skin-button-row"><FilePick title="导入外观包" extensions={['json']} pickMany={importPackages} onError={setError} disabled={busy} /></div>
+                            {!packs.length ? <p className="ttm-skin-pack-empty">还没有保存的外观包。</p> : <ul className="ttm-skin-pack-list">
+                                {packs.map(entry => {
+                                    const active = saved.activePackId === entry.id;
+                                    return <li className="ttm-skin-pack-row" key={entry.id}>
+                                        <div className="ttm-skin-pack-name"><strong>{entry.name}</strong>
+                                            {active && <span><Icon name="check" width={13} height={13} />{savedDevice.paused ? '已暂停' : '使用中'}</span>}
+                                        </div>
+                                        <div className="ttm-skin-pack-actions">
+                                            <button type="button" className="ttm-btn-secondary" disabled={busy} onClick={() => previewPack(entry)}>预览</button>
+                                            {(!active || savedDevice.paused) && <button type="button" className="ttm-btn-secondary" disabled={busy} onClick={() => applyPack(entry)}>使用</button>}
+                                            <button type="button" className="ttm-icon-btn ttm-skin-pack-delete" disabled={busy} title="删除外观包" aria-label={`删除 ${entry.name}`} onClick={event => { setDeleteError(''); setPendingDelete({ entry, anchor: event.currentTarget }); }}><Icon name="trash" width={17} height={17} /></button>
+                                        </div>
+                                    </li>;
+                                })}
+                            </ul>}
+                        </Group>
+                        <Group title="当前草稿"><label>外观包名称<input value={skin.name} onChange={event => edit(draft => { draft.name = event.target.value; })} /></label><div className="ttm-skin-button-row">
+                            <button type="button" className="ttm-btn-secondary" onClick={exportPackage}><Icon name="download" width={16} height={16} />导出外观包</button>
+                            </div></Group>
                         <Group title="素材库"><div className="ttm-skin-button-row"><FilePick title="添加图片" extensions={mediaExtensions} pick={file => putAsset(file, 'image')} onError={setError} /><FilePick title="添加字体" extensions={fontExtensions} pick={file => putAsset(file, 'font')} onError={setError} /></div>
                             {assetKeys.map(id => <div key={id} className="ttm-skin-asset-line">{skin.assets[id].mime.startsWith('image/') && <img src={assetUrl(skin, id)} alt="" />}<span><strong>{skin.assets[id].name}</strong><code>asset:{id}</code></span><button type="button" className="ttm-icon-btn" title="移除素材" aria-label={`移除 ${skin.assets[id].name}`} onClick={() => edit(draft => {
                                 delete draft.assets[id]; if (draft.wallpaper.source === id) draft.wallpaper.source = '';
@@ -222,8 +297,8 @@ export function ThemeStudioPanel({ open, device, onClose }: { open: boolean; dev
                                 for (const font of Object.values(draft.fonts)) if (font.asset === id) font.asset = '';
                                 for (const widget of draft.widgets) if (widget.image === id) widget.image = '';
                             })}><Icon name="trash" width={16} height={16} /></button></div>)}</Group>
-                        <Group title="恢复外观"><button type="button" className="ttm-btn-secondary" disabled={!saved.previous} onClick={() => update(draft => { draft.skin = structuredClone(saved.previous ?? blankAppearance()); })}>载入上个保存版本</button>
-                            <button type="button" className="ttm-btn-secondary" onClick={() => update(draft => { draft.skin = blankAppearance(); draft.layouts = {}; }, true)}>恢复默认外观</button>
+                        <Group title="恢复外观"><button type="button" className="ttm-btn-secondary" disabled={!saved.previous || busy} onClick={() => update(draft => { draft.skin = saved.previous ?? blankAppearance(); draft.packId = saved.previousPackId; })}>载入上个保存版本</button>
+                            <button type="button" className="ttm-btn-secondary" disabled={busy} onClick={() => update(draft => { draft.skin = blankAppearance(); draft.layouts = {}; draft.packId = null; }, true)}>恢复默认外观</button>
                         </Group>
                     </>}
                 </div>
@@ -237,15 +312,24 @@ export function ThemeStudioPanel({ open, device, onClose }: { open: boolean; dev
             </div>
             <footer className="ttm-skin-footer">
                 <div className="ttm-skin-mobile-switch"><button type="button" className="ttm-btn-secondary" onClick={() => setPane(pane === 'edit' ? 'preview' : 'edit')}>{pane === 'edit' ? '查看预览' : '返回编辑'}</button></div>
-                <button type="button" className="ttm-icon-btn" title="撤销" aria-label="撤销" disabled={!history.past.length || saving} onClick={() => changeHistory(-1)}><Icon name="history" width={17} height={17} /></button>
-                <button type="button" className="ttm-icon-btn" title="重做" aria-label="重做" disabled={!history.future.length || saving} onClick={() => changeHistory(1)}><Icon name="history" width={17} height={17} style={{ transform: 'scaleX(-1)' }} /></button>
+                <button type="button" className="ttm-icon-btn" title="撤销" aria-label="撤销" disabled={!history.past.length || busy} onClick={() => changeHistory(-1)}><Icon name="history" width={17} height={17} /></button>
+                <button type="button" className="ttm-icon-btn" title="重做" aria-label="重做" disabled={!history.future.length || busy} onClick={() => changeHistory(1)}><Icon name="history" width={17} height={17} style={{ transform: 'scaleX(-1)' }} /></button>
                 <span className="ttm-skin-status" role={error ? 'alert' : 'status'}>{error || status || (savedDevice.paused ? '自定义外观已暂停' : dirty ? '有未保存的修改' : '')}</span>
                 {savedDevice.paused && (saved.saved || Object.keys(savedDevice.layouts).length > 0) && !dirty && <button type="button" className="ttm-btn-secondary" onClick={() => pauseAppearance(false)}>重新启用</button>}
-                <button type="button" className="ttm-btn-secondary" disabled={!dirty || saving} onClick={() => { setHistory(newHistory(currentDraft())); setCompare(false); setStatus(''); setError(''); }}>放弃修改</button>
-                <button type="button" className="ttm-btn-primary" disabled={!dirty || saving} onClick={save}>{saving ? '正在保存' : '保存外观'}</button>
+                <button type="button" className="ttm-btn-secondary" disabled={!dirty || busy} onClick={() => { setHistory(newHistory(currentDraft())); setCompare(false); setStatus(''); setError(''); }}>放弃修改</button>
+                <button type="button" className="ttm-btn-primary" disabled={!dirty || busy} onClick={save}>{saving ? '正在保存' : '保存外观'}</button>
             </footer>
         </div>
-    </AnchoredDialog>;
+    </AnchoredDialog>
+    {pendingDelete && <AnchoredDialog title="删除外观包" anchor={pendingDelete.anchor} compact centered fitContent closeDisabled={packBusy} onClose={() => setPendingDelete(undefined)}>
+        <div className="ttm-skin-delete-confirm">
+            <p>确定从本机移除「{pendingDelete.entry.name}」？{saved.activePackId === pendingDelete.entry.id && '它正在使用，删除后会恢复默认外观。'}</p>
+            {deleteError && <p className="ttm-skin-status" role="alert">{deleteError}</p>}
+            <div className="ttm-editor-actions"><button type="button" className="ttm-btn-secondary" disabled={packBusy} onClick={() => setPendingDelete(undefined)}>取消</button>
+                <button type="button" className="ttm-btn-danger" disabled={packBusy} onClick={() => removePack(pendingDelete.entry)}>{packBusy ? '正在删除…' : '确认删除'}</button></div>
+        </div>
+    </AnchoredDialog>}
+    </>;
 }
 
 const defaultPreview = blankAppearance();

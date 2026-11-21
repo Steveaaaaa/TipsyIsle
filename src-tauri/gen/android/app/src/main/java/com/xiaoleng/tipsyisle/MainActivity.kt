@@ -10,6 +10,7 @@ import androidx.core.view.WindowInsetsCompat
 class MainActivity : TauriActivity() {
     private var discoveryLock: android.net.wifi.WifiManager.MulticastLock? = null
     private var appWebView: WebView? = null
+    private var fullscreenClient: FullscreenChromeClient? = null
     private var foreground = false
     private var needsForegroundFrame = false
     private val restoreForegroundFrame = Runnable {
@@ -48,6 +49,8 @@ class MainActivity : TauriActivity() {
         if (hasFocus && foreground && needsForegroundFrame) scheduleForegroundFrame()
     }
     override fun onDestroy() {
+        fullscreenClient?.onHideCustomView()
+        fullscreenClient = null
         appWebView?.removeCallbacks(restoreForegroundFrame)
         appWebView = null
         super.onDestroy()
@@ -59,6 +62,12 @@ class MainActivity : TauriActivity() {
     override fun onWebViewCreate(webView: WebView) {
         super.onWebViewCreate(webView)
         appWebView = webView
+        // Wry installs its ChromeClient immediately after onWebViewCreate returns.
+        webView.post {
+            if (appWebView === webView) webView.webChromeClient?.let { client ->
+                FullscreenChromeClient(this, client).also { fullscreenClient = it; webView.webChromeClient = it }
+            }
+        }
         // Let WebView handle native text selection and the copy/paste action toolbar.
         webView.setOnLongClickListener(null)
         webView.isLongClickable = true

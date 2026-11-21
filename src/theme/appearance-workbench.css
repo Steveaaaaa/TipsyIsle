@@ -16,7 +16,8 @@
 .ttm-brand-english { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ttm-topbar .ttm-brand { max-width: 74%; }
 .ttm-sidebar-bottom-actions:empty { display: none; }
-.ttm-skin-rescue { position: fixed; z-index: 2147483647; top: calc(5px + env(safe-area-inset-top)); right: 3px; width: 26px; height: 26px;
+.ttm-app-root:has(> .ttm-skin-rescue) > .ttm-topbar { padding-inline-end: 36px; }
+.ttm-skin-rescue { position: fixed; z-index: 2147483647; top: calc(5px + env(safe-area-inset-top)); right: calc(3px + env(safe-area-inset-right)); width: 26px; height: 26px;
     display: grid; place-items: center; border: 1px solid #b2c2d8; border-radius: 6px; padding: 0; background: #f4f7fc; color: #29426b; }
 
 .ttm-appearance-dialog.ttm-asset-dialog { display: flex; flex-direction: column; max-width: calc(100vw - 32px); }
@@ -57,6 +58,14 @@
 .ttm-skin-zone button[aria-pressed="true"], .ttm-skin-zone button:hover { border-color: var(--ti-accent); background: var(--ti-selection); }
 .ttm-skin-group .ttm-skin-code { font-family: var(--ti-font-mono); line-height: 1.65; resize: vertical; white-space: pre; }
 .ttm-skin-button-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.ttm-skin-pack-empty { margin: 0; color: var(--ti-text-muted); font-size: 13px; }
+.ttm-skin-pack-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--ti-border); }
+.ttm-skin-pack-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; min-width: 0; padding: 8px 0; border-bottom: 1px solid var(--ti-border); }
+.ttm-skin-pack-name { display: grid; flex: 1 1 95px; gap: 3px; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.ttm-skin-pack-name span { display: flex; align-items: center; gap: 4px; color: var(--ti-accent); font-size: 12px; }
+.ttm-skin-pack-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-inline-start: auto; }
+.ttm-skin-pack-delete:hover { color: var(--ti-danger); }
+.ttm-skin-delete-confirm p { margin: 0 0 12px; overflow-wrap: anywhere; }
 .ttm-skin-asset-line { display: flex; gap: 8px; align-items: center; min-width: 0; font-size: 12px; }
 .ttm-skin-asset-line > span { display: grid; flex: 1; overflow-wrap: anywhere; }
 .ttm-skin-asset-line > img { width: 36px; height: 32px; object-fit: contain; }
@@ -90,6 +99,7 @@
     .ttm-skin-footer .ttm-icon-btn { width: 32px; min-width: 32px; }
     .ttm-skin-editor-scroll { padding: 16px; }
     .ttm-skin-tabs button, .ttm-skin-segments button, .ttm-skin-group :is(button, input:not([type="range"]), select) { min-height: 44px; }
+    .ttm-skin-pack-delete { min-width: 44px; }
     .ttm-skin-preview-stage { margin: 10px; }
     .ttm-skin-rescue { width: 34px; height: 34px; top: calc(6px + env(safe-area-inset-top)); right: 6px; }
 }

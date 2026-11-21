@@ -84,7 +84,7 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
                 <span><strong>{settingsFieldLabels[field.id]?.title ?? field.title}</strong><small>{settingsFieldLabels[field.id]?.description ?? field.description}</small></span>
                 <span>{settingsCategories.find(item => item.id === settingsCategoryForField(field.id))?.label}<Icon name="chevron" width={15} height={15} /></span>
             </button>)}
-            {!resultCount && <p className="ttm-settings-note">试试“密钥”“插件权限”“应答格式”或“渲染范围”。</p>}
+            {!resultCount && <p className="ttm-settings-note">试试“密钥”“插件权限”“应答格式”或“预加载”。</p>}
         </div> : <div className="ttm-settings-category" key={category} data-guide={category === 'plugins' ? undefined : category} data-direction={direction}>
             <header className="ttm-settings-category-heading"><h3>{categoryLabel.label}</h3><p>{categoryLabel.description}</p>{category !== 'plugins' && <small>修改后点击底部保存。关闭面板会保留本次草稿；刷新页面前请先保存。</small>}</header>
             {category === 'connection' && <>
@@ -111,17 +111,21 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
                     {renderFields(['vectors.enabled'])}<VectorConnectionFields />
                 </SettingsDisclosure>
             </>}
-            {category === 'reading' && <SettingsSection title="回复生成时的呈现方式" description="流式输出开关用于模型请求；显示方式按当前故事保存，不改变作者正则、脚本或原始回复。">
-                {renderFields(['api.stream'])}
-                <label className="ttm-asset-field-label" htmlFor="settings-stream-mode">流式显示方式</label><select id="settings-stream-mode" className="ttm-select-input" value={draft.streamModes[workspace.activeCharacterId] ?? workspace.streamDisplayModes[workspace.activeCharacterId] ?? 'auto'} onChange={event => {
-                    const mode = event.target.value as StreamDisplayMode;
-                    settingsDraftStore.setState(next => { if (mode === (workspace.streamDisplayModes[workspace.activeCharacterId] ?? 'auto')) delete next.streamModes[workspace.activeCharacterId]; else next.streamModes[workspace.activeCharacterId] = mode; });
-                }}>
-                    <option value="auto">自动识别正文与作者页面</option><option value="segmented">分段显示正文与组件</option><option value="document">等待整段作者页面</option>
-                </select>
-                <p className="ttm-settings-note">推荐自动识别。普通正文逐步显示；需要完整内容的作者页面等待生成完成后呈现。若某个故事显示异常，可手动选择等待整段作者页面。</p>
-                {onOpenAppearance && <button type="button" className="ttm-settings-link" onClick={onOpenAppearance}>打开外观工作台<Icon name="arrow" width={17} height={17} /></button>}
-            </SettingsSection>}
+            {category === 'reading' && <>
+                {onOpenAppearance && <SettingsSection title="外观包">
+                    <button type="button" className="ttm-settings-link" onClick={onOpenAppearance}>浏览外观包<Icon name="chevron" width={16} height={16} /></button>
+                </SettingsSection>}
+                <SettingsSection title="回复生成时的呈现方式" description="流式输出开关用于模型请求；显示方式按当前故事保存，不改变作者正则、脚本或原始回复。">
+                    {renderFields(['api.stream'])}
+                    <label className="ttm-asset-field-label" htmlFor="settings-stream-mode">流式显示方式</label><select id="settings-stream-mode" className="ttm-select-input" value={draft.streamModes[workspace.activeCharacterId] ?? workspace.streamDisplayModes[workspace.activeCharacterId] ?? 'auto'} onChange={event => {
+                        const mode = event.target.value as StreamDisplayMode;
+                        settingsDraftStore.setState(next => { if (mode === (workspace.streamDisplayModes[workspace.activeCharacterId] ?? 'auto')) delete next.streamModes[workspace.activeCharacterId]; else next.streamModes[workspace.activeCharacterId] = mode; });
+                    }}>
+                        <option value="auto">自动识别正文与作者页面</option><option value="segmented">分段显示正文与组件</option><option value="document">等待整段作者页面</option>
+                    </select>
+                    <p className="ttm-settings-note">推荐自动识别。普通正文逐步显示；需要完整内容的作者页面等待生成完成后呈现。若某个故事显示异常，可手动选择等待整段作者页面。</p>
+                </SettingsSection>
+            </>}
             {category === 'profile' && <SettingsSection title="头像、称呼与个人特征" description="称呼对应故事中的 {{user}}，外貌、性格等用于补充故事中的自己。故事专属资料优先，未设置时使用全局默认，两份不会叠加。">
                 {onOpenPersona && <button type="button" className="ttm-btn-secondary" onClick={event => onOpenPersona(event.currentTarget)}>编辑个人资料</button>}
             </SettingsSection>}

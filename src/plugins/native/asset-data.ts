@@ -229,9 +229,10 @@ export const prepareAssetPublication = (state: WorkspaceState, plan: AssetPlan) 
     assetDraft.produce<WorkspaceState, WorkspaceState>(state, draft => publishAssets(draft, plan.after, plan.linked));
 const storyFields = ['storyCharacter', 'storyWorldbooks', 'storyCharacterBinding', 'storyPersona', 'timedStates', 'templateActivations'] as const;
 const assetFields = ['characters', 'lorebooks', 'presets', 'inUsePreset', 'activeLorebookIds', 'characterWorldbookBindings', 'chatWorldbookBindings', 'personas', ...storyFields] as const;
+export type NativeAssetPatch = Partial<Pick<WorkspaceState, typeof assetFields[number]>>;
 export function assetPublication(before: WorkspaceState, after: WorkspaceState) {
     const keys = assetFields.filter(key => before[key] !== after[key]);
-    const select = (state: WorkspaceState, fields = keys) => Object.fromEntries(fields.map(key => [key, state[key]])) as Partial<WorkspaceState>;
+    const select = (state: WorkspaceState, fields = keys) => Object.fromEntries(fields.map(key => [key, state[key]])) as NativeAssetPatch;
     const validate = (current: WorkspaceState) => {
         if (keys.some(key => current[key] !== before[key]) || current.activePresetId !== before.activePresetId
             || current.activeChatId !== before.activeChatId || current.branchEpoch !== before.branchEpoch) throw conflict();

@@ -10,7 +10,7 @@ export const NO_PRESET: NormalizedPreset = { ...normalizePreset({ name: '未使�
 NO_PRESET.promptSlots!.splice(7, 0, { identifier: 'authorsNote', name: '作者注释位置', role: 'system', content: '',
     enabled: true, marker: true, injectionPosition: 'in_chat', injectionDepth: 4, injectionOrder: 7 });
 export function emptyStory() {
-    return { branchEpoch: 0, chatMetadata: undefined, nativePluginRoute: undefined, branchExtensionKeys: [], deletedMessageIds: [], activeCharacterId: '', activeChatId: '', messages: [], activeLeafId: null, timedStates: {},
+    return { sessionKind: 'character' as const, freeChat: undefined, branchEpoch: 0, chatMetadata: undefined, nativePluginRoute: undefined, branchExtensionKeys: [], deletedMessageIds: [], activeCharacterId: '', activeChatId: '', messages: [], activeLeafId: null, timedStates: {},
         templateInjections: [], templateActivations: [], lastAssembledPrompt: null,
-        storyWorldbooks: undefined, storyCharacterBinding: undefined, storyCharacter: undefined, storyPersona: undefined };
+        storyWorldbooks: undefined, storyCharacterBinding: undefined, storyCharacter: undefined, storyPersona: undefined, storyImportFingerprint: undefined, portableStory: undefined };
 }

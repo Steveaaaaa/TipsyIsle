@@ -1,0 +1,19 @@
+.ttm-story-save { display: grid; gap: 14px; font-size: 13px; line-height: 1.55; }
+.ttm-story-save p { margin: 0; }
+.ttm-story-save-file, .ttm-story-save-target { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ttm-story-save-file > span { min-width: 0; overflow-wrap: anywhere; color: var(--ti-text-muted); }
+.ttm-story-save-target > label { flex-basis: 100%; font-weight: 600; }
+.ttm-story-save-target > select { flex: 1; min-width: 0; }
+.ttm-story-save-summary { display: grid; gap: 3px; padding-top: 12px; border-top: 1px solid var(--ti-border); overflow-wrap: anywhere; }
+.ttm-story-save-summary strong { font-size: 15px; }
+.ttm-story-save-summary span { color: var(--ti-text-muted); }
+.ttm-story-save-notes { margin: 0; padding-inline-start: 20px; color: var(--ti-text-secondary); }
+.ttm-story-save-resources { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+.ttm-story-save-resources dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.ttm-story-save-excerpt { margin: 0; padding: 10px 12px; background: var(--ti-bg-primary); color: var(--ti-text-secondary); overflow-wrap: anywhere; }
+.ttm-story-save-actions { justify-content: flex-end; flex-wrap: wrap; }
+.ttm-story-save-error { color: var(--ti-danger, var(--ti-text-primary)); overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+    .ttm-story-save-dialog { inset: auto 0 0 !important; width: 100% !important; border-radius: 14px 14px 0 0; }
+    .ttm-story-save-dialog .ttm-asset-dialog-content { padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+}
