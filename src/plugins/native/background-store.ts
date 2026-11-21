@@ -12,12 +12,17 @@ export const transactionDone = (transaction: IDBTransaction) => new Promise<void
 });
 export function backgroundDb() {
     return opening ??= (() => {
-        const request = indexedDB.open('tipsy-plugin-background', 1);
-        request.onupgradeneeded = () => {
+        const request = indexedDB.open('tipsy-plugin-background', 2);
+        request.onupgradeneeded = event => {
             const db = request.result;
-            db.createObjectStore('media', { keyPath: 'id' }).createIndex('owner', 'owner');
-            db.createObjectStore('blobs');
-            db.createObjectStore('index', { keyPath: ['owner', 'collection', 'id'] });
+            if (event.oldVersion < 1) {
+                db.createObjectStore('media', { keyPath: 'id' }).createIndex('owner', 'owner');
+                db.createObjectStore('blobs');
+                db.createObjectStore('index', { keyPath: ['owner', 'collection', 'id'] });
+            }
+            db.createObjectStore('memory-vectors', { keyPath: ['collection', 'id'] });
+            db.createObjectStore('memory-payloads', { keyPath: ['collection', 'id'] });
+            db.createObjectStore('memory-snapshots');
         };
         return requestResult(request).then(db => { db.onversionchange = () => { db.close(); opening = undefined; }; return db; })
             .catch(error => { opening = undefined; throw error; });

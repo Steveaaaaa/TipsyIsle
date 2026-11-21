@@ -12,7 +12,7 @@ import { enqueuePersistentOperation, waitForReplicaCommit, holdReplicaCommit } f
 import { workspaceStore } from './state';
 import { getActiveChatMessages, preserveAuthorMessageRevision } from './queries';
 import { setNativeStorySaving, branchBusy } from './activity';
-import { readBranchState, rememberBranch, activateBranch, publishBranchChange } from './branches';
+import { readBranchState, rememberBranch, activateBranch, publishBranchChange, settleRouteChange } from './branches';
 import { commitWorkspaceMutation, persistWorkspaceNow } from './storage';
 import { batchReactiveUpdates } from '../reactive-store';
 import { scopedVariableStore, registerAssetVariableAccess } from '../scoped-variable-store';
@@ -174,6 +174,7 @@ export async function openNativePluginRoute(address: RouteAddress, check: () => 
     await waitForReplicaCommit();
     const state = workspaceStore.getState();
     if (branchBusy()) throw new PluginApiError('STORY_BUSY', '请等待剧情结算完成后再切换路线');
+    await settleRouteChange();
     if (address.chatId !== state.activeChatId) {
         const chat = await loadChatArchive(address.chatId);
         check();

@@ -52,7 +52,7 @@
 
 ## 连接模型与换设备
 
-Windows／Android 客户端可以直接请求 **OpenAI 兼容的 Chat Completions 接口**，使用自己的服务地址、密钥与模型。部分原厂协议和服务商账号授权依赖本地 Node 网关；需要这些能力时，请通过 `npm start` 使用本地网页模式。不同运行方式的模型连接能力不完全相同。
+Windows／Android 客户端可以直连 **OpenAI 兼容的 Chat Completions 接口**和 **Google Gemini (AI Studio) 接口**。官方 Gemini 地址可填 `https://generativelanguage.googleapis.com/v1beta`；用反代时，按服务商文档填写基础地址，并选择反代实际提供的协议。仅模型名是 Gemini，并不代表接口是 Gemini 原厂协议。Claude、Vertex AI、OpenAI Responses 和服务商账号授权仍需要通过 `npm start` 使用本地网页模式。
 
 模型服务需要自行准备。资源与进度保存在本地，不代表客户端内置了能离线生成回复的模型。
 

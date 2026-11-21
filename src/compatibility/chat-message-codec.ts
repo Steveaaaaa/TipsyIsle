@@ -1,17 +1,18 @@
 import type { ChatMessageNode } from '../types';
 import { normalizeMvuVariables } from '../pipeline/mvu-data';
 import { swipeId } from '../store/chat-tree';
+import { routeExtra } from './baibai-route';
 
 // Author extras have their own per-swipe table. Internal branch state must survive
 // setChatMessages({ extra: ... }) and must not leak through getChatMessages().extra.
 const internalKeys = new Set(['swipeVariables', 'chatVariables', 'timedStates', 'swipeHostMetadata', 'tipsy_host_illustrations', 'swipeChatVariables', 'swipeTimedStates',
     'templateState', 'swipeTemplateStates', 'helperSwipeInfo', 'tipsy_template_render', 'tipsy_template_source', 'tipsy_generation_incomplete',
     'tipsy_mvu_initialized', 'tipsy_mvu_initialization_pending', 'tipsy_template_variables_initialized', 'tipsy_generation_terminal']);
-export function messageExtra(node: ChatMessageNode, swipe = node.activeSwipeIndex): Record<string, unknown> {
+export function messageExtra(node: ChatMessageNode, swipe = node.activeSwipeIndex, metadata?: Record<string, unknown>): Record<string, unknown> {
     const table = node.extra?.helperSwipeInfo as Record<string, Record<string, unknown>> | undefined;
     const original = node.swipes[swipe];
-    return structuredClone(table?.[swipe] ?? (typeof original === 'object' ? original.extra : undefined)
-        ?? Object.fromEntries(Object.entries(node.extra ?? {}).filter(([key]) => !internalKeys.has(key))));
+    return structuredClone(routeExtra(node, table?.[swipe] ?? (typeof original === 'object' ? original.extra : undefined)
+        ?? Object.fromEntries(Object.entries(node.extra ?? {}).filter(([key]) => !internalKeys.has(key))), metadata, swipe));
 }
 export const hostHiddenKey = 'tipsy_host_hidden_messages';
 export const hostIllustrationKey = 'tipsy_host_illustrations';

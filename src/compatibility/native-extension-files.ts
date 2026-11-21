@@ -5,6 +5,7 @@ import type { CompatibilityExtension } from './extensions';
 const catalogKey = 'native_extension_packages';
 const prefix = '/scripts/extensions/third-party/';
 interface Package { entry: CompatibilityExtension; repository: string; branch: string; commit: string; directory: string }
+interface RepositoryHead { branch: string; commit: string; archive?: Uint8Array }
 interface Item { name: string; folder: boolean; modified: number }
 const readPackages = () => platformStorage.loadSnapshot<Package[]>(catalogKey, []);
 const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
@@ -20,25 +21,62 @@ function repositoryPath(value: string) {
     return parts.join('/');
 }
 
-async function repositoryHead(repository: string, branch?: string) {
-    const json = async (endpoint: string) => {
-        const response = await platformFetch(`https://api.github.com/repos/${repository}${endpoint}`);
-        if (!response.ok) throw new Error(`读取 GitHub 扩展失败（${response.status}）`);
-        return response.json();
-    };
-    const selected: string = branch ?? (await json('')).default_branch;
-    const { sha } = await json(`/commits/${encodeURIComponent(selected)}`);
-    return { branch: selected, commit: String(sha) };
+const githubCommit = /^[a-f0-9]{40}$/i;
+
+async function downloadArchive(repository: string, ref: string) {
+    const signal = AbortSignal.timeout(60000);
+    try {
+        const response = await platformFetch(`https://codeload.github.com/${repository}/zip/${encodeURIComponent(ref)}`, { signal });
+        if (!response.ok) throw new Error(`下载 GitHub 扩展 ZIP 失败（HTTP ${response.status}）`);
+        return new Uint8Array(await response.arrayBuffer());
+    } catch (error) {
+        if (signal.aborted) throw new Error('下载 GitHub 扩展 ZIP 超时');
+        throw error;
+    }
 }
 
-async function downloadPackage(repository: string, branch: string, commit: string, type: 'local' | 'global') {
+function archiveCommit(archive: Uint8Array) {
+    // GitHub's source ZIP stores the commit SHA in its end-of-directory comment.
+    const directoryEndSize = 22;
+    const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength);
+    for (let i = archive.length - directoryEndSize; i >= Math.max(0, archive.length - directoryEndSize - 0xffff); i--) {
+        if (view.getUint32(i, true) !== 0x06054b50 || i + directoryEndSize + view.getUint16(i + 20, true) !== archive.length) continue;
+        const commit = new TextDecoder().decode(archive.subarray(i + directoryEndSize)).trim();
+        if (githubCommit.test(commit)) return commit;
+        break;
+    }
+    throw new Error('无法识别 GitHub 扩展 ZIP 对应的版本');
+}
+
+async function repositoryHead(repository: string, branch = 'HEAD'): Promise<RepositoryHead> {
+    const api = `https://api.github.com/repos/${repository}/commits/${encodeURIComponent(branch)}`;
+    let apiError: unknown;
+    try {
+        const response = await platformFetch(api, {
+            headers: { 'User-Agent': 'TipsyIsle', Accept: 'application/vnd.github+json' },
+            signal: AbortSignal.timeout(10000),
+        });
+        if (!response.ok) throw new Error(`GitHub 版本查询失败（HTTP ${response.status}）`);
+        const { sha } = await response.json();
+        if (typeof sha !== 'string' || !githubCommit.test(sha)) throw new Error('GitHub 未返回有效的扩展版本');
+        return { branch, commit: sha };
+    } catch (error) { apiError = error; }
+    try {
+        const archive = await downloadArchive(repository, branch);
+        return { branch, commit: archiveCommit(archive), archive };
+    } catch (error) {
+        const reason = (value: unknown) => value instanceof Error ? value.message : String(value);
+        throw new Error(`${reason(apiError)}；备用下载也失败：${reason(error)}`);
+    }
+}
+
+async function downloadPackage(repository: string, head: RepositoryHead, type: 'local' | 'global') {
+    const { branch, commit } = head;
     const id = repository.split('/')[1];
     const directory = `${id}-${commit.slice(0, 12)}-${crypto.randomUUID().slice(0, 8)}`;
-    const response = await platformFetch(`https://codeload.github.com/${repository}/zip/${encodeURIComponent(commit)}`);
-    if (!response.ok) throw new Error(`下载扩展失败（${response.status}）`);
-    const archive = await response.arrayBuffer();
+    const archive = head.archive ?? await downloadArchive(repository, commit);
     const { unzip } = await import('fflate');
-    const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => unzip(new Uint8Array(archive), (error, result) => error ? reject(error) : resolve(result)));
+    const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) => unzip(archive, (error, result) => error ? reject(error) : resolve(result)));
     const entries = new Map(Object.entries(files).flatMap(([archivePath, content]) => {
         const path = archivePath.slice(archivePath.indexOf('/') + 1);
         return !path || archivePath.endsWith('/') || path.split('/').some(part => part.startsWith('.')) ? [] : [[path, content] as const];
@@ -46,7 +84,7 @@ async function downloadPackage(repository: string, branch: string, commit: strin
     const manifest = JSON.parse(new TextDecoder().decode(entries.get('manifest.json')));
     const asset = (value?: string) => {
         if (!value) return undefined;
-        const [path, query] = value.split(/\?(.*)/s, 2);
+        const [path, query] = value.replaceAll('\\', '/').split(/\?(.*)/s, 2);
         if (!entries.has(path)) throw new Error(`扩展包缺少 ${path}`);
         return `${prefix}${directory}/${encodePath(path)}${query ? `?${query}` : ''}`;
     };
@@ -79,7 +117,7 @@ export function manageNativeExtension(params: Record<string, any>) {
         if (params.action === 'version') return { remote_url: `https://github.com/${origin}`, current_branch_name: head.branch,
             current_commit_hash: old!.commit, is_up_to_date: head.commit === old!.commit };
         if (params.action === 'update' && head.commit === old!.commit) return { message: '扩展已是最新版本' };
-        const next = await downloadPackage(origin, head.branch, head.commit, old?.entry.type === 'global' || params.type === 'global' ? 'global' : 'local');
+        const next = await downloadPackage(origin, head, old?.entry.type === 'global' || params.type === 'global' ? 'global' : 'local');
         await platformStorage.saveSnapshot(catalogKey, [...rest, next]);
         if (old) await invoke('remove', 'packages', old.directory);
         return { message: '扩展已保存，重新载入运行环境后生效', extension: next.entry };

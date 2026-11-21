@@ -7,7 +7,7 @@ import { activePath, swipeId, routeKey, storyRoutes, withSwipe } from '../chat-t
 import { branchMessageVariable, branchMessageVariables, captureVariablePages, createBranchVariableRemapper, type BranchState } from '../branch-state';
 import { compatibilityComposer } from '../../compatibility/composer-bridge';
 import { routeGraph, routeRootId } from '../../plugins/native/route-graph';
-import { resetCompatibilityBranch } from '../../compatibility/runtime-client';
+import { resetCompatibilityBranch, saveCompatibilityBeforeRouteChange } from '../../compatibility/runtime-client';
 import type { ChatMessageNode, LorebookTimedState } from '../../types';
 import type { TemplatePromptInjection } from '../../pipeline/template-injections';
 import { workspaceStore, type WorkspaceState } from './state';
@@ -251,7 +251,7 @@ export function activateBranch(id: string, index: number, keepLibraryBooks = fal
     }
 }
 
-export function retryStoryFrom(id: string, index?: number, internal = false): void {
+export async function retryStoryFrom(id: string, index?: number, internal = false): Promise<void> {
     const state = workspaceStore.getState();
     const path = activePath(state.messages, id);
     const source = [...path].reverse().find(node => node.role === 'assistant');
@@ -268,7 +268,8 @@ export function retryStoryFrom(id: string, index?: number, internal = false): vo
         publishBranchChange(false);
         return;
     }
-    const checkpoint = source.branchBases?.[swipeId(source, selected)];
+    await settleRouteChange(internal);
+    const checkpoint = workspaceStore.getState().messages.find(node => node.id === source.id)?.branchBases?.[swipeId(source, selected)];
     if (!checkpoint?.reply) throw new Error('这段剧情没有完整的选择前快照，暂不能从这里重新选择');
     rememberBranch();
     invalidateTemplateEnvironment();
@@ -310,34 +311,49 @@ export function retryStoryFrom(id: string, index?: number, internal = false): vo
     setStatusBanner(`新路线已回到第 ${source.floor} 楼，可以重新选择；此后的消息保留在原路线。`);
 }
 
-export function selectChatBranch(id: string, internal = false): void {
+let settlingRoute = false;
+export async function settleRouteChange(internal = false): Promise<void> {
+    const before = workspaceStore.getState();
+    if (settlingRoute || branchBusy(internal)) throw new Error('请等待剧情结算完成');
+    settlingRoute = true;
+    try {
+        if (before.sessionKind !== 'free') await saveCompatibilityBeforeRouteChange();
+        const current = workspaceStore.getState();
+        if (current.activeChatId !== before.activeChatId || current.branchEpoch !== before.branchEpoch || branchBusy(internal)) {
+            throw new Error('剧情状态已变化，请重新操作');
+        }
+    } finally { settlingRoute = false; }
+}
+
+export async function selectChatBranch(id: string, internal = false): Promise<void> {
     const state = workspaceStore.getState();
     const route = storyRoutes(state.messages).find(item => item.key === id);
     const target = state.messages.find(node => node.id === (route?.nodeId ?? id));
     if (!target) return;
     if (target.floor === 0 && state.sessionKind !== 'free') throw new Error('开场不参与剧情分支，请新建会话更换开局');
     if (branchBusy(internal)) throw new Error('请等待本轮生成和变量结算结束后切换路线');
+    await settleRouteChange(internal);
     rememberBranch();
     invalidateTemplateEnvironment();
     batchReactiveUpdates(() => activateBranch(target.id, route?.swipe ?? target.activeSwipeIndex));
     publishBranchChange(!internal);
 }
 
-export function swipeBranchMessage(messageId: string, direction: 'prev' | 'next' | 'new_branch', editOpening: (id: string, content: string, options: { swipe_id: number }) => boolean): void {
-    if (direction === 'new_branch') { retryStoryFrom(messageId); return; }
+export async function swipeBranchMessage(messageId: string, direction: 'prev' | 'next' | 'new_branch', editOpening: (id: string, content: string, options: { swipe_id: number }) => boolean | Promise<boolean>, internal = false): Promise<void> {
+    if (direction === 'new_branch') return retryStoryFrom(messageId, undefined, internal);
     const previous = workspaceStore.getState();
     const source = getActiveChatMessages(previous).find(node => node.id === messageId);
     if (!source || direction === 'prev' && source.activeSwipeIndex === 0 || direction === 'next' && source.activeSwipeIndex === source.swipes.length - 1) return;
     const nextIndex = source.activeSwipeIndex + (direction === 'prev' ? -1 : 1);
     if (source.floor === 0) {
         const selected = source.swipes[nextIndex];
-        editOpening(source.id, typeof selected === 'string' ? selected : selected.content, { swipe_id: nextIndex });
+        await editOpening(source.id, typeof selected === 'string' ? selected : selected.content, { swipe_id: nextIndex });
         return;
     }
-    if (branchBusy()) return;
+    if (branchBusy(internal)) return;
     const routes = storyRoutes(previous.messages).filter(route => route.path.some(node => node.id === messageId && node.activeSwipeIndex === nextIndex));
     if (routes.length > 1) { window.dispatchEvent(new CustomEvent('tipsy-open-branches', { detail: { messageId } })); return; }
-    if (routes.length === 1) { selectChatBranch(routes[0].key); return; }
+    if (routes.length === 1) await selectChatBranch(routes[0].key, internal);
 }
 
 /**

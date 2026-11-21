@@ -11,6 +11,7 @@ import { readExtensionVariables } from '../../compatibility/extension-variables'
 import type { AssembledPromptResult, NormalizedCharacterCard } from '../../types';
 import type { AssemblePromptInput } from '../../pipeline/prompt-assembler';
 import { hostHiddenKey } from '../../compatibility/chat-message-codec';
+import { routeContent } from '../route-message-data';
 import { normalizeTemplateFeatures, templateEntryEnabled } from '../../pipeline/template-features';
 import { globalRegexes } from '../global-regex-store';
 import { defaultWorldinfoSettings } from '../../pipeline/worldinfo-settings';
@@ -120,7 +121,7 @@ export function createPromptAssemblyInput(injections: PromptInjection[] = [], cl
         primaryWorldbookName: binding.primary,
         characterWorldbooks: binding,
         worldbookGroups: getWorldbookGroups(state),
-        messages: getActiveChatMessages(state).map(({ branchBases, branchStates, nativePluginOpeningRoutes, nativePluginReplies, ...node }) => node),
+        messages: getActiveChatMessages(state).map(({ branchBases, branchStates, nativePluginOpeningRoutes, nativePluginReplies, ...node }) => ({ ...node, content: routeContent(node, state.chatMetadata) })),
         chatMetadata: state.chatMetadata?.[hostHiddenKey] ? { [hostHiddenKey]: state.chatMetadata[hostHiddenKey] } : undefined,
         userName: state.userName,
         persona: getActivePersona(state),

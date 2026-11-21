@@ -26,6 +26,7 @@ import { normalizePromptInjection, resolvePromptInjections } from './prompt-inje
 import { readExtensionVariables, writeExtensionVariables } from './extension-variables';
 import { tavernEvents as events, mvuEvents, canonicalEvent } from './event-contracts';
 import { hostHiddenKey, hostMessageHidden, messageExtra } from './chat-message-codec';
+import { routeMessageDataKey, routeMessageKey, routeMessages } from '../store/route-message-data';
 import { defaultTemplateFeatures, normalizeTemplateFeatures } from '../pipeline/template-features';
 import { ResidentTemplateHost } from './template-host';
 import { exposeScriptSurface, preserveScriptFrameMoves } from './script-surface';
@@ -55,6 +56,8 @@ import { authorBrowserRuntime } from './author-browser-runtime';
 import { authorDocument } from './author-document';
 import { observeFrameHeight, setFrameHeight } from './frame-sizing';
 import { installHostFetch, tavernCompletionResponse } from './host-fetch';
+import { installBaibaiFrameStorage } from './baibai-frame-storage';
+import { baibaiBody, baibaiHash } from './baibai-route';
 import { createChatCompletionService } from './chat-completion-service';
 import type { TemplateAssets } from './template-transport';
 import { observeReadingActivity } from '../shell/reading-navigation';
@@ -73,10 +76,21 @@ const globals = window as any;
 const extensionMenu = document.createElement('div');
 extensionMenu.id = 'extensionsMenu'; extensionMenu.hidden = true;
 document.body.append(extensionMenu);
+const extensionTopBar = document.createElement('div');
+extensionTopBar.id = 'top-settings-holder'; extensionTopBar.hidden = true;
+const personaMount = document.createElement('div');
+personaMount.id = 'persona-management-button'; extensionTopBar.append(personaMount);
+document.body.append(extensionTopBar);
+const composerMount = document.createElement('div');
+composerMount.id = 'send_form'; composerMount.hidden = true;
+document.body.append(composerMount);
 const extensionMenuIds = new WeakMap<Element, string>();
+function extensionActionTargets() {
+    return [...extensionMenu.children, ...extensionTopBar.querySelectorAll('.drawer-toggle'), ...composerMount.querySelectorAll('.qr--button')];
+}
 function extensionMenuEntries() {
-    return [...extensionMenu.children].flatMap(element => {
-        const name = element.textContent?.trim();
+    return extensionActionTargets().flatMap(element => {
+        const name = element.textContent?.trim() || element.getAttribute('title') || element.querySelector('[title]')?.getAttribute('title');
         if (!name || !(element instanceof HTMLElement) || element.hidden) return [];
         const id = extensionMenuIds.get(element) ?? crypto.randomUUID();
         extensionMenuIds.set(element, id);
@@ -86,7 +100,8 @@ function extensionMenuEntries() {
 function publishExtensionMenu() {
     if (snapshot && token) outer.postMessage({ kind: 'compat:extension-menu', token, session: snapshot.session, buttons: extensionMenuEntries(), illustrationAvailable: typeof globals.STBaiBaiImage?.generate === 'function' }, '*');
 }
-new MutationObserver(publishExtensionMenu).observe(extensionMenu, { childList: true, subtree: true, characterData: true });
+const extensionActionsObserver = new MutationObserver(publishExtensionMenu);
+for (const container of [extensionMenu, composerMount, extensionTopBar]) extensionActionsObserver.observe(container, { childList: true, subtree: true, characterData: true });
 window.addEventListener('st-baibai-image:ready', () => {
     publishExtensionMenu();
     for (const row of rows.values()) messageActionUpdates.get(row.element)?.();
@@ -96,7 +111,7 @@ window.addEventListener('st-baibai-image:ready', () => {
 const composerProxy = document.createElement('textarea');
 composerProxy.id = 'send_textarea';
 composerProxy.hidden = true;
-document.body.append(composerProxy);
+composerMount.append(composerProxy);
 const composerValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!;
 let composerPublishQueued = false;
 let composerReference = '';
@@ -144,7 +159,7 @@ composerSendProxy.addEventListener('click', () => {
         await request('composer.send', { text }, 600000);
     })().catch(error => diagnostic('发送消息', error));
 });
-document.body.append(composerSendProxy);
+composerMount.append(composerSendProxy);
 // TavernHelper's predefine environment shares these DOM-independent libraries
 // with author frames. Keep the host and child globals on the same implementation.
 const authorLibraries = { _, z, YAML, showdown };
@@ -219,13 +234,19 @@ function stopPipeline(error: Error) {
     for (const job of pipelineJobs.values()) { clearTimeout(job.timer); job.reject(error); }
     pipelineJobs.clear();
 }
-const chat: any[] = [];
-const metadata: any = { variables: {} };
+let chat: any[] = [];
+let metadata: any = { variables: {} };
 let metadataSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let openingSession: string | undefined;
+let openingSave: Promise<unknown> | undefined;
+let openingCommitted = false;
 const loadedInterceptors: Array<{ name: string; key: string }> = [];
+const baibaiRunning = () => loadedInterceptors.some(entry => entry.key === 'bbs_generateInterceptor');
 const extensionPrompts = new Map<string, { value: string; position: number; depth: number; scan: boolean; role: number; filter: (() => boolean | Promise<boolean>) | null }>();
 function setExtensionPrompt(key: string, value: unknown, position: number, depth: number, scan = false, role = 0, filter: (() => boolean | Promise<boolean>) | null = null) {
-    extensionPrompts.set(key, { value: String(value), position: Number(position), depth: Number(depth), scan: !!scan, role: Number(role ?? 0), filter });
+    const text = String(value ?? '');
+    if (!text) { extensionPrompts.delete(key); return; }
+    extensionPrompts.set(key, { value: text, position: Number(position), depth: Number(depth), scan: !!scan, role: Number(role ?? 0), filter });
 }
 const extensionSettings: Record<string, any> = {};
 const extensionTypes: Record<string, string> = {};
@@ -444,7 +465,7 @@ function request(method: string, params: Record<string, any> = {}, timeoutMs = 3
     const response = new Promise((resolve, reject) => {
         const timer = setTimeout(() => { waiting.delete(id); reject(new Error(`宿主接口超时：${method}`)); }, timeoutMs);
         waiting.set(id, { resolve, reject, timer });
-        outer.postMessage({ kind: 'compat:request', token, session: snapshot?.session, id, method, params }, '*');
+        outer.postMessage({ kind: 'compat:request', token, session: snapshot?.session, branchEpoch: snapshot?.branchEpoch ?? 0, id, method, params }, '*');
     });
     return response;
 }
@@ -458,6 +479,12 @@ function track<T>(promise: Promise<T>): Promise<T> {
 async function flush() {
     while (writes.size) await Promise.allSettled([...writes]);
     if (writeFailure !== undefined) { const error = writeFailure; writeFailure = undefined; throw error; }
+}
+const legacyChatWrites = new Set<Promise<unknown>>();
+function trackLegacySave(promise: Promise<unknown>) {
+    legacyChatWrites.add(promise);
+    void promise.then(() => legacyChatWrites.delete(promise), () => legacyChatWrites.delete(promise));
+    return track(promise);
 }
 
 async function prepareHelperGeneration(options: HelperGenerationConfig = {}, raw = false) {
@@ -577,6 +604,11 @@ function eventOnce(event: string, fn: (...args: any[]) => any) {
 }
 async function emit(event: string, ...args: any[]) {
     await dispatchEvent(event, args);
+    // The memory extension refreshes its injection one timer tick after CHAT_CHANGED.
+    if (event === events.CHAT_CHANGED && baibaiRunning()) {
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        await flush();
+    }
 }
 async function dispatchEvent(event: string, args: any[], alreadySettled = false) {
     event = canonicalEvent(event);
@@ -660,28 +692,36 @@ function updateVariablesWith(update: (value: any) => any, option: HelperVariable
     const save = (value: any) => { replaceVariables(value, option); return value; };
     return result && typeof result.then === 'function' ? result.then(save) : save(result);
 }
-function getChatMessages(range: number | string = `0-${chat.length - 1}`, options: any = {}) {
+function chatRange(range: number | string): { low: number; high: number } | undefined {
     const text = String(range).replace(/\{\{lastMessageId\}\}/gi, String(chat.length - 1));
     const bounds = /^(-?\d+)\s*-\s*(-?\d+)$/.exec(text);
     const index = (n: number) => n < 0 ? chat.length + n : n;
     const a = index(Number(bounds ? bounds[1] : text)), b = index(Number(bounds ? bounds[2] : text));
-    if ((!bounds && !/^-?\d+$/.test(text)) || !Number.isInteger(a) || !Number.isInteger(b)) return [];
-    const low = Math.min(a, b), high = Math.max(a, b);
-    return chat.flatMap((m, i) => {
-        if (i < low || i > high || options.role && options.role !== 'all' && options.role !== m.role
-            || options.hide_state && options.hide_state !== 'all' && (options.hide_state === 'hidden') !== !!m.is_system) return [];
+    if ((!bounds && !/^-?\d+$/.test(text)) || !Number.isInteger(a) || !Number.isInteger(b)) return;
+    return { low: Math.max(0, Math.min(a, b)), high: Math.min(chat.length - 1, Math.max(a, b)) };
+}
+function getChatMessages(range: number | string = `0-${chat.length - 1}`, options: any = {}) {
+    const bounds = chatRange(range);
+    if (!bounds) return [];
+    const result: Array<Record<string, any> & { message_id: number }> = [];
+    for (let i = bounds.low; i <= bounds.high; i++) {
+        const m = chat[i];
+        if (!m || options.role && options.role !== 'all' && options.role !== m.role
+            || options.hide_state && options.hide_state !== 'all' && (options.hide_state === 'hidden') !== !!m.is_system) continue;
         const base = { message_id: i, name: m.name, role: m.role, is_hidden: !!m.is_system };
         const swipes = { swipe_id: m.swipe_id, swipes: [...m.swipes], swipes_data: m.swipes.map((_: string, index: number) => structuredClone(m.variables[index] ?? {})) };
-        return [{ ...base, ...swipes, ...(options.include_swipes || options.include_swipe
+        result.push({ ...base, ...swipes, ...(options.include_swipes || options.include_swipe
             ? { swipes_info: m.swipes.map((_: string, index: number) => structuredClone(m.swipe_info[index] ?? {})) }
-            : { message: m.mes, data: structuredClone(m.variables[m.swipe_id] ?? {}), extra: structuredClone(m.extra ?? {}) }) }];
-    });
+            : { message: m.mes, data: structuredClone(m.variables[m.swipe_id] ?? {}), extra: structuredClone(m.extra ?? {}) }) });
+    }
+    return result;
 }
 function applySnapshot(next: CompatSnapshot) {
     if (snapshot && next.session !== snapshot.session && !switchingSession) return;
     if (snapshot && next.revision < snapshot.revision) return;
     const previous = snapshot;
-    const routeChanged = !!previous && (previous.branchEpoch ?? 0) !== (next.branchEpoch ?? 0);
+    baibaiStorage.bind(memoryStorageAddress(next));
+    const routeChanged = !!previous && (previous.session !== next.session || (previous.branchEpoch ?? 0) !== (next.branchEpoch ?? 0));
     const metadataReset = !previous || routeChanged || previous.session !== next.session;
     if (metadataReset) {
         clearTimeout(metadataSaveTimer); metadataSaveTimer = undefined;
@@ -691,7 +731,7 @@ function applySnapshot(next: CompatSnapshot) {
     if (metadataReset || previous.chatMetadata !== next.chatMetadata) {
         const old = metadataReset ? {} : previous.chatMetadata ?? {}, incoming = next.chatMetadata ?? {};
         for (const key of new Set([...Object.keys(old), ...Object.keys(incoming)])) {
-            if (key === 'variables' || key === hostHiddenKey || !metadataReset && !_.isEqual(metadata[key], old[key])) continue;
+            if (key === 'variables' || key === hostHiddenKey || key === routeMessageDataKey || !metadataReset && !_.isEqual(metadata[key], old[key])) continue;
             if (Object.hasOwn(incoming, key)) Object.defineProperty(metadata, key, { value: structuredClone(incoming[key]), enumerable: true, writable: true, configurable: true });
             else delete metadata[key];
         }
@@ -717,23 +757,24 @@ function applySnapshot(next: CompatSnapshot) {
         Object.assign(extensionTypes, Object.fromEntries(next.extensions.extensions.map(entry => [entry.type === 'system' ? entry.id : `third-party/${entry.id}`, entry.type])));
     }
     if (metadataReset || previous.scopes.chat !== next.scopes.chat) metadata.variables = structuredClone(normalizeMvuVariables(next.scopes.chat).variables);
-    if (metadataReset || previous?.messages !== next.messages || previous.chatMetadata?.[hostHiddenKey] !== next.chatMetadata?.[hostHiddenKey]) {
+    if (metadataReset || previous?.messages !== next.messages || previous.chatMetadata?.[hostHiddenKey] !== next.chatMetadata?.[hostHiddenKey] || routeMessages(previous.chatMetadata) !== routeMessages(next.chatMetadata)) {
     chat.length = next.messages.length;
     next.messages.forEach((node, index) => {
         let target = chat[index];
         const old = !metadataReset && previous?.messages[index]?.id === node.id ? previous.messages[index] : undefined;
         const hidden = hostMessageHidden(node, next.chatMetadata);
-        if (old === node && target?._id === node.id && hidden === hostMessageHidden(node, previous.chatMetadata)) return;
+        if (old === node && target?._id === node.id && hidden === hostMessageHidden(node, previous.chatMetadata) &&
+            _.isEqual(routeMessages(next.chatMetadata)?.[routeMessageKey(node)], routeMessages(previous.chatMetadata)?.[routeMessageKey(node)])) return;
         if (!target || target._id !== node.id) target = chat[index] = { _id: node.id };
         const preserve = old && old.activeSwipeIndex === node.activeSwipeIndex;
-        const oldExtra = preserve ? messageExtra(old) : undefined;
-        const nextExtra = messageExtra(node);
+        const oldExtra = preserve ? messageExtra(old, old.activeSwipeIndex, previous.chatMetadata) : undefined;
+        const nextExtra = messageExtra(node, node.activeSwipeIndex, next.chatMetadata);
         const extra = preserve && _.isEqual(oldExtra, nextExtra) ? target.extra ?? nextExtra : nextExtra;
         const swipeVariables = (node.extra?.swipeVariables ?? {}) as Record<string, unknown>;
         const mes = preserve && old.content === node.content ? target.mes ?? node.content : node.content;
         Object.assign(target, { name: node.speakerName, role: node.role, mes, message: mes,
             is_user: node.role === 'user', is_system: preserve && hidden === hostMessageHidden(old, previous.chatMetadata) ? target.is_system : hidden, swipe_id: node.activeSwipeIndex,
-            swipes: node.swipes.map(s => typeof s === 'string' ? s : s.content), extra, swipe_info: node.swipes.map((_, swipe) => messageExtra(node, swipe)) });
+            swipes: node.swipes.map((s, i) => i === node.activeSwipeIndex ? mes : typeof s === 'string' ? s : s.content), extra, swipe_info: node.swipes.map((_, swipe) => messageExtra(node, swipe, next.chatMetadata)) });
         target.variables = node.swipes.map((_, swipe) => structuredClone(normalizeMvuVariables((swipeVariables[swipe] ?? {}) as Record<string, unknown>).variables));
         target.variables[node.activeSwipeIndex] = structuredClone(normalizeMvuVariables(node.variables).variables);
         target.variables_initialized = node.swipes.map((_, swipe) => !!(node.extra?.tipsy_template_variables_initialized as Record<string, boolean> | undefined)?.[swipe]);
@@ -752,7 +793,7 @@ function applySnapshot(next: CompatSnapshot) {
     }
     if (!switchingSession && (!previous || previous.messages !== next.messages || previous.scopes.chat !== next.scopes.chat || previous.scopes.global !== next.scopes.global)) synchronizeTemplateScopes();
     if (initialized && previous?.scriptTrees !== next.scriptTrees) scheduleScriptRefresh();
-    if (!previous || previous.character.id !== next.character.id || previous.character.name !== next.character.name || previous.userName !== next.userName || previous.assetCatalog.characters !== next.assetCatalog.characters) window.dispatchEvent(new Event('tipsy-host-context'));
+    if (!previous || previous.session !== next.session || previous.character.id !== next.character.id || previous.character.name !== next.character.name || previous.userName !== next.userName || previous.assetCatalog.characters !== next.assetCatalog.characters) window.dispatchEvent(new Event('tipsy-host-context'));
     if (!previous || !_.isEqual(previous.worldbookBindings.names, next.worldbookBindings.names) || !_.isEqual(previous.worldbookBindings.global, next.worldbookBindings.global)) window.dispatchEvent(new Event('tipsy-host-worldbooks'));
     if (initialized && showMessages) {
         const presentationChanged = !previous || routeChanged || previous.session !== next.session ||
@@ -768,7 +809,7 @@ function applySnapshot(next: CompatSnapshot) {
     }
 }
 function applyDelta(delta: CompatSnapshotDelta) {
-    if (!snapshot || delta.session !== snapshot.session || delta.revision < snapshot.revision) return;
+    if (!snapshot || delta.session !== snapshot.session && !switchingSession || delta.revision < snapshot.revision) return;
     let nextMessages = snapshot.messages;
     if (delta.messages.length || delta.order.length !== nextMessages.length || delta.order.some((id, index) => id !== nextMessages[index]?.id)) {
         const messages = new Map(nextMessages.map(m => [m.id, m]));
@@ -785,26 +826,39 @@ function saveChatMetadata(withMetadata?: Record<string, unknown>, explicitSave =
         transactionWrites.push({ variables: structuredClone(metadata.variables), option: { type: 'chat' } });
         return Promise.resolve();
     }
+    if (openingSave) return openingSave;
+    if (openingSession === snapshot.session) {
+        if (openingCommitted || !explicitSave) return Promise.resolve();
+        const { variables, ...values } = { ...metadata, ...withMetadata };
+        const rows = chat.map(({ name, role, is_user, is_system, mes, extra, send_date, swipe_id, swipes, swipe_info, variables, variables_initialized }) =>
+            ({ name, role, is_user, is_system, mes, extra, send_date, swipe_id, swipes, swipe_info, variables, variables_initialized }));
+        const session = openingSession;
+        const saved = request('legacy.commitOpening', { rows, variables, metadata: values }).then(() => {
+            if (openingSession === session) openingCommitted = true;
+        }).finally(() => { if (openingSave === saved) openingSave = undefined; });
+        openingSave = saved;
+        return saved;
+    }
     const baseline = snapshot.chatMetadata ?? {};
     if (explicitSave && (chat.length !== snapshot.messages.length || chat.some((row, index) => row._id !== snapshot.messages[index]?.id || row.swipe_id !== snapshot.messages[index]?.activeSwipeIndex))) {
         throw new Error('此接口目前不支持直接改变聊天结构或切换回复版本');
     }
     const savedMetadata = { ...metadata, ...withMetadata };
     const values = Object.fromEntries(Object.entries(savedMetadata).filter(([key, value]) => key !== 'variables' && !_.isEqual(value, baseline[key])));
-    const removed = Object.keys(baseline).filter(key => key !== hostHiddenKey && !Object.hasOwn(savedMetadata, key));
+    const removed = Object.keys(baseline).filter(key => key !== hostHiddenKey && key !== routeMessageDataKey && !Object.hasOwn(savedMetadata, key));
     const variables = !_.isEqual(savedMetadata.variables, normalizeMvuVariables(snapshot.scopes.chat).variables) ? savedMetadata.variables : undefined;
     const messageState = chat.flatMap((row, index) => {
         const node = snapshot.messages[index];
         if (!node || node.id !== row._id || node.activeSwipeIndex !== row.swipe_id) return [];
         const mes = typeof row.mes === 'string' && row.mes !== node.content ? row.mes : undefined;
-        const extra = _.isEqual(row.extra, messageExtra(node)) ? undefined : row.extra;
+        const extra = _.isEqual(row.extra, messageExtra(node, node.activeSwipeIndex, snapshot.chatMetadata)) ? undefined : row.extra;
         const hidden = Boolean(row.is_system) === hostMessageHidden(node, snapshot.chatMetadata) ? undefined : Boolean(row.is_system);
         const current = row.variables[row.swipe_id];
         const variables = _.isEqual(current, normalizeMvuVariables(node.variables).variables) ? undefined : current;
         return mes === undefined && extra === undefined && hidden === undefined && variables === undefined ? [] : [{ id: node.id, swipe: row.swipe_id, content: node.content, mes, extra, hidden, variables }];
     });
     if (!messageState.length && !variables && !removed.length && !Object.keys(values).length) return Promise.resolve();
-    return track(request('legacy.save', { messageState, variables, metadata: { values, removed } }));
+    return trackLegacySave(request('legacy.save', { messageState, variables, metadata: { values, removed } }));
 }
 async function generateTavernRaw(options: { prompt?: string | unknown[]; responseLength?: number; signal?: AbortSignal } = {}) {
     const messages = Array.isArray(options.prompt) ? options.prompt : [{ role: 'user', content: options.prompt ?? '' }];
@@ -822,18 +876,43 @@ const chatCompletionService = createChatCompletionService(name => {
         .filter(key => settings[key] !== undefined).map(key => [key, settings[key]]));
     return { ...sampler, max_tokens: settings.max_completion_tokens, stream: settings.should_stream };
 });
-const context = () => ({ chat, chatId: snapshot.session, name1: snapshot.userName, name2: snapshot.character.name,
+async function checkWorldInfo(chat: string[], maxContext: number, isDryRun = false, globalScanData?: Record<string, unknown>) {
+    const additionalScanText = (await collectInjections(true)).filter(prompt => prompt.should_scan).map(prompt => prompt.content);
+    const entries = await request('worldbook.scan', { chat, maxContext, isDryRun, globalScanData, additionalScanText });
+    return (await import('./worldbook-scan-format')).formatCompatibilityWorldbooks(entries);
+}
+async function getWorldInfoPrompt(...args: Parameters<typeof checkWorldInfo>) {
+    const { worldInfoBefore, worldInfoAfter, WIDepthEntries, ANBeforeEntries, ANAfterEntries, EMEntries, outletEntries, allActivatedEntries } = await checkWorldInfo(...args);
+    if (!args[2] && allActivatedEntries.size) await emit(events.WORLD_INFO_ACTIVATED, [...allActivatedEntries]);
+    return { worldInfoString: worldInfoBefore + worldInfoAfter, worldInfoBefore, worldInfoAfter, worldInfoDepth: WIDepthEntries,
+        anBefore: ANBeforeEntries, anAfter: ANAfterEntries, worldInfoExamples: EMEntries, outletEntries };
+}
+const context = () => {
+    const session = snapshot.session;
+    const ensureSession = () => { if (snapshot.session !== session) throw new Error('操作所属聊天已切换'); };
+    return { chat, chatId: session, name1: snapshot.userName, name2: snapshot.character.name,
     ChatCompletionService: chatCompletionService,
     setExtensionPrompt,
     extension_prompt_types: { NONE: -1, IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT: 2 },
     extension_prompt_roles: { SYSTEM: 0, USER: 1, ASSISTANT: 2 },
     get extensionPrompts() { return Object.fromEntries(extensionPrompts); },
     generateRaw: generateTavernRaw,
+    doNewChat: async (options: { deleteCurrentChat?: boolean } = {}) => {
+        ensureSession();
+        await flush();
+        await saveChatMetadata(undefined, true);
+        await request('legacy.newChat', options);
+    },
     getRequestHeaders: () => ({ 'Content-Type': 'application/json' }),
     selectCharacterById: (id: number | string) => request('host.character.select', { id }),
     reloadCurrentChat: async () => {
-        await request('runtime.sync');
-        await helper.builtin.reloadAndRenderChatWithoutEvents();
+        ensureSession();
+        if (openingSession === snapshot.session) {
+            await openingSave;
+            await request('legacy.finishOpening');
+            return;
+        }
+        await helper.builtin.reloadChatWithoutEvents();
         await emit(events.CHAT_CHANGED, snapshot.session);
     },
     reloadWorldInfoEditor: () => request('runtime.sync'),
@@ -857,13 +936,17 @@ const context = () => ({ chat, chatId: snapshot.session, name1: snapshot.userNam
     executeSlashCommandsWithOptions: (command: string, options: SlashExecutionOptions = {}) => {
         const match = /^\s*\/(hide|unhide)\s+(-?\d+(?:\s*-\s*-?\d+)?)\s*$/.exec(command);
         if (!match) return runAuthorSlashWithResult(command, options);
-        const selected = getChatMessages(match[2].replace(/\s/g, ''), {});
-        const messageState = selected.map(message => {
-            const row = chat[message.message_id]; row.is_system = match[1] === 'hide';
-            const node = snapshot.messages[message.message_id];
-            return { id: row._id, swipe: row.swipe_id, content: node.content, hidden: row.is_system };
-        });
-        return track(request('legacy.save', { messageState })).then(() => ({ pipe: '' }));
+        const bounds = chatRange(match[2]);
+        const messageState: Array<{ id: string; swipe: number; content: string; hidden: boolean }> = [];
+        const hidden = match[1] === 'hide';
+        for (let i = bounds?.low ?? 0; i <= (bounds?.high ?? -1); i++) {
+            const row = chat[i], node = snapshot.messages[i];
+            if (!row || !node || row._id !== node.id || row.is_system === hidden) continue;
+            row.is_system = hidden;
+            messageState.push({ id: node.id, swipe: row.swipe_id, content: node.content, hidden });
+        }
+        if (!messageState.length) return Promise.resolve({ pipe: '' });
+        return trackLegacySave(request('legacy.save', { messageState })).then(() => ({ pipe: '' }));
     },
     characterId: String(snapshot.assetCatalog.characters.findIndex(card => card.id === snapshot.character.id)), characterUuid: snapshot.character.id,
     characters: snapshot.assetCatalog.characters.map(card => card.raw),
@@ -873,21 +956,25 @@ const context = () => ({ chat, chatId: snapshot.session, name1: snapshot.userNam
     loadWorldInfo: (name: string) => request('worldbook.native.load', { name }),
     saveWorldInfo: (name: string, data: unknown, _immediately = false) => track(request('worldbook.native.save', { name, data })),
     worldInfoNames: snapshot.worldbookBindings.names, selectedWorldInfo: snapshot.worldbookBindings.global,
+    getWorldInfoNames: () => [...snapshot.worldbookBindings.names], checkWorldInfo, getWorldInfoPrompt,
     getCharacterCardFields: () => { const raw = snapshot.assetCatalog.characters.find(card => card.id === snapshot.character.id)?.raw as any; return structuredClone(raw?.data ?? raw ?? {}); },
     chatMetadata: metadata, eventTypes: events, event_types: events, getCurrentChatId: () => snapshot.session,
     eventSource: { on: eventOn, makeFirst: (e: string, f: any) => eventOn(e, f, -1), makeLast: (e: string, f: any) => eventOn(e, f, 1), removeListener: eventOff, emit },
     saveChat: async (options?: { chatName?: string; withMetadata?: Record<string, unknown>; mesId?: number }) => {
+        ensureSession();
         if (options?.chatName && options.chatName !== snapshot.session || options?.mesId != null && options.mesId >= 0 && options.mesId < chat.length - 1) {
             throw new Error('此接口目前只保存当前活动路线，不支持另存或截断聊天');
         }
         await saveChatMetadata(options?.withMetadata, true);
     },
-    saveMetadata: () => saveChatMetadata(),
+    saveMetadata: () => { ensureSession(); return saveChatMetadata(); },
     saveMetadataDebounced: () => {
+        ensureSession();
         clearTimeout(metadataSaveTimer);
         metadataSaveTimer = setTimeout(() => void saveChatMetadata().catch(() => {}), 300);
     },
-});
+    };
+};
 async function saveExtensionSettings(): Promise<void> {
     const baseline = hostExtensionSettings(snapshot);
     const settings = Object.fromEntries(Object.entries(extensionSettings).filter(([key, value]) => !_.isEqual(value, baseline[key])));
@@ -1394,8 +1481,8 @@ function processRuntimeRegex(text: string, stage: 'slash_command' | 'reasoning',
 async function interceptGenerationHistory(type: string): Promise<{ aborted: boolean; history?: InterceptedHistoryMessage[] }> {
     const interceptors = loadedInterceptors.filter(({ key }) => typeof globals[key] === 'function');
     if (!interceptors.length) return { aborted: false };
-    const source = await request('template.input') as AssemblePromptInput;
-    const rules = orderedRegexScripts(source.globalRegexScripts, source.preset.regexScripts, source.character.regexScripts);
+    const source = await request('extension.interceptorInput') as Pick<AssemblePromptInput, 'globalRegexScripts' | 'initialVariables' | 'initialGlobalVariables'> & { presetRegex: AssemblePromptInput['preset']['regexScripts']; characterRegex: AssemblePromptInput['character']['regexScripts'] };
+    const rules = orderedRegexScripts(source.globalRegexScripts, source.presetRegex, source.characterRegex);
     const visible = chat.filter(message => !message.is_system);
     const coreChat = visible.map((row, index) => {
         const role = row.is_user ? 'user' : row.role === 'system' ? 'system' : 'assistant';
@@ -2283,7 +2370,25 @@ Object.assign(globals, authorLibraries, helper, rootSlashRegistration, { TavernH
     quickReplyApi: quickReplies.api, executeQuickReplyByName: quickReplies.executeByName,
     toastr: Object.fromEntries(['info', 'success', 'warning', 'error'].map(level => [level, (message: string, title?: string) => notify(`${title ? title + '：' : ''}${message}`, level)])) });
 preserveScriptFrameMoves(window);
-installHostFetch(window, request);
+const memoryStorageAddress = (state: CompatSnapshot) => JSON.stringify([state.character.id, state.session, state.routeId]);
+const baibaiStorage = installBaibaiFrameStorage(() => snapshot && !openingSession ? {
+    route: memoryStorageAddress(snapshot), rows: chat, metadata,
+    get fallbackBlocked() {
+        const entries = routeMessages(snapshot.chatMetadata);
+        return snapshot.routeReplacing || !!entries && snapshot.messages.some((node, i) => {
+            const base = entries[routeMessageKey(node)]?.memoryBody;
+            return base !== undefined && base !== baibaiHash(baibaiBody(chat[i]?.mes ?? node.content));
+        });
+    },
+} : undefined, error => diagnostic('柏宝书本地索引或缓存', error));
+installHostFetch(window, request, {
+    revision: () => snapshot && [snapshot.session, snapshot.branchEpoch ?? 0, snapshot.routeId].join('\0'),
+    beforeVector: action => action === 'vec/bundle/create' ? saveChatMetadata(undefined, true) : undefined,
+    vectorResult: (action, body) => {
+        if (action === 'status') baibaiStorage.probe(body?.data?.driver?.available === true);
+        else if (['vec/clear-scope', 'vec/delete', 'vec/reconcile'].includes(action) && body?.data?.deleted > 0) baibaiStorage.invalidate();
+    },
+});
 installGallery(window);
 eventOn(events.APP_READY, () => snapshot.branchEpoch ? undefined : quickReplies.automatic('executeOnStartup'));
 eventOn(events.CHAT_CHANGED, () => snapshot.branchEpoch ? undefined : quickReplies.automatic('executeOnChatChange'));
@@ -2326,7 +2431,10 @@ async function loadInstalledExtensions(): Promise<void> {
         outer.postMessage({ kind: 'compat:progress', token }, '*');
         try {
             await install(extension); loaded.add(extension.id);
-            if (extension.generateInterceptor) loadedInterceptors.push({ name: extension.name, key: extension.generateInterceptor });
+            if (extension.generateInterceptor) {
+                if (typeof globals[extension.generateInterceptor] === 'function') loadedInterceptors.push({ name: extension.name, key: extension.generateInterceptor });
+                else diagnostic(`扩展 ${extension.name}`, new Error(`未注册生成拦截器 ${extension.generateInterceptor}`), extension.id, 'warning');
+            }
         }
         catch (error) { diagnostic(`扩展 ${extension.name}`, error, extension.id); }
     }
@@ -2534,12 +2642,38 @@ window.addEventListener('message', event => {
     if (data.kind === 'compat:reply') {
         const job = waiting.get(data.id); if (!job) return;
         waiting.delete(data.id); clearTimeout(job.timer);
+        if (data.handoff) {
+            const error = new Error('聊天已切换，旧任务已取消');
+            for (const pending of waiting.values()) { clearTimeout(pending.timer); pending.reject(error); }
+            waiting.clear();
+            chat = [];
+            metadata = { variables: {} };
+            switchingSession = true;
+            try { applyDelta(data.handoff); }
+            finally { switchingSession = false; }
+            openingSession = snapshot.session;
+            openingCommitted = false;
+            writeFailure = undefined;
+            externalWorldInfo.clear();
+            deferredDeltas.length = 0;
+            prepareReadingBookmark(undefined);
+            synchronizeTemplateScopes();
+        }
         if (data.delta) { if (!transaction) applyDelta(data.delta); else deferredDeltas.push(data.delta); }
         if (data.error) job.reject(Object.assign(new Error(data.error), { name: data.errorName ?? 'Error' })); else job.resolve(data.result);
         return;
     }
     if (data.kind !== 'compat:command') return;
     const replyToken = data.token;
+    if (data.command === 'saveBeforeRouteChange') {
+        void Promise.resolve().then(async () => {
+            if (transaction || switchingSession) throw new Error('剧情正在结算，请稍后再切换');
+            await Promise.all([...legacyChatWrites]);
+            await saveChatMetadata(undefined, true);
+        }).then(() => outer.postMessage({ kind: 'compat:result', token: replyToken, id: data.id, result: {} }, '*'),
+            error => outer.postMessage({ kind: 'compat:result', token: replyToken, id: data.id, error: error instanceof Error ? error.message : String(error) }, '*'));
+        return;
+    }
     if (data.command === 'extensionIllustration') {
         void Promise.resolve().then(async () => {
             const api = globals.STBaiBaiImage;
@@ -2584,7 +2718,7 @@ window.addEventListener('message', event => {
         // Do not hold the event queue while the command awaits those events.
         if (!transaction) applyDelta(data.delta); else deferredDeltas.push(data.delta);
         const run = data.command === 'extensionMenu' ? Promise.resolve().then(() => {
-            const item = [...extensionMenu.children].find(node => extensionMenuIds.get(node) === data.args[0]);
+            const item = extensionActionTargets().find(node => extensionMenuIds.get(node) === data.args[0]);
             if (item instanceof HTMLElement) item.click();
         }) : data.command === 'settledMessageReceived' ? dispatchEvent(events.MESSAGE_RECEIVED, data.args, true)
             : data.command === 'event' ? emit(data.args[0], ...data.args.slice(1))
@@ -2644,7 +2778,9 @@ window.addEventListener('message', event => {
             else if (data.command === 'beforeGeneration') {
                 assertAuthorScriptsReady();
                 await initializeNewMvuBindings();
+                await saveChatMetadata(undefined, true);
                 const type = data.args[0] ?? 'normal';
+                if (snapshot.routeReplacing && baibaiRunning()) await emit(events.CHAT_CHANGED, snapshot.session);
                 await emit(events.GENERATION_STARTED, type, {}, false);
                 await emit(events.GENERATION_AFTER_COMMANDS, type, {}, false);
                 await flush();
@@ -2653,6 +2789,8 @@ window.addEventListener('message', event => {
                 result.interceptedHistory = history;
                 result.injections = aborted ? [] : await collectInjections(true);
                 await flush();
+            } else if (data.command === 'refreshRouteMemory') {
+                if (baibaiRunning()) await emit(events.CHAT_CHANGED, snapshot.session);
             } else if (data.command === 'settle') result = await settle(data.args[0], data.args[1], true, false, undefined, data.args[2]?.strict === true, data.args[2]?.messageContent);
             else if (data.command === 'diagnostics') result.diagnostics = diagnostics;
             else throw new Error(`未实现的兼容运行命令：${data.command}`);

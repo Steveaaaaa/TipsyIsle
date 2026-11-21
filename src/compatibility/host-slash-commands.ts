@@ -43,7 +43,8 @@ export function installHostSlashCommands(host: HostCommands): void {
         add(name, name === 'sys' ? ['narrator'] : [], true, async (args, text) => {
             const message = { role, message: role === 'user' ? text.trim() : host.regex(text.trim(), args.name),
                 ...(args.name !== undefined ? { name: String(args.name) } : {}), ...(name === 'comment' ? { is_hidden: true } : {}) };
-            await h.createChatMessages([message], args.at === undefined ? {} : { insert_before: Number(args.at) });
+            if (name === 'sendas' && args.at === undefined) await host.request('legacy.sendAs', { message });
+            else await h.createChatMessages([message], args.at === undefined ? {} : { insert_before: Number(args.at) });
             return args.return === 'text' ? message.message : args.return === 'object' ? JSON.stringify(message) : '';
         });
     }

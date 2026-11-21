@@ -146,7 +146,7 @@ export function StoryRoutes() {
     const continueRoute = (route: StoryRoute) => void act(async () => {
         const owner = owners.get(route.key)!;
         if (owner.chatId !== state.activeChatId) await restoreArchivedChat(owner.chatId, owner.originalKey);
-        else if (owner.originalKey) selectChatBranch(owner.originalKey);
+        else if (owner.originalKey) await selectChatBranch(owner.originalKey);
     });
     const showOverview = async () => {
         setLoading(true); resetView();

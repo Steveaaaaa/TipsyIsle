@@ -6,6 +6,8 @@ export interface HelperVariableOption { type?: string; message_id?: number | 'la
 export interface WorldbookBindingsSnapshot { names: string[]; global: string[]; chat: string | null; characters: Array<{ id: string; name: string; avatar: string; books: { primary: string | null; additional: string[] } }> }
 export interface CompatSnapshot {
     branchEpoch?: number;
+    routeId: string;
+    routeReplacing: boolean;
     chatMetadata?: Record<string, unknown>;
     session: string;
     revision: number;
@@ -35,6 +37,8 @@ export interface CompatSnapshot {
 }
 export interface CompatSnapshotDelta {
     branchEpoch?: number;
+    routeId: string;
+    routeReplacing: boolean;
     chatMetadata?: Record<string, unknown> | null;
     session: string;
     revision: number;

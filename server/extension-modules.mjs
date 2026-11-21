@@ -12,6 +12,7 @@ export const getRequestHeaders=()=>context().getRequestHeaders();
 export const getOneCharacter=(avatar)=>context().getOneCharacter(avatar);
 export const selectCharacterById=(id,options)=>context().selectCharacterById(id,options);
 export const reloadCurrentChat=()=>context().reloadCurrentChat();
+export const doNewChat=(options)=>context().doNewChat(options);
 export const saveSettingsDebounced=()=>context().saveSettingsDebounced();
 export const saveMetadata=()=>context().saveMetadata();
 export const saveMetadataDebounced=()=>context().saveMetadataDebounced();
@@ -34,6 +35,8 @@ export const saveMetadataDebounced=()=>context().saveMetadataDebounced();
     if (pathname === '/scripts/world-info.js') return `
 const context=()=>globalThis.__tipsyHostContext();
 export const METADATA_KEY='world_info';
+export const checkWorldInfo=(...args)=>context().checkWorldInfo(...args);
+export const getWorldInfoPrompt=(...args)=>context().getWorldInfoPrompt(...args);
 export const loadWorldInfo=(name)=>context().loadWorldInfo(name);
 export const saveWorldInfo=(name,data,immediately=false)=>context().saveWorldInfo(name,data,immediately);
 export const parseRegexFromString=(value)=>globalThis.builtin.parseRegexFromString(value);

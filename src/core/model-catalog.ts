@@ -1,5 +1,6 @@
 import { platformFetch } from './native-runtime';
 import { detectRuntimeFlavor, platformStorage } from './platform-bridge';
+import { geminiEndpoint, geminiHeaders, isGeminiSource } from './gemini-endpoint';
 
 export interface ModelListConnection {
     baseUrl: string;
@@ -47,12 +48,16 @@ export function modelListConnection(fieldId: string, settings: Record<string, un
 
 /** The settings UI and author API share one transport on web and installed clients. */
 export async function fetchModelCatalog(connection: ModelListConnection, signal?: AbortSignal): Promise<CatalogModel[]> {
-    const gateway = await detectRuntimeFlavor() === 'local-gateway';
+    const flavor = await detectRuntimeFlavor();
+    const gateway = flavor === 'local-gateway';
     const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000);
     let response: Response;
     if (connection.catalogProvider) {
         if (!gateway) throw new Error('服务商内置目录需要本机网页网关；安装版请填写 API 地址后获取模型列表。');
         response = await fetch(`/api/tipsy-isle/llm/catalog?provider=${encodeURIComponent(connection.catalogProvider)}`, { signal: requestSignal });
+    } else if (flavor === 'tauri-native' && isGeminiSource(connection.source)) {
+        const endpoint = geminiEndpoint(connection.baseUrl, 'models');
+        response = await platformFetch(endpoint.href, { headers: geminiHeaders(connection.apiKey ?? '', connection.includeHeaders), signal: requestSignal });
     } else {
         if (!connection.baseUrl.trim()) throw new Error('请先填写 API 地址，再获取模型列表。');
         const base = connection.baseUrl.trim().replace(/\/+$/, '').replace(/\/(?:chat\/completions|messages|responses|embeddings|models)$/, '');
@@ -62,7 +67,7 @@ export async function fetchModelCatalog(connection: ModelListConnection, signal?
             if (!endpointBase.endsWith('/v1')) endpointBase += '/v1';
             headers['x-api-key'] = connection.apiKey ?? '';
             headers['anthropic-version'] = '2023-06-01';
-        } else if (['makersuite', 'gemini'].includes(connection.source ?? '')) headers['x-goog-api-key'] = connection.apiKey ?? '';
+        } else if (isGeminiSource(connection.source)) headers['x-goog-api-key'] = connection.apiKey ?? '';
         else if (connection.apiKey) headers.Authorization = `Bearer ${connection.apiKey}`;
         Object.assign(headers, connection.includeHeaders);
         const endpoint = new URL(`${endpointBase}/models`);

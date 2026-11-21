@@ -48,9 +48,9 @@ const steps: Array<GuideCue & { id: GuideStep }> = [
         '已有酒馆或 TauriTavern 的聊天记录，可以从「馆藏 → 导入存档」选择 .jsonl，并关联对应的角色卡。',
         'TipsyIsle 的 .tipsy-story 也从这里导入。想备份角色会话，在历史面板里点「故事存档 → 导出故事存档」。',
     ] },
-    { id: 'model-chat', selector: '[data-guide="model-chat"]', title: `${freeChatName} · 和模型对话`, action: `开始${freeChatName}`, paragraphs: [
+    { id: 'model-chat', selector: '[data-guide="model-chat"]', title: `${freeChatName} · 和模型对话`, action: `打开${freeChatName}`, paragraphs: [
         `只想问个问题、写点东西？首页和顶栏都有「${freeChatName}」，不用选角色卡、世界书或预设。`,
-        '它默认沿用已配置的模型，也可以点对话顶部的模型名，只给这段对话换模型。聊天会单独保存在历史中。',
+        '从夜灯会话列表打开以前的聊天，或点「新建对话」开始。默认沿用已配置的模型，也可以点对话顶部的模型名，只给这段对话换模型。',
     ] },
 ];
 const emptyPlay: GuideCue = { selector: '[data-guide="import"]', title: '先带一位角色来', action: '导入素材', pause: true, paragraphs: [

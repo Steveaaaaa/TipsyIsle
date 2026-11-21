@@ -11,6 +11,7 @@ import { persistWorkspace } from './storage';
 import { getActiveChatMessages } from './queries';
 import { readMessageTemplate } from './prompt';
 import { formatMessageWithoutTemplate } from './message-format';
+import { routeContent } from '../route-message-data';
 
 const streamProjectors = new Map<string, { sources: unknown[]; projector: StreamProjector; node?: ChatMessageNode; content?: string; pending?: boolean; thinking?: boolean; value?: MessageStreamPreview }>();
 
@@ -77,6 +78,8 @@ export function getMessageStreamPreview(node: ChatMessageNode) {
 }
 
 export function formatMessageForDisplay(node: ChatMessageNode): string {
+    const content = routeContent(node, workspaceStore.getState().chatMetadata);
+    if (content !== node.content) return formatMessageWithoutTemplate({ ...node, content });
     const streaming = getMessageStreamPreview(node);
     if (streaming) return streaming.source;
     const rendered = readMessageTemplate(node.id);

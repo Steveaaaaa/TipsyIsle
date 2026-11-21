@@ -2,6 +2,7 @@ import type { ArchivedChat } from './chat-archives';
 import type { ChatMessageNode, LorebookTimedState } from '../types';
 import type { TemplatePromptInjection } from '../pipeline/template-injections';
 import type { ScopedBucketMap } from './scoped-variable-store';
+import { remapRouteMessageData } from './route-message-data';
 
 const pageSize = 32;
 const emptyBucket: Record<string, unknown> = Object.freeze({});
@@ -51,9 +52,9 @@ export function createBranchVariableRemapper(ids: ReadonlyMap<string, string>) {
         cache.set(values, result);
         return result;
     };
-    return (point: BranchState): BranchState => point.messageVariablePages
-        ? { ...point, messageVariablePages: point.messageVariablePages.map(remap) }
-        : { ...point, continuation: { ...point.continuation, variables: { ...point.continuation.variables, message: remap(point.continuation.variables.message) } } };
+    return (point: BranchState): BranchState => ({ ...point, messageVariablePages: point.messageVariablePages?.map(remap),
+        continuation: { ...point.continuation, chatMetadata: remapRouteMessageData(point.continuation.chatMetadata, ids),
+            variables: point.messageVariablePages ? point.continuation.variables : { ...point.continuation.variables, message: remap(point.continuation.variables.message) } } });
 }
 
 /** A settled reply's before-choice state and its latest resumable state. */

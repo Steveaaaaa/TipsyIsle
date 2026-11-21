@@ -17,6 +17,8 @@ interface WorkspaceLibraryProps {
     skin?: Appearance;
     state: WorkspaceState;
     mobileActive: boolean;
+    hidden: boolean;
+    shelfNavigation?: ReactNode;
     compactLayout: boolean;
     sidebarParts: ReactNode;
     hasCustomSidebarParts: boolean;
@@ -46,7 +48,7 @@ interface WorkspaceLibraryProps {
 }
 
 export function WorkspaceLibrary({
-    skin, state, mobileActive, compactLayout, sidebarParts, hasCustomSidebarParts, activeCharacter,
+    skin, state, mobileActive, hidden, shelfNavigation, compactLayout, sidebarParts, hasCustomSidebarParts, activeCharacter,
     activeStoryIdentity, activePreset, activeLorebooks, isFree, hasStory, importing, clearing,
     switchingCharacter, filters, deleteSelection, selectedCards, deletionBlocked, assetMenu, openAssetMenu,
     openAsset, onImport, onImportStory, onReplayGuide, onEnterCharacter, onToggleDeleteSelection,
@@ -55,7 +57,8 @@ export function WorkspaceLibrary({
     const { characterSearch, setCharacterSearch, characterSearchRef, characterTag, setCharacterTag, characterSort, setCharacterSort,
         setCharacterPage, denseLibrary, setDenseLibrary, filteredCharacters, characterTags, pageCount, currentCharacterPage, visibleCharacters } = filters;
     return (
-        <aside aria-label="故事馆藏" data-ti-shell="library" className={`ttm-sidebar ${mobileActive ? 'is-mobile-active' : ''}`}>
+        <aside aria-label="故事馆藏" data-ti-shell="library" hidden={hidden} className={`ttm-sidebar ${mobileActive ? 'is-mobile-active' : ''}`}>
+            {shelfNavigation}
             <div className="ttm-sidebar-scroll">
             <section className="ttm-panel-block">
                 <h2 className="ttm-library-title" data-ti-type="heading"><span title={textOf(skin, 'library')}>{textOf(skin, 'library')}</span><small aria-label={`${state.characters.length} 个故事`}>{state.characters.length}</small></h2>

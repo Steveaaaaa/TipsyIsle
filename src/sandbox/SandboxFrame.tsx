@@ -26,7 +26,7 @@ export interface SandboxFrameProps {
     onTriggerSlash?: (command: string) => Promise<string>;
     onRequestGenerate?: (promptOverride?: string) => Promise<string>;
     onGetChatMessages?: (range?: unknown) => unknown[];
-    onSetChatMessage?: (floorOrId: unknown, newContent: string) => boolean;
+    onSetChatMessage?: (floorOrId: unknown, newContent: string) => boolean | Promise<boolean>;
     onGetWorldbook?: () => unknown;
     onReplaceWorldbook?: (entries: unknown) => boolean;
     onReadingActivity?: (kind?: 'scroll' | 'tap') => void;
@@ -186,7 +186,7 @@ export function SandboxFrame({
                     }
                     case 'chat.setMessage': {
                         const ok = onSetChatMessage
-                            ? onSetChatMessage(data.params?.floorOrId, String(data.params?.newContent ?? ''))
+                            ? await onSetChatMessage(data.params?.floorOrId, String(data.params?.newContent ?? ''))
                             : false;
                         reply({ ok });
                         break;

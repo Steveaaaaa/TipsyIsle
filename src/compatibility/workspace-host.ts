@@ -1,4 +1,4 @@
-import { routesAt } from '../store/chat-tree';
+import { routesAt, swipeId } from '../store/chat-tree';
 import { activePlugins, nativePluginStore } from '../plugins/native/catalog';
 import { openMessagePluginPicker } from '../plugins/native/PluginCommands';
 import { readNativeAfterScan } from '../plugins/native/generation-stages';
@@ -12,6 +12,11 @@ import { writeExtensionVariables, validateExtensionVariableId } from './extensio
 import { generateForHelper, stopHelperGeneration, helperModelList, proxyPresetNames } from './helper-generation';
 import { worldbookBindings, requestWorldbook, worldinfoSettings } from './worldbook-host';
 import { type CompatSnapshot } from './contracts';
+import { baibaiBody, baibaiBundleIds, baibaiBundles, baibaiHash, baibaiLeaf, pruneBaibaiSummaries } from './baibai-route';
+import { captureBaibaiVectorContext } from './baibai-vector-context';
+import { compatibilityRouteAddress, compatibilityRouteIsReplacingState } from './route-address';
+import { routeContent, routeMessageDataKey, routeMessageKey } from '../store/route-message-data';
+import { messageExtra } from './chat-message-codec';
 import {
     workspaceStore, authorMessageRevision, getActiveCharacter, getActiveChatMessages, getActiveLorebooks, getActivePreset, getActivePersona,
     formatMessageForDisplay, getMessageStreamPreview, getMessageComponentTargets, isMessageTemplatePending, appendChatMessage, editHelperChatMessage, deleteChatMessage, swipeChatMessage,
@@ -29,7 +34,7 @@ import {
     getWorkspaceScriptTrees, getWorkspaceScripts, replaceWorkspaceScriptTrees,
     readHelperChatArchives, importHelperChat, selectCharacter,
 } from '../store/workspace-store';
-import { getScopedVariables, readScopedVariables, scopedVariableStore } from '../store/scoped-variable-store';
+import { getScopedVariables, readScopedVariables, resolveMergedVariables, scopedVariableStore } from '../store/scoped-variable-store';
 import { executeSlashScript } from '../sandbox/slash-interpreter';
 import { evaluateMacros, regexRuleApplies } from '../pipeline/macro-regex-engine';
 import { globalRegexes } from '../store/global-regex-store';
@@ -42,9 +47,14 @@ import { applyCompatibilityComposerWrite, compatibilityComposer, stageCompatibil
 import { schemaRegistryStore } from '../registry/schema-registry';
 import { cancelTavernCompletion, openTavernCompletion, readTavernCompletion } from './completion-http';
 import { detectRuntimeFlavor } from '../core/platform-bridge';
+import { commitNewChatOpening, startExtensionChat } from '../store/workspace/sessions';
+import { commitWorkspaceMutation } from '../store/workspace/storage';
+import { normalizeChatPayload } from '../pipeline/normalizer';
+import { hostHiddenKey } from './chat-message-codec';
 import type { VariableScopeContext, VariableScopeLevel } from '../types';
 
 let revision = 0;
+let legacySaveTail: Promise<unknown> = Promise.resolve();
 let installed = false;
 let initializedSession: string | undefined;
 let templateEnvironmentRevision = 0;
@@ -69,7 +79,8 @@ let cachedSnapshot: CompatSnapshot | undefined;
 let nativeMenu: NonNullable<CompatSnapshot['nativeMessageMenu']> = [];
 function snapshot(): CompatSnapshot {
     const state = workspaceStore.getState();
-    const sources = [state.branchEpoch, state.chatMetadata, state.characters, state.activeCharacterId, state.activeChatId, state.activeLeafId, authorMessageRevision(state.messages),
+    const replacing = compatibilityRouteIsReplacingState(state);
+    const sources = [replacing, state.branchEpoch, state.chatMetadata, state.characters, state.activeCharacterId, state.activeChatId, state.activeLeafId, authorMessageRevision(state.messages),
         state.presets, state.activePresetId, state.inUsePreset, state.lorebooks, state.activeLorebookIds,
         state.characterWorldbookBindings, state.chatWorldbookBindings, state.userName, state.personas, state.activePersonaId, state.storyPersona, state.storyCharacter, state.storyWorldbooks, state.storyCharacterBinding,
         state.isGenerating, state.helperGenerationCount, state.mvuExtraAnalysisActive, state.lastAssembledPrompt, state.templateRenderRevision, !!state.streamingReasoning, state.nativeToolPreview,
@@ -102,20 +113,21 @@ function snapshot(): CompatSnapshot {
             .filter(depth => depth > 0))].sort((left, right) => left - right);
     }
     const messages = activeMessages.map(node => {
+        const content = routeContent(node, state.chatMetadata);
         const routeCount = routesAt(state.messages, node.id).length;
         const depth = activeMessages.length - 1 - node.floor;
         const boundary = depthBoundaries.findIndex(value => value > depth);
         const dependencies = [routeCount, variableState.global, variableState.preset[state.activePresetId], variableState.character[card.id], variableState.chat[state.activeChatId], variableState.message[node.id],
             card, preset, globalRules, variableState.extension.EjsTemplate, books, state.userName, state.activeChatId, boundary, state.templateRenderRevision,
             !!node.extra?.tipsy_generation_incomplete && (state.isGenerating || state.helperGenerationCount > 0),
-            !node.content && !!state.streamingReasoning, state.nativeToolPreview?.id === node.id ? state.nativeToolPreview : undefined];
+            !node.content && !!state.streamingReasoning, state.nativeToolPreview?.id === node.id ? state.nativeToolPreview : undefined, content];
         const old = messageCache.get(node.id);
         if (old?.node === node && old.dependencies.every((value, i) => value === dependencies[i])) return old.value;
         const formatted = formatMessageForDisplay(node);
         const templatePending = isMessageTemplatePending(node);
         const streamPreview = getMessageStreamPreview(node);
         const { branchStates, branchBases, nativePluginReplies, nativePluginOpeningRoutes, ...publicNode } = node;
-        const value = { ...publicNode, routeCount, formatted, templatePending, streamPreview, streamStatus: streamPreview?.status, componentTargets: streamPreview ? undefined : getMessageComponentTargets(node), variables: readScopedVariables('message', { ...ctx, messageId: node.id }) };
+        const value = { ...publicNode, content, routeCount, formatted, templatePending, streamPreview, streamStatus: streamPreview?.status, componentTargets: streamPreview ? undefined : getMessageComponentTargets(node), variables: readScopedVariables('message', { ...ctx, messageId: node.id }) };
         messageCache.set(node.id, { node, dependencies, value });
         return value;
     });
@@ -126,9 +138,17 @@ function snapshot(): CompatSnapshot {
         personaSources = [state.personas, persona];
         cachedPersonas = persona ? [...state.personas.filter(item => item.avatar_id !== persona.avatar_id), persona] : state.personas;
     }
+    const leaves = new Set<string>();
+    if (state.chatMetadata?.baibai_book) for (const node of activeMessages) {
+        const extra = messageExtra(node, node.activeSwipeIndex, state.chatMetadata);
+        const leaf = baibaiLeaf(extra, node.activeSwipeIndex);
+        if (leaf) leaves.add(leaf.id);
+    }
+    const route = compatibilityRouteAddress(state);
     return cachedSnapshot = {
         session: state.activeChatId, branchEpoch: state.branchEpoch, revision: ++revision, character: { id: card.id, name: card.name }, userName: state.userName,
-        chatMetadata: state.chatMetadata,
+        routeId: route.routeId, routeReplacing: replacing,
+        chatMetadata: pruneBaibaiSummaries(state.chatMetadata, leaves),
         generating: state.isGenerating || state.helperGenerationCount > 0, assembledMessages: state.lastAssembledPrompt?.messages ?? [],
         nativeMessageMenu: nativeMenu,
         modelSettings: { source: String(settings['api.chat_completion_source'] ?? 'openai'), model: String(settings['api.model'] ?? ''), stream: settings['api.stream'] !== false,
@@ -162,6 +182,11 @@ export function installWorkspaceCompatibility(): void {
         scripts: () => getWorkspaceScripts(),
         diagnostic: item => setStatusBanner(`兼容运行${item.level === 'error' ? '错误' : '提示'} · ${item.name}：${item.message.slice(0, 500)}`, { kind: item.level === 'error' ? 'error' : 'info' }),
         request: async (method, params) => {
+            if (method === 'worldbook.scan') return (await import('./worldbook-scan')).scanCompatibilityWorldbooks(params);
+            if (method === 'extension.memoryVector') {
+                const binding = params.action === 'status' ? undefined : captureBaibaiVectorContext();
+                return (await import('./memory-vector-host')).handleMemoryVectorRequest(params.action, params.body, binding);
+            }
             if (method.startsWith('asset.')) return requestAsset(method, params);
             if (method.startsWith('persona.')) return requestPersona(method.slice(8), params);
             if (method.startsWith('file.')) return requestFile(method.slice(5), params);
@@ -188,6 +213,12 @@ export function installWorkspaceCompatibility(): void {
                 case 'extension.completion.open': return openTavernCompletion(params.id, params.path, params.body, params.useCurrent === true);
                 case 'extension.completion.read': return readTavernCompletion(params.id);
                 case 'extension.completion.cancel': return cancelTavernCompletion(params.id);
+                case 'extension.interceptorInput': {
+                    const state = workspaceStore.getState();
+                    return { globalRegexScripts: globalRegexes(), presetRegex: getActivePreset(state).regexScripts,
+                        characterRegex: getActiveCharacter(state).regexScripts, initialVariables: resolveMergedVariables(ctx),
+                        initialGlobalVariables: getScopedVariables('global') };
+                }
                 case 'host.http': return requestNativeResource(String(params.path), params.body);
                 case 'host.character.select': {
                     const state = workspaceStore.getState();
@@ -218,7 +249,7 @@ export function installWorkspaceCompatibility(): void {
                 case 'story.seal': sealBranchPoint(params.replace === true); await persistWorkspaceNow(); return;
                 case 'story.routes': window.dispatchEvent(new CustomEvent('tipsy-open-branches', { detail: { messageId: params.id } })); return;
                 case 'nativePlugins.message': openMessagePluginPicker(params.id, params.swipe, params.updatedAt); return;
-                case 'story.retry': retryStoryFrom(params.id, undefined, true); return;
+                case 'story.retry': return retryStoryFrom(params.id, undefined, true);
                 case 'extensions.settings': {
                     if (!Object.keys(params.settings).length && !params.removed?.length) return;
                     const current = scopedVariableStore.getState().extension.tipsy_host_settings ?? {};
@@ -276,8 +307,45 @@ export function installWorkspaceCompatibility(): void {
                     await persistWorkspaceNow(); return result;
                 }
                 case 'legacy.save': {
-                    if (saveLegacyChat(params.messageState ?? [], params.variables, params.metadata)) await persistWorkspaceNow();
+                    const session = workspaceStore.getState().activeChatId, epoch = workspaceStore.getState().branchEpoch;
+                    const saved = legacySaveTail.then(() => commitWorkspaceMutation(() => {
+                        const current = workspaceStore.getState();
+                        if (current.activeChatId !== session || current.branchEpoch !== epoch) throw new Error('保存所属路线已切换');
+                        saveLegacyChat(params.messageState ?? [], params.variables, params.metadata);
+                    }));
+                    legacySaveTail = saved.catch(() => {});
+                    await saved;
                     return;
+                }
+                case 'legacy.newChat': {
+                    if (params.deleteCurrentChat === true) throw new Error('兼容接口仅支持保留原会话');
+                    cancelTavernCompletion();
+                    stopHelperGeneration(undefined, workspaceStore.getState().activeChatId);
+                    const session = await startExtensionChat();
+                    initializedSession = session; templateEnvironmentRevision++; previousTemplateKey = '';
+                    return session;
+                }
+                case 'legacy.sendAs': return createHelperChatMessages([{ ...params.message, role: 'assistant' }], {}, true);
+                case 'legacy.commitOpening': {
+                    const state = workspaceStore.getState();
+                    const hidden: Record<string, boolean> = {};
+                    const scopedMessages: Record<string, { memoryBody: string }> = {};
+                    const messages = normalizeChatPayload(params.rows.map((row: any) => {
+                        const active = Number.isInteger(row.swipe_id) ? row.swipe_id : 0;
+                        const swipes = Array.isArray(row.swipes) && row.swipes.length ? [...row.swipes] : [row.mes ?? ''];
+                        swipes[Math.max(0, Math.min(swipes.length - 1, active))] = row.mes ?? '';
+                        return { ...row, mes: row.mes ?? '', swipes, is_system: row.role === 'system', uid: `msg_${crypto.randomUUID()}` };
+                    }));
+                    for (const [index, node] of messages.entries()) {
+                        const row = params.rows[index], parent = messages[index - 1];
+                        if (parent) node.parentSwipeId = swipeId(parent);
+                        node.extra = { ...node.extra, helperSwipeInfo: { ...row.swipe_info, [node.activeSwipeIndex]: row.extra ?? {} } };
+                        if (row.is_system) hidden[swipeId(node)] = true;
+                        if (baibaiLeaf(row.extra ?? {}, node.activeSwipeIndex)) scopedMessages[routeMessageKey(node)] = { memoryBody: baibaiHash(baibaiBody(node.content)) };
+                    }
+                    const metadata: Record<string, unknown> = { ...params.metadata, [hostHiddenKey]: hidden, [routeMessageDataKey]: scopedMessages };
+                    if (Object.hasOwn(metadata, baibaiBundles)) metadata[baibaiBundles] = baibaiBundleIds(metadata).filter(hash => params.allowedBundles.includes(hash));
+                    return commitNewChatOpening(state.activeChatId, params.opening, messages, metadata, params.variables);
                 }
                 case 'chat.setMessage': return editHelperChatMessage(params.floor, String(params.message), params.options);
                 case 'chat.setMessages': {
@@ -289,12 +357,12 @@ export function installWorkspaceCompatibility(): void {
                 case 'chat.delete': {
                     const node = getActiveChatMessages().find(m => m.floor === Number(params.floor));
                     if (!node) throw new Error('消息楼层不存在');
-                    deleteChatMessage(node.id); return true;
+                    await deleteChatMessage(node.id, true); return true;
                 }
                 case 'chat.swipe': {
                     const node = getActiveChatMessages().find(m => m.floor === Number(params.floor));
                     if (!node) throw new Error('消息楼层不存在');
-                    swipeChatMessage(node.id, params.direction); return true;
+                    await swipeChatMessage(node.id, params.direction, true); return true;
                 }
                 case 'composer.input': return compatibilityComposer(params.text);
                 case 'composer.write': return applyCompatibilityComposerWrite(params.text, params.previous);

@@ -12,15 +12,13 @@
 
 **好看的界面是相遇的开始。值得留下的，是故事、自由，以及能一起生长的社区。**
 
-**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.0 更新日志](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.0) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
+**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.1 更新日志](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.1) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
 
-## 1.1.0 新变化
+## 1.1.1 新变化
 
-- **带上那段还没写完的故事。** 酒馆的 `.jsonl` 聊天记录可以关联角色卡导入。微醺屿的会话也能导出为 `.tipsy-story`，把剧情路线、故事状态和随包资源带到另一台设备。再次打开应用，会回到上次离开的主页面。
-- **喜欢的外观，不必只留一套。** 角色换了，想给故事也换个颜色？多套外观包可以同时保存在库里，随时切换和管理。导入后，原文件删掉也不影响选用。
-- **手机上玩卡，少一点和屏幕较劲。** 改进了兼容角色卡悬浮组件的触控拖动、双指缩放与全屏，也改善了向上翻看早期楼层时的渲染。
-- **不想开卡，就点一盏夜灯。** 从首页进入「夜灯畅谈」，不用选角色卡和叙事预设，也能直接和模型聊几句。
-- **看完更新日志，再决定要不要装。** 安装版发现新版时，可以先读说明、稍后决定，或跳过这一版。当前版本的日志也能在设置里回看。
+- **同一个故事，不同的路线，各有自己的记忆。** 兼容原版柏宝书 1.3.5。分叉时继承已保存的记忆，分叉后各自保存摘要和召回结果。
+- **夜灯下聊过什么，一翻就能找到。** 「夜灯畅谈」有了独立的会话列表。新建、找回旧对话都在这里，角色馆藏照旧。
+- **安装版可直连 Gemini。** Windows 和 Android 新增 Google Gemini（AI Studio）接口支持，也可以继续使用 OpenAI 兼容接口。
 
 ## 为什么值得换
 

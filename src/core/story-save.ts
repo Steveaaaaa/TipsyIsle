@@ -1,6 +1,7 @@
 import type { ArchivedChat } from '../store/chat-archives';
 import type { BranchState } from '../store/branch-state';
 import { hostMessageHidden } from '../compatibility/chat-message-codec';
+import { remapRouteMessageData } from '../store/route-message-data';
 import { activePath, branchExcerpt, swipeId } from '../store/chat-tree';
 import type { ChatMessageNode, LorebookTimedState, NormalizedCharacterCard, NormalizedLorebook, NormalizedPreset } from '../types';
 import { worldinfoHash } from '../pipeline/worldinfo-hash';
@@ -134,7 +135,7 @@ export function restoreStoryResources(source: ArchivedChat, sourceCard: Normaliz
         const activations = (values: ArchivedChat['templateActivations']) => values?.map(value => ({ ...value, world: name(value.world) }));
         const vars = (value: Record<string, unknown>) => mapVariables(value, name);
         const messageVars = (values: Continuation['variables']['message']) => Object.fromEntries(Object.entries(remap(values, ids)).map(([key, value]) => [key, vars(value)]));
-        const metadata = (value?: Record<string, unknown>) => value && { ...value,
+        const metadata = (value?: Record<string, unknown>) => value && { ...remapRouteMessageData(value, ids, swipes, false),
             ...(value.tipsy_host_hidden_messages ? { tipsy_host_hidden_messages: remap(bag(value.tipsy_host_hidden_messages), swipes) } : {}) };
         return { name, timed, activations, vars, messageVars, metadata };
     };

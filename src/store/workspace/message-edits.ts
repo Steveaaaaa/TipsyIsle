@@ -5,7 +5,7 @@ import { getScopedVariables, readScopedVariables, replaceScopedVariables } from 
 import { activePath, swipeId, storyRoutes } from '../chat-tree';
 import { continueNativeRoute } from '../../plugins/native/route-graph';
 import { tavernEventBus } from '../../sandbox/event-bus';
-import { commandCompatibilityRuntime } from '../../compatibility/runtime-client';
+import { commandCompatibilityRuntime, resetCompatibilityBranch } from '../../compatibility/runtime-client';
 import type { ChatMessageNode } from '../../types';
 import { waitForReplicaCommit } from '../persistence';
 import { hostHiddenKey, hostIllustrationKey, hostMessageHidden, messageExtra, patchHelperMessage, validateMessageRefresh, type HostIllustration } from '../../compatibility/chat-message-codec';
@@ -18,10 +18,12 @@ import { setStatusBanner } from './notice';
 import { getActiveChatMessages, getEffectiveMvuSettings } from './queries';
 import { initialChatVariables, mvuChatProjection } from './story-initialization';
 import { isNativeStorySaving } from './activity';
-import { sealBranchPoint, restoreMessageSnapshot, rememberBranch, publishBranchChange, captureMessageSnapshot, selectChatBranch, preserveReplyVersion, remapBranchSnapshots, swipeBranchMessage } from './branches';
+import { sealBranchPoint, restoreMessageSnapshot, rememberBranch, publishBranchChange, captureMessageSnapshot, selectChatBranch, preserveReplyVersion, remapBranchSnapshots, swipeBranchMessage, settleRouteChange } from './branches';
 import { saveHelperVariables } from './story-variables';
-import { getGenerationNotificationMessage } from './generation';
+import { canAppendDuringGenerationPreparation, getGenerationNotificationMessage } from './generation';
 import { notifyMessage } from './messages';
+import { baibaiBody, baibaiHash, baibaiRouteFields, isBaibaiNoteEdit } from '../../compatibility/baibai-route';
+import { remapRouteMessageData, routeContent, routeMessageDataKey, routeMessages, routeMessageKey, type RouteMessageData } from '../route-message-data';
 
 type LegacyMessagePatch = { id: string; swipe: number; content: string; mes?: string; hidden?: boolean; extra?: Record<string, unknown>; variables?: Record<string, unknown> };
 
@@ -33,16 +35,36 @@ export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<st
     const hidden = { ...state.chatMetadata?.[hostHiddenKey] as Record<string, boolean> | undefined };
     let hiddenChanged = false;
     const edits = new Map<string, { swipe: number; mes?: string; extra?: Record<string, unknown> }>();
+    const routeEdits = new Map<string, RouteMessageData>();
     const writes: Array<{ floor: number; value: Record<string, unknown> }> = [];
     for (const message of rows) {
         const node = path.get(message.id);
-        if (!node || message.swipe !== node.activeSwipeIndex || message.content !== node.content) {
-            if (message.mes !== undefined) throw new Error('插件保存的正文对应的消息已改变');
-            continue;
-        }
+        const visible = node && routeContent(node, state.chatMetadata);
+        if (!node || message.swipe !== node.activeSwipeIndex || message.content !== visible) throw new Error('插件保存的消息已改变，请重试');
         if (message.mes !== undefined && node.extra?.tipsy_generation_incomplete) throw new Error('不能保存尚在生成的消息正文');
-        const extra = message.extra && !_.isEqual(message.extra, messageExtra(node)) ? message.extra : undefined;
-        if (message.mes !== undefined || extra) edits.set(node.id, { swipe: node.activeSwipeIndex, mes: message.mes, extra });
+        const key = routeMessageKey(node);
+        const prior = routeMessages(state.chatMetadata)?.[key];
+        const scoped = { ...prior };
+        let extra: Record<string, unknown> | undefined;
+        let mes = message.mes;
+        if (message.extra) {
+            const baseline = messageExtra(node, node.activeSwipeIndex, state.chatMetadata);
+            const fields = (value: Record<string, unknown>) => Object.fromEntries(baibaiRouteFields.filter(k => Object.hasOwn(value, k)).map(k => [k, value[k]]));
+            if (!_.isEqual(fields(baseline), fields(message.extra))) scoped.extra = fields(message.extra);
+            if (!_.isEqual(baseline.bbs_leaf, message.extra.bbs_leaf)) scoped.memoryBody = message.extra.bbs_leaf ? baibaiHash(baibaiBody(mes ?? visible!)) : undefined;
+            const shared = messageExtra(node);
+            extra = { ...message.extra };
+            for (const k of baibaiRouteFields) {
+                if (Object.hasOwn(shared, k)) extra[k] = shared[k]; else delete extra[k];
+            }
+            if (_.isEqual(extra, shared)) extra = undefined;
+        }
+        if (mes !== undefined && isBaibaiNoteEdit(visible!, mes)) {
+            scoped.content = { base: node.content, value: mes };
+            mes = undefined;
+        }
+        if (!_.isEqual(scoped, prior ?? {})) routeEdits.set(key, scoped);
+        if (mes !== undefined || extra) edits.set(node.id, { swipe: node.activeSwipeIndex, mes, extra });
         if (message.variables && !_.isEqual(message.variables, readScopedVariables('message', { messageId: node.id }))) writes.push({ floor: node.floor, value: message.variables });
         if (message.hidden !== undefined && message.hidden !== hostMessageHidden(node, state.chatMetadata) && !node.isHidden) {
             if (message.hidden) hidden[swipeId(node)] = true; else delete hidden[swipeId(node)];
@@ -50,7 +72,11 @@ export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<st
         }
     }
     const next = { ...state.chatMetadata, ...metadata.values, ...(hiddenChanged ? { [hostHiddenKey]: hidden } : {}) };
-    for (const key of metadata.removed) delete next[key];
+    delete next[routeMessageDataKey];
+    const previousRoute = routeMessages(state.chatMetadata);
+    if (routeEdits.size) next[routeMessageDataKey] = { ...previousRoute, ...Object.fromEntries(routeEdits) };
+    else if (previousRoute) next[routeMessageDataKey] = previousRoute;
+    for (const key of metadata.removed) if (key !== routeMessageDataKey) delete next[key];
     const metadataChanged = !_.isEqual(next, state.chatMetadata ?? {});
     const variablesChanged = !!variables && !_.isEqual(variables, readScopedVariables('chat', { chatId: state.activeChatId }));
     if (!edits.size && !metadataChanged && !variablesChanged && !writes.length) return false;
@@ -89,7 +115,7 @@ export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<st
     return true;
 }
 
-export function editHelperChatMessage(floor: number | string, content: string, options: { swipe_id?: number; refresh?: 'none' | 'affected' | 'all' } = {}): boolean {
+export async function editHelperChatMessage(floor: number | string, content: string, options: { swipe_id?: number; refresh?: 'none' | 'affected' | 'all' } = {}): Promise<boolean> {
     const path = getActiveChatMessages();
     const node = path.find(m => m.id === floor) ?? path.at(Number(floor));
     if (!node) throw new Error('消息楼层不存在');
@@ -104,9 +130,10 @@ export function editHelperChatMessage(floor: number | string, content: string, o
         if (routes.length > 1) throw new Error('这个回复有多条后续，请从故事路线选择要继续的一条');
         if (routes.length === 1) {
             const current = node.swipes[swipe];
-            if ((typeof current === 'string' ? current : current.content) === content) { selectChatBranch(routes[0].key, true); return true; }
+            if ((typeof current === 'string' ? current : current.content) === content) { await selectChatBranch(routes[0].key, true); return true; }
         }
     }
+    if (!duringNotification && (swipe !== node.activeSwipeIndex || node.floor > 0 && node.id !== workspaceStore.getState().activeLeafId && content !== node.content)) await settleRouteChange(true);
     captureMessageSnapshot(node.id);
     const forksHistory = node.floor > 0 && !duringNotification && content !== node.content && node.id !== workspaceStore.getState().activeLeafId;
     if (forksHistory) preserveReplyVersion(workspaceStore.getState().messages.find(item => item.id === node.id)!);
@@ -169,7 +196,7 @@ export async function setHelperChatMessages(items: Array<Record<string, any>>, o
     if (changesChoice && changesChoice.node.floor > 0 && plans.length === 1 && Object.keys(merged.get(changesChoice.node.id)!.item).every(key => ['message_id', 'swipe_id'].includes(key))) {
         const routes = storyRoutes(state.messages).filter(route => route.path.some(node => node.id === changesChoice.node.id && node.activeSwipeIndex === changesChoice.node.activeSwipeIndex));
         if (routes.length !== 1) throw new Error('这个回复有多条后续，请从故事路线选择');
-        selectChatBranch(routes[0].key, true); return [{ message_id: changesChoice.node.floor, role: changesChoice.node.role }];
+        await selectChatBranch(routes[0].key, true); return [{ message_id: changesChoice.node.floor, role: changesChoice.node.role }];
     }
     if (!state.isGenerating && plans.some(plan => {
         const original = path.find(node => node.id === plan.node.id)!;
@@ -205,9 +232,12 @@ export async function setHelperChatMessages(items: Array<Record<string, any>>, o
 }
 
 /** Structural edits fork the changed suffix, retaining inactive branches and their variables. */
-async function publishHelperPath(next: ChatMessageNode[], from: number, newVariables = new Map<string, Record<string, unknown>>()): Promise<ChatMessageNode[]> {
+async function publishHelperPath(next: ChatMessageNode[], from: number, newVariables = new Map<string, Record<string, unknown>>(), allowDuringPreparation = false): Promise<ChatMessageNode[]> {
     const state = workspaceStore.getState();
-    if (isNativeStorySaving() || state.isGenerating || state.helperGenerationCount) throw new Error('请等待剧情保存或生成结束后更改消息结构');
+    const preparedAppend = allowDuringPreparation && canAppendDuringGenerationPreparation() && from === getActiveChatMessages(state).length;
+    if (isNativeStorySaving() || state.isGenerating && !preparedAppend || state.helperGenerationCount) throw new Error('请等待剧情保存或生成结束后更改消息结构');
+    const structuralChange = from < getActiveChatMessages(state).length;
+    if (structuralChange && !state.isGenerating) await settleRouteChange(true);
     if (state.activeLeafId) captureMessageSnapshot(state.activeLeafId);
     const latest = workspaceStore.getState();
     const prefix = next.slice(0, from);
@@ -239,18 +269,22 @@ async function publishHelperPath(next: ChatMessageNode[], from: number, newVaria
         workspaceStore.setState({ messages: [...latest.messages, ...appended], activeLeafId: active.at(-1)?.id ?? null,
             ...(from < getActiveChatMessages(latest).length && { branchEpoch: (latest.branchEpoch ?? 0) + 1 }) });
         const leaf = active.at(-1);
-        if (leaf) restoreMessageSnapshot(leaf.id);
+        if (leaf) {
+            restoreMessageSnapshot(leaf.id);
+            if (structuralChange) workspaceStore.setState({ chatMetadata: remapRouteMessageData(latest.chatMetadata, remapped) });
+        }
         else {
             replaceScopedVariables(initialChatVariables(), 'chat', { chatId: state.activeChatId });
             workspaceStore.setState({ timedStates: {}, chatMetadata: undefined, nativePluginRoute: undefined, templateInjections: [], templateActivations: [] });
         }
         sealBranchPoint();
     });
-    await persistWorkspaceNow(); schedulePreview();
+    await persistWorkspaceNow();
+    if (!state.isGenerating) schedulePreview();
     return active;
 }
 
-export async function createHelperChatMessages(items: Array<Record<string, any>>, options: { insert_at?: number | 'end'; insert_before?: number | 'end'; refresh?: 'none' | 'affected' | 'all' } = {}): Promise<Array<{ message_id: number; role: ChatMessageNode['role'] }>> {
+export async function createHelperChatMessages(items: Array<Record<string, any>>, options: { insert_at?: number | 'end'; insert_before?: number | 'end'; refresh?: 'none' | 'affected' | 'all' } = {}, allowDuringPreparation = false): Promise<Array<{ message_id: number; role: ChatMessageNode['role'] }>> {
     if (!Array.isArray(items)) throw new Error('消息创建参数必须是数组');
     validateMessageRefresh(options.refresh);
     const path = getActiveChatMessages();
@@ -274,7 +308,7 @@ export async function createHelperChatMessages(items: Array<Record<string, any>>
         variables.set(id, plan.variables); return plan.node;
     });
     if (!created.length) return [];
-    const active = await publishHelperPath([...path.slice(0, index), ...created, ...path.slice(index)], index, variables);
+    const active = await publishHelperPath([...path.slice(0, index), ...created, ...path.slice(index)], index, variables, allowDuringPreparation);
     return active.slice(index, index + created.length).map(node => ({ message_id: node.floor, role: node.role }));
 }
 
@@ -300,8 +334,9 @@ export async function rotateHelperChatMessages(begin: number, middle: number, en
     return active.slice(begin).map(node => ({ message_id: node.floor, role: node.role }));
 }
 
-export function editChatMessage(messageId: string, newContent: string): boolean {
+export async function editChatMessage(messageId: string, newContent: string): Promise<boolean> {
     if (isNativeStorySaving() || workspaceStore.getState().isGenerating) return false;
+    await settleRouteChange(true);
     const visible = getActiveChatMessages();
     const resolvedId = visible.find(node => node.id === messageId)?.id ?? visible.find(node => String(node.floor) === String(messageId))?.id;
     const source = visible.find(node => node.id === resolvedId);
@@ -349,8 +384,10 @@ export function attachReplyIllustration(expected: { chatId: string; branchEpoch?
     return true;
 }
 
-export function deleteChatMessage(messageId: string): void {
+export async function deleteChatMessage(messageId: string, internal = false): Promise<void> {
     if (isNativeStorySaving() || workspaceStore.getState().isGenerating) return;
+    await settleRouteChange(internal);
+    const before = workspaceStore.getState();
     const deletedFloor = getActiveChatMessages().find(m => m.id === messageId)?.floor;
     workspaceStore.setState(draft => {
         const target = draft.messages.find(node => node.id === messageId);
@@ -368,12 +405,20 @@ export function deleteChatMessage(messageId: string): void {
         workspaceStore.setState({ chatMetadata: undefined, nativePluginRoute: undefined });
         replaceScopedVariables(initialChatVariables(), 'chat', { chatId: workspaceStore.getState().activeChatId });
     }
+    if (leaf) workspaceStore.setState({ chatMetadata: remapRouteMessageData(before.chatMetadata, new Map(getActiveChatMessages().map(node => [node.id, node.id])), undefined, false) });
+    if (leaf) captureMessageSnapshot(leaf);
     persistWorkspace();
     void tavernEventBus.emit('message_deleted', { messageId });
-    void commandCompatibilityRuntime('event', ['message_deleted', deletedFloor]).catch(error => setStatusBanner(String(error)));
+    if (!internal) {
+        try { await commandCompatibilityRuntime('event', ['message_deleted', deletedFloor]); }
+        catch (error) { setStatusBanner(String(error)); }
+    }
+    workspaceStore.setState(draft => { draft.branchEpoch = (draft.branchEpoch ?? 0) + 1; });
+    persistWorkspace();
+    if (!internal) resetCompatibilityBranch();
     schedulePreview();
 }
 
-export function swipeChatMessage(messageId: string, direction: 'prev' | 'next' | 'new_branch'): void {
-    swipeBranchMessage(messageId, direction, editHelperChatMessage);
+export function swipeChatMessage(messageId: string, direction: 'prev' | 'next' | 'new_branch', internal = false): Promise<void> {
+    return swipeBranchMessage(messageId, direction, editHelperChatMessage, internal);
 }

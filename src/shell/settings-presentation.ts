@@ -24,7 +24,7 @@ export type PluginSettingsDestination = typeof pluginSettingsDestinations[number
 
 const help = (title: string, description: string): Partial<SchemaFieldDescriptor> => ({ title, description });
 export const settingsFieldLabels: Record<string, Partial<SchemaFieldDescriptor>> = {
-    'api.chat_completion_source': help('接口协议', '第三方中转服务通常选择 OpenAI 兼容接口；原厂 Claude、Gemini、Responses 等协议需要本机网页网关，安装版请使用 OpenAI 兼容接口。'),
+    'api.chat_completion_source': help('接口协议', '按服务商提供的协议选择。安装版支持 OpenAI 兼容和 Google Gemini (AI Studio)；Claude、Vertex AI 和 OpenAI Responses 仍需要本地网页版。'),
     'api.custom_url': help('API 地址', '填写服务商提供的基础地址，例如 https://api.example.com/v1，不必填写密钥或模型名称。'),
     'api.model': help('模型名称', '填写地址和密钥后，可获取服务商的模型列表并选择；也可以直接填写模型 ID。'),
     'api.key': help('API Key · 密钥', '填写所选服务商提供的密钥。该连接用于生成剧情；额外解析也可以沿用此连接。'),

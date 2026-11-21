@@ -1,4 +1,6 @@
 import { platformFetch } from './native-runtime';
+import { geminiReplyAdapter, requestGeminiCompletion } from './gemini-completion';
+import { isGeminiSource } from './gemini-endpoint';
 import { encodeSnapshots, decodeSnapshot, usesImmutableStorySnapshot } from './snapshot-codec';
 import { copySyncState, SYNC_KEY, type SyncState } from './sync/protocol';
 /**
@@ -73,8 +75,7 @@ export type CompletionRequestMessage = AssembledPromptMessage | {
 
 /**
  * Universal SSE Streaming LLM Client.
- * Routes through Tauri native command or Local Gateway proxy when available to bypass mobile CORS,
- * or connects directly to CORS-enabled OpenAI/Claude/Gemini/DeepSeek endpoints.
+ * Uses the local gateway, Tauri HTTP, or direct browser HTTP depending on the runtime.
  */
 export interface CompletionToolCall { id: string; type: 'function'; function: { name: string; arguments: string }; thought_signature?: string }
 export interface CompletionCandidate { content: string; reasoning: string; reasoning_signature?: string; tool_calls?: CompletionToolCall[] }
@@ -84,12 +85,20 @@ const candidateFrom = (message: any): CompletionCandidate => ({ content: typeof 
     ...(message.reasoning_signature ? { reasoning_signature: message.reasoning_signature } : {}), ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}) });
 export async function streamLlmCompletion(req: StreamCompletionRequest): Promise<CompletionResult> {
     const flavor = await detectRuntimeFlavor();
-    if (flavor !== 'local-gateway' && (req.provider || ['claude', 'anthropic', 'makersuite', 'gemini', 'vertexai', 'openai-responses'].includes(req.source))) {
-        throw new Error('此原厂协议需要本地网关，请使用项目启动器启动程序');
+    const nativeGemini = flavor === 'tauri-native' && !req.provider && isGeminiSource(req.source);
+    if (flavor !== 'local-gateway' && !nativeGemini && (req.provider || isGeminiSource(req.source) || ['claude', 'anthropic', 'vertexai', 'openai-responses'].includes(req.source))) {
+        throw new Error(flavor === 'tauri-native'
+            ? '安装版暂不支持此连接方式。请选择 OpenAI 兼容或 Google Gemini (AI Studio)，或在电脑上用 npm start 打开本地网页版。'
+            : '当前网页未连接模型网关。请用 npm start 打开本地网页版，或改用浏览器可直连的 OpenAI 兼容接口。');
     }
+    const response = nativeGemini ? await requestGeminiCompletion(req) : await requestChatCompletion(req, flavor === 'local-gateway');
+    return readCompletionResponse(response, req, nativeGemini ? geminiReplyAdapter() : undefined);
+}
+
+async function requestChatCompletion(req: StreamCompletionRequest, gateway: boolean): Promise<Response> {
     const baseUrl = req.baseUrl.replace(/\/+$/, '');
     const targetUrl =
-        flavor === 'local-gateway'
+        gateway
             ? '/api/tipsy-isle/llm/stream'
             : baseUrl.endsWith('/chat/completions')
               ? baseUrl
@@ -98,21 +107,21 @@ export async function streamLlmCompletion(req: StreamCompletionRequest): Promise
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
     };
-    if (req.apiKey && flavor !== 'local-gateway') {
+    if (req.apiKey && !gateway) {
         headers.Authorization = `Bearer ${req.apiKey}`;
     }
-    if (flavor !== 'local-gateway') Object.assign(headers, req.includeHeaders);
+    if (!gateway) Object.assign(headers, req.includeHeaders);
     const messages = req.messages.map(message => 'sourceId' in message ? { role: message.role,
         content: message.images?.length ? [{ type: 'text', text: message.content }, ...message.images.map(url => ({ type: 'image_url', image_url: { url } }))] : message.content,
         ...(message.name ? { name: message.name } : {}) } : message.role === 'tool'
             ? { role: 'tool', content: message.content, tool_call_id: message.tool_call_id,
-                ...(flavor === 'local-gateway' ? { name: message.name, isError: message.isError } : {}) }
+                ...(gateway ? { name: message.name, isError: message.isError } : {}) }
             : message);
     const completionBody = structuredClone({ ...req.parameters, model: req.model, messages, stream: req.stream ?? true, ...req.includeBody });
     excludeRequestFields(completionBody, req.excludeBody);
 
     const bodyPayload =
-        flavor === 'local-gateway'
+        gateway
             ? {
                   source: req.source,
                   provider: req.provider,
@@ -126,21 +135,24 @@ export async function streamLlmCompletion(req: StreamCompletionRequest): Promise
               }
             : completionBody;
 
-    const response = await platformFetch(targetUrl, {
+    return platformFetch(targetUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify(bodyPayload),
         signal: req.signal,
     });
+}
 
+async function readCompletionResponse(response: Response, req: StreamCompletionRequest, adapt?: ReturnType<typeof geminiReplyAdapter>): Promise<CompletionResult> {
     if (!response.ok || !response.body) {
         const errText = await response.text().catch(() => response.statusText);
         throw new Error(`LLM 请求失败 (${response.status}): ${errText.slice(0, 240)}`);
     }
 
     if (response.headers.get('content-type')?.includes('application/json')) {
-        const payload = await response.json();
+        const raw = await response.json();
         req.signal?.throwIfAborted();
+        const payload = adapt ? adapt(raw, false) : raw;
         if (payload.error) throw new Error(`LLM 接口错误：${getCompletionError(payload.error)}`);
         const message = payload.choices?.[0]?.message;
         if (!message) throw new Error('LLM 接口未返回回复消息');
@@ -173,6 +185,7 @@ export async function streamLlmCompletion(req: StreamCompletionRequest): Promise
         try { parsed = JSON.parse(dataStr); }
         catch { throw new Error('LLM 接口返回了无法解析的流式数据'); }
         if (!parsed || typeof parsed !== 'object') throw new Error('LLM 接口返回了无效的流式数据');
+        if (adapt) parsed = adapt(parsed, true);
         if (parsed.error) throw new Error(`LLM 接口错误：${getCompletionError(parsed.error)}`);
         const choice = parsed.choices?.find((choice: any) => !choice.index);
         for (const item of parsed.choices ?? []) if (item.index > 0) {
@@ -180,7 +193,7 @@ export async function streamLlmCompletion(req: StreamCompletionRequest): Promise
             const delta = item.delta ?? item.message ?? {};
             value.content += typeof delta.content === 'string' ? delta.content : '';
             value.reasoning += delta.reasoning_content ?? delta.reasoning ?? '';
-            if (delta.reasoning_signature) value.reasoning_signature = (value.reasoning_signature ?? '') + delta.reasoning_signature;
+            if (delta.reasoning_signature) value.reasoning_signature = (adapt ? '' : value.reasoning_signature ?? '') + delta.reasoning_signature;
             for (const [index, tool] of (delta.tool_calls ?? []).entries()) {
                 const key = tool.index ?? index, saved = value.tools.get(key) ?? { id: '', type: 'function' as const, function: { name: '', arguments: '' } };
                 if (tool.id) saved.id = tool.id;
@@ -192,7 +205,7 @@ export async function streamLlmCompletion(req: StreamCompletionRequest): Promise
         }
         if (choice) receivedMessage = true;
         const delta = choice?.delta ?? choice?.message ?? {};
-        if (delta.reasoning_signature) reasoningSignature += delta.reasoning_signature;
+        if (delta.reasoning_signature) reasoningSignature = (adapt ? '' : reasoningSignature) + delta.reasoning_signature;
         if (!toolCalls.size && delta.tool_calls?.length) req.onToolCall?.();
         for (const [index, item] of (delta.tool_calls ?? []).entries()) {
             const key = item.index ?? index;

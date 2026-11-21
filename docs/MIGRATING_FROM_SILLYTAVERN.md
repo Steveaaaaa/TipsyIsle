@@ -52,7 +52,7 @@ A familiar macro or plugin name alone does not establish support for every behav
 
 ## Connect models and switch devices
 
-The Windows and Android apps can directly call **OpenAI-compatible Chat Completions endpoints** using your own endpoint, API key, and model. Some provider-specific protocols and account authorization features depend on the local Node gateway. Use the local web mode through `npm start` when you need them. Model connection capabilities differ between runtime modes.
+The Windows and Android apps can directly call **OpenAI-compatible Chat Completions** and **Google Gemini (AI Studio)** endpoints. For Google's API, use `https://generativelanguage.googleapis.com/v1beta`. For a reverse proxy, use the base URL and protocol documented by your provider; a Gemini model name does not necessarily mean the endpoint uses Gemini's native protocol. For Claude, Vertex AI, OpenAI Responses, and provider account authorization, use the local web mode through `npm start`.
 
 You provide the model service. Local storage of resources and progress does not mean the client includes a model that can generate replies offline.
 

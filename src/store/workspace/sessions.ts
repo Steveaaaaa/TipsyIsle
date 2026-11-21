@@ -7,7 +7,7 @@ import { restoreStoryResources } from '../../core/story-save';
 import type { StoryImport } from '../../core/story-save-format';
 import { platformStorage } from '../../core/platform-bridge';
 import { getSchemaValues, schemaRegistryStore } from '../../registry/schema-registry';
-import { scopedVariableStore, replaceExtensionVariables } from '../scoped-variable-store';
+import { scopedVariableStore, replaceExtensionVariables, replaceScopedVariables } from '../scoped-variable-store';
 import { activePath, swipeId, storyRoutes, withSwipe } from '../chat-tree';
 import { branchMessageVariables } from '../branch-state';
 import { pendingBranchOperations, runBranchOperation } from '../branch-runtime';
@@ -22,7 +22,7 @@ import { enqueuePersistentOperation, suspendRegisteredPersistence, waitForReplic
 import { workspaceStore, type WorkspaceState } from './state';
 import { getActivePreset, getActiveLorebooks, getCharacterWorldbooks, getActiveCharacter, getActivePersona } from './library';
 import { schedulePreview, invalidateTemplateEnvironment } from './prompt';
-import { persistWorkspace, persistWorkspaceNow } from './storage';
+import { commitWorkspaceMutation, persistWorkspace, persistWorkspaceNow } from './storage';
 import { setStatusBanner } from './notice';
 import { getActiveChatMessages, preserveAuthorMessageRevision, getEffectiveMvuSettings } from './queries';
 import { branchBusy, isNativeStorySaving } from './activity';
@@ -76,7 +76,7 @@ export function readNativeChat(id: string): ArchivedChat | null {
 function readActiveArchive(id: string): ArchivedChat | null {
     const state = workspaceStore.getState();
     if (!id || id !== state.activeChatId) return null;
-    if (!state.messages.length && !(state.sessionKind === 'free' && (state.freeChat?.title || state.freeChat?.model))) return null;
+    if (state.sessionKind !== 'free' && !state.messages.length) return null;
     if (state.sessionKind === 'free') return { id, kind: 'free', freeChat: state.freeChat, characterId: '', messages: state.messages,
         activeLeafId: state.activeLeafId, timedStates: {} };
     return { id: state.activeChatId, characterId: state.activeCharacterId, importedFrom: state.storyImportFingerprint,
@@ -90,6 +90,7 @@ export async function listArchivedChats() {
     return archives.filter(chat => chat.id !== state.activeChatId).map(chat => ({ id: chat.id, characterId: chat.characterId, kind: chat.kind,
         title: chat.freeChat?.title || freeChatName,
         label: chat.kind === 'free' ? `${chat.freeChat?.title || freeChatName} · ${chat.activeCount} 条` : `${chat.syncLabel ? `${chat.syncLabel} · ` : ''}${state.characters.find(card => card.id === chat.characterId)?.name ?? '角色'} · ${chat.messageCount} 条 · ${chat.lastMessage.replace(/\s+/g, ' ').slice(0, 30)}`,
+        messageCount: chat.activeCount, lastActivity: chat.lastActivity ?? (Date.parse(chat.lastDate ?? '') || undefined),
     }));
 }
 
@@ -420,6 +421,36 @@ export function createChat(card: NormalizedCharacterCard, notify = true): void {
     }
 }
 
+export async function startExtensionChat(): Promise<string> {
+    await waitForReplicaCommit();
+    if (branchBusy(true) || workspaceStore.getState().sessionKind === 'free') throw new Error('请等待当前操作结束后再开启角色聊天');
+    const card = getActiveCharacter();
+    if (!card.id) throw new Error('没有可用的角色');
+    await archiveActiveChat();
+    await commitWorkspaceMutation(() => createChat(card, false));
+    return workspaceStore.getState().activeChatId;
+}
+
+/** Replace the opening of a newly created, untouched conversation in one save. */
+export async function commitNewChatOpening(session: string, opening: string | null, messages: ChatMessageNode[], chatMetadata: Record<string, unknown>, variables: Record<string, unknown>): Promise<void> {
+    await commitWorkspaceMutation(() => {
+        const state = workspaceStore.getState();
+        const current = getActiveChatMessages(state);
+        if (state.activeChatId !== session || state.branchEpoch !== 0 || current.length > 1 || (current[0]?.id ?? null) !== opening || state.isGenerating) {
+            throw new Error('新会话的开场已经变化，不能再替换楼层');
+        }
+        for (const node of messages) {
+            const values = node.extra?.variables as Record<string, unknown> | undefined;
+            if (values) replaceScopedVariables(values, 'message', { messageId: node.id });
+        }
+        replaceScopedVariables(variables, 'chat', { chatId: session });
+        workspaceStore.setState({ messages, activeLeafId: messages.at(-1)?.id ?? null, chatMetadata });
+        if (messages.length) sessionBranches.capture(messages.at(-1)!.id);
+    });
+    void tavernEventBus.emit('chat_changed', session);
+    schedulePreview();
+}
+
 let characterSwitchJob: Promise<void> | undefined;
 
 export function currentCharacterSwitch() { return characterSwitchJob; }
@@ -470,7 +501,7 @@ export async function startFreeChat(): Promise<void> {
         await archiveActiveChat();
         stopCompatibilityRuntime();
         invalidateTemplateEnvironment();
-        workspaceStore.setState({ ...emptyStory(), sessionKind: 'free', activeChatId: `free_${crypto.randomUUID()}`,
+        workspaceStore.setState({ ...emptyStory(), sessionKind: 'free', freeChat: { createdAt: Date.now() }, activeChatId: `free_${crypto.randomUUID()}`,
             activeLorebookIds: [], streamingReasoning: '' });
         await persistWorkspaceNow();
     });

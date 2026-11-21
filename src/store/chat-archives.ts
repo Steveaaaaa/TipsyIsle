@@ -8,7 +8,7 @@ import type { ScopedVariableState } from './scoped-variable-store';
 
 export type ChatSessionKind = 'character' | 'free';
 export const freeChatName = '夜灯畅谈';
-export interface FreeChatDetails { title?: string; model?: string }
+export interface FreeChatDetails { title?: string; model?: string; createdAt?: number }
 
 export interface ArchivedChat {
     kind?: ChatSessionKind;
@@ -46,15 +46,18 @@ export interface ChatArchiveSummary {
     importedFrom?: string;
     id: string; characterId: string; messageCount: number; activeCount: number;
     lastMessage: string; lastDate: ChatMessageNode['sendDate'];
+    lastActivity?: number;
     syncLabel?: string;
 }
 const indexKey = 'chat_archive_index';
 const chatKey = (id: string) => `chat_archive:${id}`;
 let writes: Promise<unknown> = Promise.resolve();
 export function summarizeChat(chat: ArchivedChat): ChatArchiveSummary {
+    const path = activePath(chat.messages, chat.activeLeafId);
+    const last = path.at(-1);
     return { id: chat.id, kind: chat.kind, freeChat: chat.freeChat, characterId: chat.characterId, importedFrom: chat.importedFrom, syncLabel: chat.syncLabel, messageCount: chat.messages.length,
-        activeCount: activePath(chat.messages, chat.activeLeafId).length,
-        lastMessage: activePath(chat.messages, chat.activeLeafId).at(-1)?.content ?? '', lastDate: activePath(chat.messages, chat.activeLeafId).at(-1)?.sendDate };
+        activeCount: path.length, lastMessage: last?.content ?? '', lastDate: last?.sendDate,
+        lastActivity: chat.kind === 'free' ? last?.updatedAt ?? last?.createdAt ?? chat.freeChat?.createdAt : undefined };
 }
 export async function listChatArchives(): Promise<ChatArchiveSummary[]> {
     await writes.catch(() => {});

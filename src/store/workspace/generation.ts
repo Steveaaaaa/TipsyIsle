@@ -23,7 +23,7 @@ import { streamStoryWithNativeTools } from '../../plugins/native/generation-tool
 import { continueNativeRoute } from '../../plugins/native/route-graph';
 import { applyNativeContributions } from '../../plugins/native/prompt';
 import { tavernEventBus } from '../../sandbox/event-bus';
-import { commandCompatibilityRuntime, publishNativeGenerationProgress } from '../../compatibility/runtime-client';
+import { commandCompatibilityRuntime, publishNativeGenerationProgress, requireCompatibilityRouteReady, saveCompatibilityBeforeRouteChange } from '../../compatibility/runtime-client';
 import type { VariableWrite } from '../../compatibility/contracts';
 import { readMvuCommands, settleMvuWithoutScripts } from '../../pipeline/mvu-commands';
 import type { AssembledPromptResult, ChatMessageNode } from '../../types';
@@ -43,13 +43,16 @@ import { saveHelperVariables, commitMvuMessage, validateHelperVariableWrite } fr
 import { getWorkspaceScripts } from './scripts';
 import { appendChatMessage, messageNotification, clearMessageNotification } from './messages';
 import { readNativeStory } from './runtime';
+import { compatibilityRouteAddress, holdCompatibilityRoute } from '../../compatibility/route-address';
 import { commitPromptTask } from './prompt-commit';
 
 let activeAbortController: AbortController | null = null;
 
 let generationNotificationMessage: string | undefined;
+let extensionGenerationPreparation: AbortController | undefined;
 
 export function getGenerationNotificationMessage() { return generationNotificationMessage; }
+export function canAppendDuringGenerationPreparation() { return !!extensionGenerationPreparation && !extensionGenerationPreparation.signal.aborted; }
 
 export function stopActiveGeneration(): void {
     if (activeAbortController) {
@@ -293,6 +296,9 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
     if (workspaceStore.getState().sessionKind === 'free') return generateFreeReply(userText, generationType === 'regenerate');
     if (!getActiveCharacter().id) throw new Error('请先从馆藏选择一个故事。');
     if (workspaceStore.getState().isGenerating) return '';
+    requireCompatibilityRouteReady();
+    if (generationType === 'regenerate') await saveCompatibilityBeforeRouteChange();
+    if (workspaceStore.getState().isGenerating) return '';
     const controller = new AbortController();
     activeAbortController = controller;
     workspaceStore.setState(draft => { draft.isGenerating = true; });
@@ -300,7 +306,9 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
     let assemblyInput: AssemblePromptInput;
     let nativeContributions: Awaited<ReturnType<typeof nativeGenerationContributions>> = [];
     let originalLeaf: string | undefined;
+    let originalMetadata: ReturnType<typeof workspaceStore.getState>['chatMetadata'];
     let originalRoute: string | undefined;
+    let releaseRoute: (() => void) | undefined;
     let regeneratedNodes: ChatMessageNode[] | undefined;
     let regeneratedDeletedIds: string[] | undefined;
     let regeneratedPlaceholderId: string | undefined;
@@ -316,9 +324,12 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
             const latest = getActiveChatMessages().at(-1);
             if (!latest || latest.role !== 'assistant' || !latest.parentId) throw new Error('当前没有可以重新生成的角色回复');
             originalLeaf = latest.id;
+            const address = compatibilityRouteAddress();
             originalRoute = readNativeStory().route?.routeId;
+            releaseRoute = holdCompatibilityRoute(address);
             captureMessageSnapshot(latest.id);
             const current = workspaceStore.getState();
+            originalMetadata = current.chatMetadata;
             const removed = new Set<string>([latest.id]);
             for (let changed = true; changed;) {
                 changed = false;
@@ -332,6 +343,7 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
                 draft.activeLeafId = latest.parentId;
             });
             restoreMessageSnapshot(latest.parentId);
+            workspaceStore.setState({ chatMetadata: originalMetadata });
         }
         const sent = userText?.trim() ? appendChatMessage('user', userText.trim()) : undefined;
         const pendingMessage = sent ?? getActiveChatMessages().at(-1);
@@ -348,16 +360,23 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
         controller.signal.throwIfAborted();
         const required = getWorkspaceScripts().some(s => s.enabled);
         await tavernEventBus.emit('generation_started', { type: generationType, characterId: workspaceStore.getState().activeCharacterId });
-        const prepared = await commandCompatibilityRuntime('beforeGeneration', [generationType], required);
+        extensionGenerationPreparation = controller;
+        const prepared = await commandCompatibilityRuntime('beforeGeneration', [generationType], required)
+            .finally(() => { if (extensionGenerationPreparation === controller) extensionGenerationPreparation = undefined; });
         if (prepared.generationAborted) {
             if (originalLeaf) {
+                const noticeAdded = workspaceStore.getState().activeLeafId !== regeneratedNodes?.find(node => node.id === originalLeaf)?.parentId;
                 workspaceStore.setState(draft => {
                     if (regeneratedNodes?.length) draft.messages.push(...regeneratedNodes);
                     draft.deletedMessageIds = regeneratedDeletedIds;
-                    draft.activeLeafId = originalLeaf!;
+                    if (!noticeAdded) draft.activeLeafId = originalLeaf!;
                 });
-                restoreMessageSnapshot(originalLeaf);
+                if (!noticeAdded) restoreMessageSnapshot(originalLeaf);
             }
+            await commandCompatibilityRuntime('event', ['generation_stopped']).catch(error => console.warn('生成停止事件执行失败', error));
+            await tavernEventBus.emit('generation_stopped', { intercepted: true });
+            releaseRoute?.();
+            if (originalLeaf) await commandCompatibilityRuntime('refreshRouteMemory').catch(error => console.warn('恢复路线记忆失败', error));
             workspaceStore.setState({ isGenerating: false });
             activeAbortController = null;
             persistWorkspace();
@@ -382,6 +401,8 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
         catch (eventError) { console.warn('生成结束事件执行失败', eventError); }
         await tavernEventBus.emit('generation_stopped', { error: message });
         await tavernEventBus.emit('generation_ended', { stopped: true });
+        releaseRoute?.();
+        if (originalLeaf) await commandCompatibilityRuntime('refreshRouteMemory').catch(error => console.warn('恢复路线记忆失败', error));
         workspaceStore.setState(draft => { draft.isGenerating = false; });
         activeAbortController = null;
         persistWorkspace();
@@ -488,6 +509,8 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
             });
             restoreMessageSnapshot(originalLeaf!);
         }
+        releaseRoute?.();
+        if (originalLeaf && !completed) await commandCompatibilityRuntime('refreshRouteMemory').catch(error => console.warn('恢复路线记忆失败', error));
         generationNotificationMessage = placeholderId;
         if (failed || controller.signal.aborted) {
             try { await commandCompatibilityRuntime('event', ['generation_stopped', floor]); }

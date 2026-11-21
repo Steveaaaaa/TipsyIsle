@@ -10,5 +10,5 @@ export async function runBranchOperation<T>(operation: () => T | Promise<T>): Pr
     const done = beginBranchOperation();
     try { return await operation(); } finally { done(); }
 }
-export const mutatesStory = (method: string) => /^(variables\.(replace|insert|delete)|chat\.(set|create|delete|rotate)|worldbook\.|legacy\.save|scripts\.replace|extensions\.settings|slash\.|composer\.send|generation\.|mvu\.|template\.commit|story\.retry)/.test(method)
-    && !/\.(get|read|load|list|models)$/.test(method);
+export const mutatesStory = (method: string) => /^(variables\.(replace|insert|delete)|chat\.(set|create|delete|rotate|swipe)|worldbook\.|legacy\.(save|newChat|commitOpening|sendAs)|scripts\.replace|extensions\.settings|slash\.|composer\.send|generation\.|mvu\.|template\.commit|story\.retry)/.test(method)
+    && !/\.(get|read|load|list|models|scan)$/.test(method);

@@ -31,13 +31,13 @@ export interface VirtualChatStreamProps extends ReadingNavigationProps {
     presetId: string;
     layoutMode: LayoutMode;
     renderFormattedContent: (node: ChatMessageNode) => string;
-    onDeleteMessage: (messageId: string) => void;
+    onDeleteMessage: (messageId: string) => Promise<void>;
     onIllustrateMessage?: (messageId: string) => void;
-    onSwipeMessage: (messageId: string, direction: 'prev' | 'next' | 'new_branch') => void;
+    onSwipeMessage: (messageId: string, direction: 'prev' | 'next' | 'new_branch') => Promise<void>;
     onTriggerSlash: (command: string) => Promise<string>;
     onRequestGenerate: (promptOverride?: string) => Promise<string>;
     onGetChatMessages: (range?: unknown) => unknown[];
-    onSetChatMessage: (floorOrId: unknown, newContent: string) => boolean;
+    onSetChatMessage: (floorOrId: unknown, newContent: string) => boolean | Promise<boolean>;
     onGetWorldbook: () => unknown;
     onReplaceWorldbook: (entries: unknown) => boolean;
 }
@@ -338,9 +338,9 @@ export function VirtualChatStream({
                             <div className="ttm-msg-toolbar">
                             {!freeChat && node.floor > 0 && <button type="button" className="ttm-route-entry" onClick={event => openStoryRoutes(node.id, event.currentTarget)} aria-label={`查看第 ${node.floor} 楼的故事路线`}><Icon name="branch" width={15} height={15} />路线 · {routesAt(allMessages, node.id).length}</button>}
                             {!freeChat && node.floor === 0 && messages.length === 1 && node.swipes.length > 1 && <div className="ttm-msg-toolbar" role="group" aria-label="切换开场">
-                                <button type="button" className="ttm-icon-btn" aria-label="上一个开场" disabled={node.activeSwipeIndex === 0} onClick={() => onSwipeMessage(node.id, 'prev')}><Icon name="chevron" width={16} height={16} style={{ transform: 'rotate(180deg)' }} /></button>
+                                <button type="button" className="ttm-icon-btn" aria-label="上一个开场" disabled={node.activeSwipeIndex === 0} onClick={() => void onSwipeMessage(node.id, 'prev').catch(error => setStatusBanner(error.message))}><Icon name="chevron" width={16} height={16} style={{ transform: 'rotate(180deg)' }} /></button>
                                 <small>开场 {node.activeSwipeIndex + 1} / {node.swipes.length}</small>
-                                <button type="button" className="ttm-icon-btn" aria-label="下一个开场" disabled={node.activeSwipeIndex === node.swipes.length - 1} onClick={() => onSwipeMessage(node.id, 'next')}><Icon name="chevron" width={16} height={16} /></button>
+                                <button type="button" className="ttm-icon-btn" aria-label="下一个开场" disabled={node.activeSwipeIndex === node.swipes.length - 1} onClick={() => void onSwipeMessage(node.id, 'next').catch(error => setStatusBanner(error.message))}><Icon name="chevron" width={16} height={16} /></button>
                             </div>}
                             <button type="button" className="ttm-icon-btn" aria-label={`${speakerName} 第 ${node.floor} 层消息操作`} title="消息操作" aria-haspopup="dialog" onClick={() => setActionSheetNode(node)}><Icon name="more" /></button>
                             </div>
@@ -392,8 +392,8 @@ export function VirtualChatStream({
                             {canRetry && <button
                                 type="button"
                                 className="ttm-btn-ghost"
-                                onClick={() => {
-                                    try { onSwipeMessage(actionSheetNode.id, 'new_branch'); setActionSheetNode(null); }
+                                onClick={async () => {
+                                    try { await onSwipeMessage(actionSheetNode.id, 'new_branch'); setActionSheetNode(null); }
                                     catch (error) { setStatusBanner(error instanceof Error ? error.message : String(error)); }
                                 }}
                             >
@@ -402,9 +402,9 @@ export function VirtualChatStream({
                             <button
                                 type="button"
                                 className="ttm-btn-ghost is-danger"
-                                onClick={() => {
-                                    onDeleteMessage(actionSheetNode.id);
-                                    setActionSheetNode(null);
+                                onClick={async () => {
+                                    try { await onDeleteMessage(actionSheetNode.id); setActionSheetNode(null); }
+                                    catch (error) { setStatusBanner(error instanceof Error ? error.message : String(error)); }
                                 }}
                             >
                                 删除消息

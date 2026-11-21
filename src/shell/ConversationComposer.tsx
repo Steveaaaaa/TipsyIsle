@@ -27,6 +27,8 @@ interface ConversationComposerProps {
     toolsOpen: boolean;
     setToolsOpen: Dispatch<SetStateAction<boolean>>;
     onOpenExtension: () => void;
+    extensionFloors: boolean;
+    setExtensionFloors: (enabled: boolean) => void;
     restoreReadingControls: () => void;
     scriptButtons: ReturnType<typeof getCompatibilityScriptButtons>;
     extensionMenu: ReturnType<typeof getCompatibilityExtensionMenu>;
@@ -39,7 +41,7 @@ interface ConversationComposerProps {
 
 export function ConversationComposer({
     skin, state, activeMessages, isFree, canPlay, needsConnection, reading,
-    compactLayout, toolsOpen, setToolsOpen, onOpenExtension, restoreReadingControls, scriptButtons, extensionMenu,
+    compactLayout, toolsOpen, setToolsOpen, onOpenExtension, extensionFloors, setExtensionFloors, restoreReadingControls, scriptButtons, extensionMenu,
     activeQuickReplies, shellParts, draft, onDraftChange, onSend,
 }: ConversationComposerProps) {
     return (
@@ -54,6 +56,8 @@ export function ConversationComposer({
             {!isFree && (scriptButtons.length > 0 || activeQuickReplies.length > 0 || extensionMenu.length > 0) && <section className="ttm-composer-shortcuts" aria-labelledby="ttm-composer-shortcuts-title">
                 <h3 id="ttm-composer-shortcuts-title">快捷功能</h3>
                 <div className="ttm-composer-quickbar">
+                {extensionMenu.length > 0 && <label className="ttm-btn-secondary"><input type="checkbox" checked={extensionFloors}
+                    onChange={event => setExtensionFloors(event.target.checked)} />楼层扩展</label>}
                 {extensionMenu.map(button => <button type="button" key={button.id} className="ttm-btn-secondary" disabled={!canPlay}
                     onClick={() => {
                         setToolsOpen(false); onOpenExtension();

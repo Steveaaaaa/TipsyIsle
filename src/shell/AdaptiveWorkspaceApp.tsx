@@ -5,6 +5,7 @@ import { ConversationHistory } from './ConversationHistory';
 import { ConversationReading } from './ConversationReading';
 import { WorkspaceHome } from './WorkspaceHome';
 import { WorkspaceLibrary } from './WorkspaceLibrary';
+import { NightChatList, ShelfNavigation, type NightChatEntry } from './NightChatList';
 import { WorkspaceLoading } from './WorkspaceLoading';
 import { initializeWorkspace } from './workspace-bootstrap';
 import { readWorkspacePage, rememberWorkspacePage, type AppearancePage, type WorkspaceTab } from './workspace-page';
@@ -53,7 +54,7 @@ import { ThemeStudioPanel } from '../theme/ThemeStudioPanel';
 import { CharacterDetailsPanel, MvuCharacterSettingsEditor } from './AssetInspectorPanel';
 import { SlotMount } from '../plugins/slot-registry';
 import { NativePluginCommandHost, WorkspacePluginMenu } from '../plugins/native/PluginCommands';
-import { commandCompatibilityRuntime, compatibilityStoryReady, subscribeCompatibilityExtensionMenu, getCompatibilityIllustrationAvailable } from '../compatibility/runtime-client';
+import { commandCompatibilityRuntime, compatibilityStoryReady, subscribeCompatibilityExtensionMenu, getCompatibilityIllustrationAvailable, getCompatibilityExtensionMenu } from '../compatibility/runtime-client';
 import { hostIllustrationKey, type HostIllustration } from '../compatibility/chat-message-codec';
 import { freeChatName } from '../store/chat-archives';
 import { swipeId } from '../store/chat-tree';
@@ -94,7 +95,9 @@ export function AdaptiveWorkspaceApp() {
     const freeConnection = getFreeChatConnection(state, settings);
     const needsConnection = !freeConnection.baseUrl || !freeConnection.model;
     const canIllustrate = useSyncExternalStore(subscribeCompatibilityExtensionMenu, getCompatibilityIllustrationAvailable);
+    const hasExtensionMenu = useSyncExternalStore(subscribeCompatibilityExtensionMenu, getCompatibilityExtensionMenu).length > 0;
     const [extensionPanel, setExtensionPanel] = useState(false);
+    const [extensionFloors, setExtensionFloors] = useState(false);
     const [illustrationId, setIllustrationId] = useState<string>();
     const [illustrationPrompt, setIllustrationPrompt] = useState('');
     const [illustrating, setIllustrating] = useState(false);
@@ -143,6 +146,7 @@ export function AdaptiveWorkspaceApp() {
     const [inspectorTab, setInspectorTab] = useState<InspectorTab>('schema-settings');
     const [mobileTab, setMobileTab] = useState<WorkspaceTab>('chat');
     const [homeOpen, setHomeOpen] = useState(true);
+    const [nightShelf, setNightShelf] = useState(false);
     const [inspectorOpen, setInspectorOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const libraryFilters = useLibraryFilters(state.characters);
@@ -189,30 +193,41 @@ export function AdaptiveWorkspaceApp() {
     };
     const closeInspector = () => { setInspectorOpen(false); setMobileTab('chat'); };
     const showHome = () => {
-        restoreReadingControls(); setHomeOpen(true); setHistoryOpen(false); setToolsOpen(false); closeInspector();
+        restoreReadingControls(); setNightShelf(false); setHomeOpen(true); setHistoryOpen(false); setToolsOpen(false); closeInspector();
     };
-    const resumeConversation = () => { setHomeOpen(false); closeInspector(); };
+    const resumeConversation = () => {
+        setNightShelf(workspaceStore.getState().sessionKind === 'free'); setHomeOpen(false); closeInspector();
+    };
+    const showNightList = () => {
+        restoreReadingControls(); setNightShelf(true); setSidebarCollapsed(false); setInspectorOpen(false);
+        setHistoryOpen(false); setToolsOpen(false); setMobileTab(compactLayout ? 'free' : 'chat');
+        if (workspaceStore.getState().sessionKind === 'free') setHomeOpen(false);
+    };
     useNativeNavigation(() => {
         if (assetMenu) { setAssetMenu(null); return true; }
         if (deleteSelection && mobileTab === 'characters') { setDeleteSelection(null); return true; }
         if (historyOpen || toolsOpen) { setHistoryOpen(false); setToolsOpen(false); return true; }
+        if (mobileTab === 'free') { showHome(); return true; }
         if (inspectorOpen || mobileTab !== 'chat') { closeInspector(); return true; }
         if (reading) { restoreReadingControls(); return true; }
+        if (compactLayout && isFree && !homeOpen) { showNightList(); return true; }
         return false;
     });
     useEffect(() => {
         const onEscape = (event: KeyboardEvent) => {
             if (event.key !== 'Escape' || event.defaultPrevented) return;
-            if (deleteSelection && !deleteAsset && !inspectorVisible && (!compactLayout || mobileTab === 'characters')) {
+            if (deleteSelection && !deleteAsset && !inspectorVisible && (compactLayout ? mobileTab === 'characters' : !nightShelf)) {
                 event.preventDefault(); setDeleteSelection(null); return;
             }
             restoreReadingControls();
-            setInspectorOpen(false); setHistoryOpen(false); setToolsOpen(false); setMobileTab('chat');
+            setInspectorOpen(false); setHistoryOpen(false); setToolsOpen(false);
+            if (mobileTab !== 'free') setMobileTab('chat');
         };
         window.addEventListener('keydown', onEscape);
         return () => window.removeEventListener('keydown', onEscape);
-    }, [deleteSelection, deleteAsset, inspectorVisible, compactLayout, mobileTab, restoreReadingControls]);
+    }, [deleteSelection, deleteAsset, inspectorVisible, compactLayout, mobileTab, nightShelf, restoreReadingControls]);
     const [archivedChats, setArchivedChats] = useState<Awaited<ReturnType<typeof listArchivedChats>>>([]);
+    const [archivesLoaded, setArchivesLoaded] = useState(false);
     const [archiveRefresh, setArchiveRefresh] = useState(0);
     const [newChatMenu, setNewChatMenu] = useState<HTMLElement>();
     const [freeEditor, setFreeEditor] = useState<{ anchor: HTMLElement; kind: 'title' | 'model' | 'delete'; id: string; value: string }>();
@@ -230,11 +245,13 @@ export function AdaptiveWorkspaceApp() {
     const canPlay = isFree ? workspaceReady : readyStory === state.activeChatId && compatibilityStoryReady(state.activeChatId);
     const hasChat = isFree || hasStory;
     const showingHome = homeOpen || !hasChat;
-    const visibleChatId = showingHome ? null : state.activeChatId || null;
+    const showingNightEmpty = !compactLayout && nightShelf && !isFree;
+    const showNightShelf = compactLayout ? mobileTab === 'free' : nightShelf;
+    const visibleChatId = showingHome || showingNightEmpty ? null : state.activeChatId || null;
     useLayoutEffect(() => {
-        if (workspaceReady) rememberWorkspacePage({ tab: mobileTab, chatId: visibleChatId, appearance: appearanceOpen });
-    }, [workspaceReady, mobileTab, visibleChatId, appearanceOpen]);
-    const freeTitle = state.freeChat?.title || freeChatName;
+        if (workspaceReady) rememberWorkspacePage({ tab: mobileTab, chatId: visibleChatId, appearance: appearanceOpen, nightShelf });
+    }, [workspaceReady, mobileTab, visibleChatId, appearanceOpen, nightShelf]);
+    const freeTitle = state.freeChat?.title || (state.messages.length ? freeChatName : '新对话');
     useEffect(() => { if (workspaceReady && !hasStory) setStoryRuntimeLoading(false); }, [workspaceReady, hasStory]);
     const activeStoryIdentity = storyIdentity(activeCharacter);
     const [galleryStoryId, setGalleryStoryId] = useState('');
@@ -257,9 +274,14 @@ export function AdaptiveWorkspaceApp() {
         const currentId = workspaceStore.getState().activeChatId;
         await startFreeChat();
         if (workspaceStore.getState().activeChatId === currentId) return false;
-        resumeConversation(); setHistoryOpen(false); setToolsOpen(false);
+        restoreReadingControls(); setSidebarCollapsed(false); resumeConversation(); setHistoryOpen(false); setToolsOpen(false);
         return true;
     }, false);
+    const openNightChat = (id: string) => void runUiAction('打开夜灯会话', async () => {
+        if (workspaceStore.getState().activeChatId !== id) await restoreArchivedChat(id);
+        if (workspaceStore.getState().activeChatId !== id) return;
+        resumeConversation(); setHistoryOpen(false); setToolsOpen(false);
+    }, undefined);
     const selectedCards = useMemo(() => deleteSelection ? state.characters.filter(card => deleteSelection.has(card.id)) : [], [deleteSelection, state.characters]);
     const deletionBlocked = state.isGenerating || state.helperGenerationCount > 0 || state.mvuExtraAnalysisActive || importing || clearing || switchingCharacter !== null;
     const toggleDeleteSelection = (id: string) => setDeleteSelection(previous => {
@@ -293,20 +315,27 @@ export function AdaptiveWorkspaceApp() {
         } finally { setIllustrating(false); }
     }
     const branchOptions = useMemo(() => getChatBranchOptions(state), [state.messages, state.activeLeafId]);
+    const lastMessage = activeMessages.at(-1);
+    const nightChats: NightChatEntry[] = archivedChats.filter(chat => chat.kind === 'free' && chat.id !== state.activeChatId).reverse()
+        .map(chat => ({ ...chat, title: chat.messageCount ? chat.title : chat.title === freeChatName ? '新对话' : chat.title }));
+    if (isFree && state.activeChatId) nightChats.unshift({ id: state.activeChatId, title: freeTitle, messageCount: activeMessages.length,
+        lastActivity: lastMessage?.updatedAt ?? lastMessage?.createdAt ?? state.freeChat?.createdAt });
+    nightChats.sort((a, b) => (b.lastActivity ?? 0) - (a.lastActivity ?? 0));
     const scripts = getWorkspaceScripts(state);
     const globalRules = globalRegexes();
     const messageHostRequired = useMemo(() => cardNeedsAuthorHost(activeCharacter) || regexesNeedAuthorHost(activePreset.regexScripts) || regexesNeedAuthorHost(globalRules),
         [activeCharacter, activePreset.regexScripts, globalRules]);
-    const compatibilityView = useMemo(() => galleryStoryId === activeCharacter.id || scripts.some(script => script.enabled) ||
+    const compatibilityView = useMemo(() => (extensionFloors && hasExtensionMenu) || galleryStoryId === activeCharacter.id || scripts.some(script => script.enabled) ||
         messageHostRequired || activeMessages.some(node => messageNeedsAuthorHost(node.content) || /<%|\[RENDER:|@@render_(?:before|after)/.test(node.content)) ||
         activeLorebooks.some(book => book.entries.some(entry => /<%|\[RENDER:|@@render_(?:before|after)/.test(entry.comment + '\n' + entry.content))),
-        [scripts, activeMessages, activeLorebooks, galleryStoryId, activeCharacter.id, messageHostRequired]);
+        [extensionFloors, hasExtensionMenu, scripts, activeMessages, activeLorebooks, galleryStoryId, activeCharacter.id, messageHostRequired]);
 
     const finishStartup = useCallback(() => {
         const restored = workspaceStore.getState();
-        const hasConversation = restored.sessionKind === 'free' ? !!restored.freeChat : !!getActiveCharacter(restored).id;
+        const hasConversation = restored.sessionKind === 'free' ? !!restored.activeChatId : !!getActiveCharacter(restored).id;
         const page = readWorkspacePage(hasConversation ? restored.activeChatId : null);
         setHomeOpen(page.chatId === null);
+        setNightShelf(page.nightShelf);
         setMobileTab(page.tab);
         setInspectorOpen(page.tab === 'inspector');
         setAppearanceOpen(current => current || page.appearance);
@@ -320,16 +349,17 @@ export function AdaptiveWorkspaceApp() {
     }, [finishStartup]);
 
     useEffect(() => {
+        if (!workspaceReady) return;
         let cancelled = false;
         void runUiAction('读取已保存会话', async () => {
             const chats = await listArchivedChats();
             if (!cancelled) {
                 setArchivedChats(chats);
-                setSelectedArchivedChatId(id => chats.some(chat => chat.id === id) ? id : '');
+                setSelectedArchivedChatId(id => chats.some(chat => chat.id === id && chat.kind !== 'free') ? id : '');
             }
-        }, undefined);
+        }, undefined).finally(() => { if (!cancelled) setArchivesLoaded(true); });
         return () => { cancelled = true; };
-        }, [state.activeChatId, syncArchiveRevision, archiveRefresh]);
+        }, [workspaceReady, state.activeChatId, syncArchiveRevision, archiveRefresh]);
 
     const importPickedFile = async (file: File) => {
         setImporting(true);
@@ -355,7 +385,10 @@ export function AdaptiveWorkspaceApp() {
         openInspector('schema-settings');
     };
     const composer = useConversationComposer(state, canPlay, needsConnection, () => openSettings('connection'));
-    const showLibrary = () => { restoreReadingControls(); setSidebarCollapsed(false); setInspectorOpen(false); setMobileTab('characters'); };
+    const showLibrary = () => {
+        restoreReadingControls(); setNightShelf(false); setSidebarCollapsed(false); setInspectorOpen(false); setMobileTab('characters');
+        if (isFree && !compactLayout) setHomeOpen(true);
+    };
     const navigateGuide = (step: GuideStep) => {
         restoreReadingControls(); setHistoryOpen(false); setToolsOpen(false);
         if (step === 'import' || step === 'story-save' || (step === 'play' && !hasStory)) {
@@ -364,7 +397,7 @@ export function AdaptiveWorkspaceApp() {
             showLibrary();
         }
         else if (step === 'connection') openSettings('connection');
-        else if (step === 'model-chat') showHome();
+        else if (step === 'model-chat' || (step === 'history' && isFree)) showHome();
         else if (step !== 'reading-colors') resumeConversation();
     };
     const replayGuide = () => { rememberFirstRunGuide(); setGuide('welcome'); };
@@ -395,8 +428,9 @@ export function AdaptiveWorkspaceApp() {
 
     const navTabs = { 'mobile-library': 'characters', 'mobile-chat': 'chat', 'mobile-appearance': 'theme', 'mobile-settings': 'inspector' } as const;
     const generating = state.isGenerating || state.helperGenerationCount > 0;
-    const lastMessage = activeMessages.at(-1);
-    const selectedFreeArchive = archivedChats.find(chat => chat.id === selectedArchivedChatId && chat.kind === 'free');
+    const storyChats = archivedChats.filter(chat => chat.kind !== 'free');
+    const nightActionsBusy = clearing || generating || state.mvuExtraAnalysisActive || !!switchingCharacter;
+    const shelfNavigation = !compactLayout && <ShelfNavigation night={nightShelf} libraryLabel={textOf(skin, 'library')} onLibrary={showLibrary} onNight={showNightList} />;
     const regenerate = () => {
         if (isFree && needsConnection) openSettings('connection');
         else void runUiAction('重新生成', regenerateLastAssistantMessage, '');
@@ -407,8 +441,10 @@ export function AdaptiveWorkspaceApp() {
         setSavingFreeEdit(true);
         void runUiAction(kind === 'delete' ? '删除对话' : '保存对话', async () => {
             if (kind === 'delete') {
+                const wasActive = workspaceStore.getState().activeChatId === id;
                 await deleteFreeChat(id);
                 composer.forgetFreeDraft(id);
+                if (wasActive && workspaceStore.getState().activeChatId !== id) { setHomeOpen(true); showNightList(); }
             } else await updateFreeChat(id, kind === 'title' ? { title: value.trim() } : { model: value.trim() || undefined });
             setArchiveRefresh(value => value + 1); setFreeEditor(undefined);
         }, undefined).finally(() => setSavingFreeEdit(false));
@@ -425,10 +461,11 @@ export function AdaptiveWorkspaceApp() {
         if (widget && skin) return <ShellWidget key={id} skin={skin} widget={widget} values={{ character: hasStory ? activeStoryIdentity.name : '未选择故事', messages: activeMessages.length, library: state.characters.length }} onAction={widgetAction} />;
         const part = id as Part;
         if ((isFree || showingHome) && ['routes', 'continue', 'recalculate', 'retry-analysis'].includes(part)) return null;
+        const opensNewChatMenu = part === 'new-chat' && (!isFree || showingHome);
         const button = (action: (anchor: HTMLButtonElement) => void, options: { disabled?: boolean; iconOnly?: boolean; className?: string; label?: string; title?: string; pressed?: boolean; current?: 'page' } = {}) => {
             const label = partText(skin, part, options.label);
             return <button key={id} type="button" data-ti-part={id} className={options.className ?? (options.iconOnly ? 'ttm-icon-btn' : area === 'toolbar' || area === 'more' || area.startsWith('input-') ? 'ttm-chip-btn' : 'ttm-btn-secondary')}
-                title={options.title ?? label} aria-label={options.iconOnly ? options.title ?? label : undefined} aria-pressed={part === 'history' ? undefined : options.pressed} aria-expanded={part === 'history' ? historyOpen : part === 'new-chat' ? !!newChatMenu : undefined} aria-haspopup={part === 'new-chat' ? 'menu' : undefined} aria-controls={part === 'history' ? 'ttm-conversation-history' : undefined} aria-current={options.current} disabled={options.disabled} onClick={event => action(event.currentTarget)}>
+                title={options.title ?? label} aria-label={options.iconOnly ? options.title ?? label : undefined} aria-pressed={part === 'history' ? undefined : options.pressed} aria-expanded={part === 'history' ? historyOpen : opensNewChatMenu ? !!newChatMenu : undefined} aria-haspopup={opensNewChatMenu ? 'menu' : undefined} aria-controls={part === 'history' ? 'ttm-conversation-history' : undefined} aria-current={options.current} disabled={options.disabled} onClick={event => action(event.currentTarget)}>
                 {part === 'profile' && !assetUrl(skin, skin?.art[part]) ? <CharacterAvatar name={state.userName} avatar={getActivePersona(state)?.image} fallback="user" />
                     : <ShellPartIcon skin={skin} id={part} name={part === 'focus' ? sidebarCollapsed ? 'panel' : 'focus' : undefined} size={area === 'mobile' || options.iconOnly ? 20 : area === 'toolbar' ? 15 : 17} />}
                 {!options.iconOnly && <span>{label}</span>}
@@ -442,7 +479,10 @@ export function AdaptiveWorkspaceApp() {
             case 'routes': return button(anchor => openStoryRoutes(undefined, anchor), { iconOnly: area === 'conversation', disabled: !hasStory, title: `${partText(skin, part)}，共 ${branchOptions.length} 条` });
             case 'profile': return button(setPersonaAnchor, { iconOnly: area === 'conversation', className: area === 'conversation' ? 'ttm-profile-entry ttm-icon-btn' : undefined });
             case 'history': return button(() => setHistoryOpen(value => !value), { iconOnly: area === 'conversation', className: area === 'conversation' ? `ttm-icon-btn${historyOpen ? ' is-active' : ''}` : undefined, pressed: historyOpen });
-            case 'new-chat': return button(anchor => setNewChatMenu(newChatMenu ? undefined : anchor), { disabled: !workspaceReady || generating, title: '新建对话', iconOnly: isFree && area === 'conversation' });
+            case 'new-chat': return button(anchor => {
+                if (isFree && !showingHome) void beginFreeChat();
+                else setNewChatMenu(newChatMenu ? undefined : anchor);
+            }, { disabled: !workspaceReady || (isFree ? nightActionsBusy : generating), title: '新建对话', iconOnly: isFree && area === 'conversation' });
             case 'reading': return button(compactReadingControls, { disabled: !hasChat });
             case 'continue': return button(() => void composer.requestGenerate(), { disabled: !canPlay || generating });
             case 'regenerate': return button(regenerate, { label: isFree && lastMessage?.role === 'user' ? '生成回复' : undefined,
@@ -451,7 +491,7 @@ export function AdaptiveWorkspaceApp() {
             case 'retry-analysis': return button(() => void runUiAction('重新解析变量', () => reprocessLastMvuMessage(true), ''), { disabled: generating || lastMessage?.role !== 'assistant' });
             default: {
                 const tab = navTabs[part];
-                const active = tab === 'theme' ? !!appearanceOpen : mobileTab === tab;
+                const active = tab === 'theme' ? !!appearanceOpen : mobileTab === tab || tab === 'chat' && mobileTab === 'free';
                 return button(() => { if (tab === 'theme') setAppearanceOpen('editor'); else if (tab === 'inspector') openInspector('schema-settings'); else if (tab === 'characters') showLibrary(); else if (hasChat) resumeConversation(); else showHome(); },
                     { className: active ? 'is-active' : '', current: active ? 'page' : undefined });
             }
@@ -477,10 +517,11 @@ export function AdaptiveWorkspaceApp() {
                         onChange={handleFileUpload}
                     />
                     {shellParts('top')}
-                    <button type="button" className="ttm-btn-ghost ttm-home-link" data-guide="home" aria-label="首页" title="返回首页" aria-current={showingHome && (!compactLayout || mobileTab === 'chat') ? 'page' : undefined} onClick={showHome}>
+                    <button type="button" className="ttm-btn-ghost ttm-home-link" data-guide="home" aria-label="首页" title="返回首页" aria-current={showingHome && !showNightShelf && (!compactLayout || mobileTab === 'chat') ? 'page' : undefined} onClick={showHome}>
                         <Icon name="home" width={18} height={18} /><span>首页</span>
                     </button>
-                    <button type="button" className="ttm-btn-ghost ttm-quick-chat" disabled={generating || clearing} onClick={beginFreeChat} title={`${freeChatName}（和模型对话）`}>
+                    <button type="button" className="ttm-btn-ghost ttm-quick-chat" disabled={clearing} onClick={showNightList} title="打开夜灯会话列表"
+                        aria-current={showNightShelf || (isFree && !showingHome && mobileTab === 'chat') ? 'page' : undefined}>
                         <Icon name="chat" width={16} height={16} /><span>{freeChatName}</span>
                     </button>
                     <button type="button" className="ttm-icon-btn ttm-reading-colors" data-ti-part="reading-colors" data-guide="reading-colors"
@@ -497,7 +538,7 @@ export function AdaptiveWorkspaceApp() {
 
             {/* Three-Column Adaptive Workbench */}
             <div className="ttm-workbench">
-                <WorkspaceLibrary skin={skin} state={state} mobileActive={mobileTab === 'characters'} compactLayout={compactLayout}
+                <WorkspaceLibrary skin={skin} state={state} mobileActive={mobileTab === 'characters'} compactLayout={compactLayout} hidden={!compactLayout && nightShelf} shelfNavigation={shelfNavigation}
                     sidebarParts={shellParts('sidebar')} hasCustomSidebarParts={placed.sidebar.some(id => id !== 'appearance' && id !== 'sidebar-settings')}
                     activeCharacter={activeCharacter} activeStoryIdentity={activeStoryIdentity} activePreset={activePreset} activeLorebooks={activeLorebooks}
                     isFree={isFree} hasStory={hasStory} importing={importing} clearing={clearing} switchingCharacter={switchingCharacter}
@@ -506,36 +547,43 @@ export function AdaptiveWorkspaceApp() {
                     onImport={chooseAssetFile} onImportStory={anchor => setStorySave({ anchor, mode: 'import' })} onReplayGuide={replayGuide}
                     onEnterCharacter={enterCharacter} onToggleDeleteSelection={toggleDeleteSelection} onExitDeleteSelection={() => setDeleteSelection(null)}
                     onConfirmDelete={setDeleteAsset} />
+                <NightChatList mobile={compactLayout} visible={showNightShelf} navigation={shelfNavigation}
+                    entries={nightChats} activeId={isFree ? state.activeChatId : ''} loaded={archivesLoaded} busy={nightActionsBusy}
+                    onNew={() => void beginFreeChat()} onOpen={openNightChat}
+                    onEdit={(kind, entry, anchor) => setFreeEditor({ kind, anchor, id: entry.id, value: entry.title })} />
 
                 <main
                     id="tipsy-isle-stage"
                     className={`ttm-center-stage ${mobileTab === 'chat' ? 'is-mobile-active' : ''} ${reading && !showingHome ? 'is-reading' : ''}`}
                 >
                     <header className="ttm-conversation-header" data-ti-shell="conversation">
-                        {showingHome ? <div className="ttm-conversation-person" data-ti-part="conversation-title"><div><h2 data-ti-type="heading">首页</h2></div></div> :
+                        {!showingHome && isFree && compactLayout && <button className="ttm-btn-ghost ttm-night-back" type="button" onClick={showNightList}>
+                            <Icon name="chevron" width={14} height={14} />夜灯会话
+                        </button>}
+                        {showingHome || showingNightEmpty ? <div className="ttm-conversation-person" data-ti-part="conversation-title"><div><h2 data-ti-type="heading">{showingNightEmpty ? freeChatName : '首页'}</h2></div></div> :
                         <div className="ttm-conversation-person" data-ti-part="conversation-title"><CharacterAvatar name={hasStory ? activeStoryIdentity.name : appName} avatar={hasStory ? activeCharacter.avatar : '/icons/192x192.png'} /><div><h2 data-ti-type="heading" title={isFree ? freeTitle : undefined}>{isFree ? freeTitle : activeStoryIdentity.name}</h2>{isFree ? <button type="button" className="ttm-free-model" disabled={generating} title={needsConnection ? '连接模型' : `切换本次对话的模型：${freeConnection.model}`} onClick={event => {
                             if (!freeConnection.baseUrl) openSettings('connection');
                             else setFreeEditor({ kind: 'model', anchor: event.currentTarget, id: state.activeChatId, value: state.freeChat?.model ?? freeConnection.model });
                         }}>{needsConnection ? '连接模型' : freeConnection.model}<Icon name="chevron" width={12} height={12} /></button> : <p>{state.mvuExtraAnalysisActive ? '正在整理本轮变量' : generating ? '故事正在续写' : `${activeMessages.length} 条消息 · ${activePreset.name}`}</p>}</div></div>}
                         <div className="ttm-conversation-actions" data-ti-area="conversation">{shellParts('conversation')}</div>
                     </header>
-                    <ConversationHistory historyOpen={historyOpen} hasStory={hasStory} showingHome={showingHome} isFree={isFree}
-                        branchOptions={branchOptions} lastMessage={lastMessage} generating={generating} activeChatId={state.activeChatId}
-                        freeTitle={freeTitle} archivedChats={archivedChats} selectedArchivedChatId={selectedArchivedChatId}
-                        selectedFreeArchive={selectedFreeArchive} onSelectArchive={setSelectedArchivedChatId} onRestore={id => void runUiAction('恢复会话', async () => {
+                    <ConversationHistory historyOpen={historyOpen} hasStory={hasStory} showingHome={showingHome || showingNightEmpty} isFree={isFree}
+                        branchOptions={branchOptions} lastMessage={lastMessage} generating={generating}
+                        archivedChats={storyChats} selectedArchivedChatId={selectedArchivedChatId}
+                        onSelectArchive={setSelectedArchivedChatId} onRestore={id => void runUiAction('恢复会话', async () => {
                             await restoreArchivedChat(id);
                             if (workspaceStore.getState().activeChatId !== id) return;
                             resumeConversation(); setSelectedArchivedChatId(''); setHistoryOpen(false);
                             setStatusBanner('已恢复保存的会话。');
-                        }, undefined)} onEditFree={setFreeEditor}
+                        }, undefined)}
                         storySaveMenu={storySaveMenu} onToggleStorySave={anchor => setStorySaveMenu(storySaveMenu ? undefined : anchor)}
                         workspaceReady={workspaceReady} clearing={clearing} />
-                    {showingHome && <WorkspaceHome skin={skin} hasStory={hasStory} hasCards={state.characters.length > 0}
+                    {showingNightEmpty ? <div className="ttm-night-blank"><p>{nightChats.length ? '打开一段夜灯会话' : '还没有打开的夜灯会话'}</p></div> : showingHome && <WorkspaceHome skin={skin} hasStory={hasStory} hasCards={state.characters.length > 0}
                         importing={importing} clearing={clearing} generating={generating} onResume={resumeConversation}
                         onShowLibrary={() => { showLibrary(); if (!compactLayout) requestAnimationFrame(() => characterSearchRef.current?.focus()); }}
-                        onImport={chooseAssetFile} onBeginFree={beginFreeChat} onFinishGuide={() => setGuide(null)}
+                        onImport={chooseAssetFile} onOpenFree={showNightList} onFinishGuide={() => setGuide(null)}
                         onOpenPersona={setPersonaAnchor} onOpenConnection={() => openSettings('connection')} onReplayGuide={replayGuide} />}
-                    <div className="ttm-active-conversation" hidden={showingHome}>
+                    <div className="ttm-active-conversation" hidden={showingHome || showingNightEmpty}>
                     <ConversationReading state={state} activeMessages={activeMessages} activeCharacter={activeCharacter} activePreset={activePreset}
                         activeLorebooks={activeLorebooks} isFree={isFree} hasStory={hasStory} hasChat={hasChat} canPlay={canPlay}
                         workspaceReady={workspaceReady} needsConnection={needsConnection} onOpenConnection={() => openSettings('connection')}
@@ -546,7 +594,7 @@ export function AdaptiveWorkspaceApp() {
 
                     {hasChat && <ConversationComposer skin={skin} state={state} activeMessages={activeMessages} isFree={isFree} canPlay={canPlay}
                         needsConnection={needsConnection} reading={reading} compactLayout={compactLayout} toolsOpen={toolsOpen}
-                        setToolsOpen={setToolsOpen} onOpenExtension={() => setExtensionPanel(true)} restoreReadingControls={restoreReadingControls}
+                        setToolsOpen={setToolsOpen} onOpenExtension={() => setExtensionPanel(true)} extensionFloors={extensionFloors} setExtensionFloors={setExtensionFloors} restoreReadingControls={restoreReadingControls}
                         scriptButtons={composer.scriptButtons} extensionMenu={composer.extensionMenu} activeQuickReplies={composer.activeQuickReplies} shellParts={shellParts}
                         draft={composer.draft} onDraftChange={composer.editDraft} onSend={composer.send} />}
                     </div>
@@ -599,7 +647,7 @@ export function AdaptiveWorkspaceApp() {
             ]} />}
             {storySave && <StorySaveDialog anchor={storySave.anchor} mode={storySave.mode} onClose={() => setStorySave(undefined)}
                 sessions={[...(hasStory && activeMessages.length ? [{ id: state.activeChatId, label: `当前会话 · ${activeCharacter.name}` }] : []), ...archivedChats.filter(chat => chat.kind !== 'free')]}
-                startId={(selectedFreeArchive ? '' : selectedArchivedChatId) || (hasStory && activeMessages.length ? state.activeChatId : archivedChats.filter(chat => chat.kind !== 'free').at(-1)?.id ?? '')}
+                startId={selectedArchivedChatId || (hasStory && activeMessages.length ? state.activeChatId : storyChats.at(-1)?.id ?? '')}
                 onOpened={() => { setStorySave(undefined); setHistoryOpen(false); setToolsOpen(false); setExtensionPanel(false); resumeConversation(); setStatusBanner('故事已恢复，可以接着聊。', { kind: 'success' }); }}
                 onExported={() => { setStorySave(undefined); setStatusBanner('已导出故事存档。', { kind: 'success' }); }} />}
             {assetMenu && <AssetActionMenu anchor={assetMenu.anchor} point={assetMenu.point} label={`${assetMenu.name} · 更多操作`} onClose={() => setAssetMenu(null)} actions={[

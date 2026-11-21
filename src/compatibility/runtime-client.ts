@@ -7,6 +7,7 @@ import { compatibilityComposer } from './composer-bridge';
 import { setStoryRuntimeLoading, noteSyncInteraction } from '../core/sync/activity';
 import { mutatesStory, runBranchOperation } from '../store/branch-runtime';
 import { isReadingBookmark, readReadingBookmark, writeReadingBookmark } from '../shell/reading-bookmark';
+import { baibaiBundleIds } from './baibai-route';
 
 let host: CompatibilityHost | undefined;
 /** Expected cancellation when the UI replaces a chat's connection. */
@@ -17,6 +18,11 @@ interface RuntimeEndpoint {
     transport: Promise<void>; resolveTransport(): void; rejectTransport(error: Error): void;
     ready: Promise<void>; resolveReady?: () => void; rejectReady(error: Error): void;
     templateAssets?: Partial<TemplateAssets>;
+    dispose?: () => void;
+    removeListeners?: () => void;
+    opening?: { id: string | null; bundles: string[]; committed?: boolean; committing?: boolean; write?: Promise<unknown>; timer: ReturnType<typeof setTimeout> };
+    createdBundle?: { routeId: string; hash: string };
+    switching?: boolean;
 }
 let endpoint: RuntimeEndpoint | undefined;
 const emptyScriptButtons: CompatibilityScriptButton[] = [];
@@ -47,7 +53,12 @@ function publishScriptButtons(buttons: CompatibilityScriptButton[]) {
     scriptButtons = buttons;
     scriptButtonSubscribers.forEach(subscriber => subscriber());
 }
-export function compatibilityStoryReady(session: string): boolean { return endpoint?.session === session && endpoint.startupComplete === true; }
+export function compatibilityStoryReady(session: string): boolean { return endpoint?.session === session && endpoint.startupComplete === true && !endpoint.opening && !endpoint.switching; }
+export function requireCompatibilityRouteReady() {
+    if (endpoint && (!endpoint.startupComplete || endpoint.opening || endpoint.switching || endpoint.session !== host?.session() || endpoint.branchEpoch !== (host?.snapshot().branchEpoch ?? 0))) {
+        throw new Error('剧情路线正在载入，请稍后再生成');
+    }
+}
 const connections = new Set<{ session: string; resolve(value: RuntimeEndpoint): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
 let sequence = 0;
 const pending = new Map<number, { resolve(value: RuntimeResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
@@ -59,7 +70,7 @@ function deltaSnapshot(forceVariables = false): CompatSnapshotDelta {
     lastSnapshot = next;
     const previousMessages = new Set(previous?.messages);
     return { session: next.session, revision: next.revision, character: next.character, userName: next.userName,
-        generating: next.generating, branchEpoch: next.branchEpoch,
+        generating: next.generating, branchEpoch: next.branchEpoch, routeId: next.routeId, routeReplacing: next.routeReplacing,
         ...(previous?.nativeMessageMenu === next.nativeMessageMenu ? {} : { nativeMessageMenu: next.nativeMessageMenu }),
         ...(previous?.chatMetadata === next.chatMetadata ? {} : { chatMetadata: next.chatMetadata ?? null }),
         modelSettings: next.modelSettings,
@@ -101,7 +112,17 @@ export function resetCompatibilityBranch(): void {
     disconnect(new CompatibilityConnectionChangedError('故事路线已切换，旧任务已结束'));
     window.dispatchEvent(new Event('tipsy-compatibility-reload'));
 }
+export function saveCompatibilityBeforeRouteChange(): Promise<RuntimeResult> | undefined {
+    if (endpoint?.startupComplete && endpoint.session === host?.session() && !endpoint.opening) {
+        return commandCompatibilityRuntime('saveBeforeRouteChange');
+    }
+}
 export function connectCompatibilityFrame(win: Window, session: string): () => void {
+    if (endpoint?.window === win && (endpoint.switching || endpoint.session === session)) return endpoint.dispose ?? (() => {});
+    if (endpoint?.window === win && lastSnapshot?.extensions.extensions.some(extension => extension.enabled && extension.generateInterceptor === 'bbs_generateInterceptor')) {
+        resetCompatibilityBranch();
+        return () => {};
+    }
     disconnect(new CompatibilityConnectionChangedError('兼容会话已切换'));
     setStoryRuntimeLoading(true);
     let resolveTransport!: () => void;
@@ -156,17 +177,17 @@ export function connectCompatibilityFrame(win: Window, session: string): () => v
         }
         if (data?.token !== endpoint.token) return;
         if (data.kind === 'compat:reading-bookmark') {
-            if (data.session === session && host?.session() === session && isReadingBookmark(data.bookmark)) writeReadingBookmark(session, data.bookmark);
+            if (data.session === binding.session && host?.session() === binding.session && isReadingBookmark(data.bookmark)) writeReadingBookmark(binding.session, data.bookmark);
             return;
         }
         if (data.kind === 'compat:script-buttons') {
-            if (data.session === session && host?.session() === session && Array.isArray(data.buttons)) {
+            if (data.session === binding.session && host?.session() === binding.session && Array.isArray(data.buttons)) {
                 publishScriptButtons(data.buttons.filter(button => typeof button?.id === 'string' && typeof button?.name === 'string'));
             }
             return;
         }
         if (data.kind === 'compat:extension-menu') {
-            if (data.session === session && host?.session() === session && Array.isArray(data.buttons)) {
+            if (data.session === binding.session && host?.session() === binding.session && Array.isArray(data.buttons)) {
                 publishExtensionMenu(data.buttons.filter(button => typeof button?.id === 'string' && typeof button?.name === 'string'), data.illustrationAvailable === true);
             }
             return;
@@ -182,7 +203,7 @@ export function connectCompatibilityFrame(win: Window, session: string): () => v
             setStoryRuntimeLoading(false);
             const error = new Error(String(data.message ?? '作者运行环境已失效'));
             clearTimeout(timer); disconnect(error);
-            window.dispatchEvent(new CustomEvent('tipsy-compatibility-fault', { detail: { session, message: error.message } }));
+            window.dispatchEvent(new CustomEvent('tipsy-compatibility-fault', { detail: { session: binding.session, message: error.message } }));
             return;
         }
         if (data.kind === 'compat:bound') {
@@ -226,21 +247,63 @@ export function connectCompatibilityFrame(win: Window, session: string): () => v
             if (data.error) job.reject(Object.assign(new Error(data.error), { name: data.errorName ?? 'Error' })); else job.resolve(data.result ?? {});
             return;
         }
-        if (data.kind !== 'compat:request' || !host || host.session() !== session) return;
+        if (data.kind !== 'compat:request' || !host || host.session() !== binding.session || binding.switching) return;
         const target = endpoint;
+        const requestSession = binding.session;
         const streaming = data.method === 'extension.completion.read' || data.method === 'extension.completion.cancel';
         try {
-            if (!streaming && (host.snapshot().branchEpoch ?? 0) !== binding.branchEpoch) throw new CompatibilityConnectionChangedError('操作所属故事路线已切换');
-            if (data.session !== session) throw new Error('请求所属聊天已切换');
+            if (!streaming && ((host.snapshot().branchEpoch ?? 0) !== binding.branchEpoch || data.branchEpoch !== binding.branchEpoch)) throw new CompatibilityConnectionChangedError('操作所属故事路线已切换');
+            if (data.session !== requestSession) return;
+            if (binding.opening && !['legacy.commitOpening', 'legacy.finishOpening', 'runtime.refresh', 'runtime.sync'].includes(data.method)) throw new Error('新会话的开场正在交接');
+            if (data.method === 'legacy.newChat') {
+                if (!binding.startupComplete || pending.size) throw new Error('请等待当前操作结束后再创建聊天');
+                const source = host.snapshot();
+                const bundles = baibaiBundleIds(source.chatMetadata);
+                if (binding.createdBundle?.routeId === source.routeId) bundles.push(binding.createdBundle.hash);
+                binding.switching = true;
+                try { await runBranchOperation(() => host!.request(data.method, data.params ?? {})); }
+                finally { binding.switching = false; }
+                if (endpoint !== binding) return;
+                const next = host.snapshot();
+                const delta = deltaSnapshot();
+                binding.session = next.session; binding.branchEpoch = next.branchEpoch ?? 0;
+                binding.opening = { id: next.messages[0]?.id ?? null, bundles, timer: setTimeout(() => {
+                    if (endpoint !== binding) return;
+                    if (binding.opening?.committing) {
+                        void binding.opening.write?.finally(() => { if (endpoint === binding) resetCompatibilityBranch(); }).catch(() => {});
+                    } else resetCompatibilityBranch();
+                }, 10000) };
+                win.postMessage({ kind: 'compat:reply', token: binding.token, id: data.id, handoff: delta }, compatibilityOrigin);
+                return;
+            }
+            const opening = data.method === 'legacy.commitOpening' ? binding.opening : undefined;
+            if (data.method === 'legacy.commitOpening' && (!opening || opening.committed || opening.committing)) throw new Error('没有可替换的会话开场');
+            if (data.method === 'legacy.finishOpening') {
+                if (!binding.opening || binding.opening.committing) throw new Error('开场写入尚未完成');
+                win.postMessage({ kind: 'compat:reply', token: binding.token, id: data.id }, compatibilityOrigin);
+                setTimeout(() => { if (endpoint === binding) resetCompatibilityBranch(); }, 0);
+                return;
+            }
             if (data.method === 'runtime.startup') await templateStartup;
-            const call = () => host!.request(data.method === 'runtime.startup' ? 'runtime.ready' : data.method, data.params ?? {});
-            const result = await (mutatesStory(data.method) ? runBranchOperation(call) : call());
-            if (endpoint === target) {
-                win.postMessage({ kind: 'compat:reply', token: target.token, id: data.id, result, ...(!streaming && { delta: deltaSnapshot(data.method === 'runtime.sync') }) }, compatibilityOrigin);
-                if (!streaming && (host.snapshot().branchEpoch ?? 0) !== binding.branchEpoch) setTimeout(() => { if (endpoint === target) resetCompatibilityBranch(); }, 0);
+            const vectorRoute = data.method === 'extension.memoryVector' && data.params?.action === 'vec/bundle/create' ? host.snapshot().routeId : undefined;
+            const call = () => host!.request(data.method === 'runtime.startup' ? 'runtime.ready' : data.method,
+                opening ? { ...data.params, opening: opening.id, allowedBundles: opening.bundles } : data.params ?? {});
+            if (opening) opening.committing = true;
+            const write = Promise.resolve(mutatesStory(data.method) && data.method !== 'legacy.save' ? runBranchOperation(call) : call());
+            if (opening) opening.write = write;
+            const result = await write.finally(() => { if (opening) opening.committing = false; });
+            if (opening) opening.committed = true;
+            if (endpoint === target && binding.session === requestSession && !binding.switching) {
+                const hash = (result as { body?: { data?: { hash?: unknown } } } | undefined)?.body?.data?.hash;
+                if (vectorRoute && typeof hash === 'string') binding.createdBundle = { routeId: vectorRoute, hash };
+                const changed = (host.snapshot().branchEpoch ?? 0) !== binding.branchEpoch;
+                win.postMessage({ kind: 'compat:reply', token: target.token, id: data.id, result, ...(!streaming && !changed && { delta: deltaSnapshot(data.method === 'runtime.sync') }) }, compatibilityOrigin);
+                if (changed) setTimeout(() => { if (endpoint === target) resetCompatibilityBranch(); }, 0);
             }
         } catch (error) {
-            if (endpoint === target) win.postMessage({ kind: 'compat:reply', token: target.token, id: data.id, error: error instanceof Error ? error.message : String(error), errorName: error instanceof Error ? error.name : 'Error', delta: deltaSnapshot(true) }, compatibilityOrigin);
+            if (endpoint === target && binding.session === requestSession) win.postMessage({ kind: 'compat:reply', token: target.token, id: data.id, error: error instanceof Error ? error.message : String(error), errorName: error instanceof Error ? error.name : 'Error',
+                ...((host.snapshot().branchEpoch ?? 0) === binding.branchEpoch && { delta: deltaSnapshot(true) }) }, compatibilityOrigin);
+            if (data.method === 'legacy.commitOpening') setTimeout(() => { if (endpoint === binding) resetCompatibilityBranch(); }, 0);
         }
     };
     window.addEventListener('message', handle);
@@ -250,9 +313,13 @@ export function connectCompatibilityFrame(win: Window, session: string): () => v
     };
     window.addEventListener('tipsy-composer-value', syncComposer);
     win.postMessage({ kind: 'compat:ping' }, compatibilityOrigin);
-    return () => { clearTimeout(timer); window.removeEventListener('message', handle); window.removeEventListener('tipsy-composer-value', syncComposer); if (endpoint === binding) disconnect(new CompatibilityConnectionChangedError('兼容界面已关闭')); };
+    binding.dispose = () => { if (endpoint === binding) disconnect(new CompatibilityConnectionChangedError('兼容界面已关闭')); };
+    binding.removeListeners = () => { clearTimeout(timer); window.removeEventListener('message', handle); window.removeEventListener('tipsy-composer-value', syncComposer); };
+    return binding.dispose;
 }
 function disconnect(error: Error) {
+    if (endpoint?.opening) clearTimeout(endpoint.opening.timer);
+    endpoint?.removeListeners?.();
     if (endpoint) void Promise.resolve(host?.request('runtime.disconnect', { session: endpoint.session })).catch(error => console.warn('兼容会话关闭失败', error));
     endpoint?.rejectTransport(error);
     endpoint?.rejectReady(error);
@@ -279,7 +346,10 @@ export function publishNativeGenerationProgress(messageId: string, floor: number
     if (endpoint) endpoint.window.postMessage({ kind: 'compat:native-progress', token: endpoint.token, messageId, floor, text, reasoning, done }, compatibilityOrigin);
 }
 export function syncCompatibilityFrame(): void {
-    if (endpoint && lastSnapshot && host?.session() === endpoint.session && host.snapshot() !== lastSnapshot) endpoint.window.postMessage({ kind: 'compat:snapshot', token: endpoint.token, delta: deltaSnapshot() }, compatibilityOrigin);
+    if (endpoint && !endpoint.switching && !endpoint.opening && lastSnapshot && host?.session() === endpoint.session) {
+        const snapshot = host.snapshot();
+        if ((snapshot.branchEpoch ?? 0) === endpoint.branchEpoch && snapshot !== lastSnapshot) endpoint.window.postMessage({ kind: 'compat:snapshot', token: endpoint.token, delta: deltaSnapshot() }, compatibilityOrigin);
+    }
 }
 export async function commandCompatibilityRuntime(command: string, args: unknown[] = [], required = false, reuseTemplateAssets = false): Promise<RuntimeResult> {
     const session = host?.session();
@@ -307,7 +377,7 @@ export async function commandCompatibilityRuntime(command: string, args: unknown
                 disconnect(error);
                 window.dispatchEvent(new CustomEvent('tipsy-compatibility-fault', { detail: { session, message: error.message } }));
             }
-        }, ['event', 'settledMessageReceived', 'beforeGeneration', 'extensionIllustration', 'slash', 'quickReply', 'quickReplyContext', 'scriptButton', 'prepareHelperGeneration', 'finishHelperGeneration'].includes(command) ? 600000 : 30000);
+        }, command === 'saveBeforeRouteChange' ? 5000 : ['event', 'settledMessageReceived', 'beforeGeneration', 'extensionIllustration', 'slash', 'quickReply', 'quickReplyContext', 'scriptButton', 'prepareHelperGeneration', 'finishHelperGeneration'].includes(command) ? 600000 : 30000);
         pending.set(id, { resolve, reject, timer });
         try {
             let templateAssets: Partial<TemplateAssets> | undefined;

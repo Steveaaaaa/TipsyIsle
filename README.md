@@ -12,15 +12,13 @@ We want this to become the place every AIRP player can eventually call home. Som
 
 **A beautiful interface draws you in. Stories, freedom, and a community with room to grow give you reasons to stay.**
 
-**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.0](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.0) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
+**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.1](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.1) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
 
-## New in 1.1.0
+## New in 1.1.1
 
-- **Pick up where you left off.** Import a SillyTavern `.jsonl` chat and pair it with its character card. Export a TipsyIsle conversation as a `.tipsy-story` file to carry its routes, story state, and bundled resources to another device. The app also remembers the last main page you visited.
-- **Keep a wardrobe of looks.** Import and keep multiple appearance packs in your library, then switch between them whenever you like. The app keeps its own copy, so you don't need the original files after importing.
-- **Play more comfortably on your phone.** Touch dragging, pinch zoom, and fullscreen work better in supported card widgets, and older messages keep their formatting more reliably as you scroll back.
-- **Chat without setting the scene.** Open *Lamplight Chat* (夜灯畅谈) from the home page for a conversation with your model without a character card or a roleplay preset.
-- **Read the release notes before deciding.** The installed apps can show what's new, let you decide later, or skip just that version. The current version's notes are available in Settings.
+- **Keep a separate memory for each story route.** The compatibility layer supports the original ST-BaiBai-Book (柏宝书) 1.3.5. Routes inherit saved memories at the fork; subsequent summaries and vector recall stay on their own route.
+- **Find your Lamplight Chats in one place.** Conversations with your model have their own list, separate from your character library. Open a saved chat or start another without going through story history.
+- **Connect to Google Gemini from the installed app.** Windows and Android can connect directly to Gemini (AI Studio) as well as OpenAI-compatible endpoints.
 
 ## Why make the move?
 

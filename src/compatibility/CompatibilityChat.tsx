@@ -78,10 +78,12 @@ export function CompatibilityChat({ session, visible = true, extensionPanel = fa
         window.addEventListener('tipsy-compatibility-fault', handle);
         return () => window.removeEventListener('tipsy-compatibility-fault', handle);
     }, [session]);
+    const disconnectFrame = useRef<() => void>(() => {});
+    useEffect(() => () => disconnectFrame.current(), [epoch, failure, stopped]);
     useEffect(() => {
         if (stopped) return;
         const win = frame.current?.contentWindow;
-        if (win) return connectCompatibilityFrame(win, session);
+        if (win) disconnectFrame.current = connectCompatibilityFrame(win, session);
     }, [session, epoch, failure, stopped]);
     // Workspace host batches snapshot publication. A React effect here used to
     // send a second snapshot for every streamed token and variable write.

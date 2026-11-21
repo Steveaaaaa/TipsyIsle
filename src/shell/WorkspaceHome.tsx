@@ -13,7 +13,7 @@ interface WorkspaceHomeProps {
     onResume: () => void;
     onShowLibrary: () => void;
     onImport: () => Promise<void>;
-    onBeginFree: () => Promise<boolean>;
+    onOpenFree: () => void;
     onFinishGuide: () => void;
     onOpenPersona: (anchor: HTMLElement) => void;
     onOpenConnection: () => void;
@@ -21,7 +21,7 @@ interface WorkspaceHomeProps {
 }
 
 export function WorkspaceHome({
-    skin, hasStory, hasCards, importing, clearing, generating, onResume, onShowLibrary, onImport, onBeginFree, onFinishGuide, onOpenPersona, onOpenConnection, onReplayGuide,
+    skin, hasStory, hasCards, importing, clearing, generating, onResume, onShowLibrary, onImport, onOpenFree, onFinishGuide, onOpenPersona, onOpenConnection, onReplayGuide,
 }: WorkspaceHomeProps) {
     return (
         <div className="ttm-home-view"><section className="ttm-start-page" data-ti-shell="empty" aria-label="首页">
@@ -31,9 +31,10 @@ export function WorkspaceHome({
                 {hasStory ? <button type="button" className="ttm-btn-primary" onClick={onResume}><Icon name="arrow" width={18} height={18} /><span>继续故事</span></button>
                     : hasCards ? <button type="button" className="ttm-btn-primary" onClick={onShowLibrary}><Icon name="book" width={18} height={18} /><span>打开馆藏</span></button>
                     : <button type="button" className="ttm-btn-primary" disabled={importing || clearing || generating} onClick={() => void onImport()}><Icon name="upload" width={18} height={18} /><span>{importing ? '正在导入…' : '导入角色卡'}</span></button>}
-                <button type="button" className="ttm-btn-secondary ttm-home-model-chat" data-guide="model-chat" disabled={generating || clearing} onClick={event => {
+                <button type="button" className="ttm-btn-secondary ttm-home-model-chat" data-guide="model-chat" disabled={clearing} onClick={event => {
                     const finishGuide = event.currentTarget.hasAttribute('data-guide-active');
-                    void onBeginFree().then(started => { if (started && finishGuide) onFinishGuide(); });
+                    onOpenFree();
+                    if (finishGuide) onFinishGuide();
                 }}><Icon name="chat" width={18} height={18} /><span>{freeChatName}<span className="ttm-home-model-note">（和模型对话）</span></span></button>
             </div>
             <nav className="ttm-home-links" aria-label="首页快捷入口">

@@ -1,0 +1,39 @@
+.ttm-shelf-tabs { display: flex; gap: 12px; padding: 0 18px; border-bottom: 1px solid var(--ti-border); }
+.ttm-shelf-tabs button { display: flex; flex: 1; gap: 6px; justify-content: center; align-items: center; min-width: 0; min-height: 46px; padding: 6px 2px; border: 0; border-bottom: 2px solid transparent; color: var(--ti-text-muted); background: transparent; font: 500 13px/1.35 var(--ti-font-ui); cursor: pointer; }
+.ttm-shelf-tabs button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ttm-shelf-tabs button svg { flex: 0 0 auto; }
+.ttm-shelf-tabs button:hover { color: var(--ti-text-primary); }
+.ttm-shelf-tabs button[aria-current] { border-bottom-color: var(--ti-accent); color: var(--ti-text-primary); }
+.ttm-shelf-tabs button:focus-visible { outline-offset: -3px; }
+.ttm-night-shelf-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: 0 0 auto; padding: 20px 18px 10px; }
+.ttm-night-shelf-heading h2 { margin: 0; font-size: 16px; }
+.ttm-night-shelf-heading button { gap: 5px; display: inline-flex; align-items: center; white-space: nowrap; }
+.ttm-night-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 12px 16px; }
+.ttm-night-list-status { margin: 16px 6px; color: var(--ti-text-muted); font-size: 13px; }
+.ttm-night-entries { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.ttm-night-entries li { display: flex; align-items: center; border-radius: 8px; padding-inline-end: 4px; min-width: 0; }
+.ttm-night-entries li:hover { background: var(--ti-soft); }
+.ttm-night-entries li.is-current { background: var(--ti-selection); }
+.ttm-night-open { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; min-height: 52px; padding: 7px 10px; border: 0; border-radius: inherit; background: transparent; color: var(--ti-text-primary); font: inherit; text-align: start; cursor: pointer; }
+.ttm-night-open:disabled { opacity: .6; cursor: default; }
+.ttm-night-open > svg { flex: 0 0 auto; color: var(--ti-accent); }
+.ttm-night-entry-text { display: grid; min-width: 0; gap: 3px; }
+.ttm-night-entry-text strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; }
+.ttm-night-entry-text small { color: var(--ti-text-muted); font-size: 11px; }
+.ttm-night-entries .ttm-asset-more { flex: 0 0 auto; color: var(--ti-text-muted); }
+.ttm-night-blank { display: grid; flex: 1; place-items: center; padding: 24px; color: var(--ti-text-muted); }
+.ttm-night-blank p { margin: 0; }
+.ttm-night-back { flex: 0 0 auto; white-space: nowrap; }
+.ttm-night-back svg { transform: rotate(180deg); }
+.ttm-topbar .ttm-quick-chat[aria-current] { background: var(--ti-selection); color: var(--ti-text-primary); }
+@media (max-width: 1024px) {
+    .ttm-sidebar.ttm-night-shelf { --ti-bg-surface: var(--ti-night-page); --ti-bg-primary: var(--ti-night-page); --ti-text-primary: var(--ti-night-text); --ti-text-muted: var(--ti-night-muted); --ti-accent: var(--ti-night-accent); --ti-border: var(--ti-night-border); --ti-soft: var(--ti-night-soft); --ti-selection: var(--ti-night-selection); background: var(--ti-bg-surface); color: var(--ti-text-primary); color-scheme: inherit; }
+    .ttm-night-shelf-heading { min-height: 60px; border-bottom: 1px solid var(--ti-border); padding: 8px 18px; }
+    .ttm-night-shelf-heading button, .ttm-night-entries .ttm-asset-more, .ttm-night-back { min-height: 44px; }
+    .ttm-night-entries .ttm-asset-more { min-width: 44px; }
+    .ttm-night-scroll { padding: 8px 12px 16px; scrollbar-color: auto; }
+    .ttm-night-back.ttm-btn-ghost { padding-inline: 2px; gap: 2px; font-size: 12px; }
+    .ttm-night-back + .ttm-conversation-person > .ttm-char-avatar { display: none; }
+    .ttm-night-back + .ttm-conversation-person { margin-inline-end: auto; }
+}
+.ttm-workbench { --ti-night-page: var(--ti-bg-surface); --ti-night-text: var(--ti-text-primary); --ti-night-muted: var(--ti-text-muted); --ti-night-accent: var(--ti-accent); --ti-night-border: var(--ti-border); --ti-night-soft: var(--ti-soft); --ti-night-selection: var(--ti-selection); }
