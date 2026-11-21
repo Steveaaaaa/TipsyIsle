@@ -69,6 +69,7 @@ export interface StreamCompletionRequest {
     signal?: AbortSignal;
     onToken: (deltaContent: string, deltaReasoning?: string) => void;
     onToolCall?: () => void;
+    requireReplyText?: boolean;
 }
 export type CompletionRequestMessage = AssembledPromptMessage | {
     role: 'assistant'; content: string; tool_calls: CompletionToolCall[]; reasoning_content?: string; reasoning_signature?: string;
@@ -81,7 +82,29 @@ export type CompletionRequestMessage = AssembledPromptMessage | {
 export interface CompletionToolCall { id: string; type: 'function'; function: { name: string; arguments: string }; thought_signature?: string }
 export interface CompletionCandidate { content: string; reasoning: string; reasoning_signature?: string; tool_calls?: CompletionToolCall[] }
 export interface CompletionResult extends CompletionCandidate { candidates?: CompletionCandidate[] }
-const candidateFrom = (message: any): CompletionCandidate => ({ content: typeof message.content === 'string' ? message.content : '',
+function replyText(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (!Array.isArray(value)) return '';
+    return value.map(part => part?.type === 'text' || part?.type === 'output_text'
+        ? typeof part.text === 'string' ? part.text : '' : '').join('');
+}
+
+class EmptyReplyError extends Error {
+    constructor(finishReason?: string) {
+        super(finishReason === 'length' || finishReason === 'MAX_TOKENS'
+            ? '模型在输出正文前已达到回复长度上限，请调高最大回复长度后重试。'
+            : finishReason === 'content_filter' ? '模型服务过滤了这次回复，请调整消息后重试。'
+            : '模型接口没有返回可显示的正文，请重试。');
+    }
+}
+
+function withCandidates(candidates: CompletionCandidate[], req: StreamCompletionRequest, finishReason?: string): CompletionResult {
+    const available = req.requireReplyText ? candidates.filter(candidate => candidate.content.trim()) : candidates;
+    if (!available.length) throw new EmptyReplyError(finishReason);
+    return { ...available[0], ...(available.length > 1 ? { candidates: available } : {}) };
+}
+
+const candidateFrom = (message: any): CompletionCandidate => ({ content: replyText(message.content) || replyText(message.refusal),
     reasoning: typeof message.reasoning_content === 'string' ? message.reasoning_content : typeof message.reasoning === 'string' ? message.reasoning : '',
     ...(message.reasoning_signature ? { reasoning_signature: message.reasoning_signature } : {}), ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}) });
 export async function streamLlmCompletion(req: StreamCompletionRequest): Promise<CompletionResult> {
@@ -105,7 +128,7 @@ export async function streamLlmCompletion(req: StreamCompletionRequest): Promise
         return result;
     } catch (error) {
         report(req.signal?.aborted ? '取消' : '失败', { stage, httpStatus, detail,
-            code: httpStatus && httpStatus >= 400 ? 'HTTP_ERROR' : diagnosticErrorKind(error) });
+            code: httpStatus && httpStatus >= 400 ? 'HTTP_ERROR' : error instanceof EmptyReplyError ? 'EMPTY_REPLY' : diagnosticErrorKind(error) });
         throw error;
     }
 }
@@ -164,18 +187,23 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
         throw new Error(`LLM 请求失败 (${response.status}): ${errText.slice(0, 240)}`);
     }
 
-    if (response.headers.get('content-type')?.includes('application/json')) {
-        const raw = await response.json();
-        req.signal?.throwIfAborted();
+    const readJson = (raw: any): CompletionResult => {
         const payload = adapt ? adapt(raw, false) : raw;
-        if (payload.error) throw new Error(`LLM 接口错误：${getCompletionError(payload.error)}`);
-        const message = payload.choices?.[0]?.message;
-        if (!message) throw new Error('LLM 接口未返回回复消息');
-        const candidates = [...payload.choices].sort((a, b) => (a.index ?? 0) - (b.index ?? 0)).map(choice => candidateFrom(choice.message));
-        const first = candidates[0];
+        if (payload?.error) throw new Error(`LLM 接口错误：${getCompletionError(payload.error)}`);
+        const choices = Array.isArray(payload?.choices) ? [...payload.choices].sort((a, b) => (a.index ?? 0) - (b.index ?? 0)) : [];
+        const candidates = choices.filter(choice => choice.message).map(choice => candidateFrom(choice.message));
+        if (!candidates.length && !req.requireReplyText) throw new Error('LLM 接口未返回回复消息');
+        const first = withCandidates(candidates, req, choices[0]?.finish_reason);
         if (first.tool_calls?.length) req.onToolCall?.();
         req.onToken(first.content, first.reasoning);
-        return { ...first, ...(candidates.length > 1 ? { candidates } : {}) };
+        return first;
+    };
+
+    const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+    if (contentType.includes('application/json') || contentType.split(';')[0].endsWith('+json')) {
+        const raw = await response.json();
+        req.signal?.throwIfAborted();
+        return readJson(raw);
     }
 
     const reader = response.body.getReader();
@@ -186,6 +214,8 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
     let eventData: string[] = [];
     let finished = false;
     let receivedMessage = false;
+    let finishReason: string | undefined;
+    let responseFormat: 'sse' | 'json' | undefined = contentType.includes('text/event-stream') ? 'sse' : undefined;
     let reasoningSignature = '';
     const toolCalls = new Map<number, CompletionToolCall>();
     const alternatives = new Map<number, CompletionCandidate & { tools: Map<number, CompletionToolCall> }>();
@@ -206,7 +236,7 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
         for (const item of parsed.choices ?? []) if (item.index > 0) {
             const value = alternatives.get(item.index) ?? { content: '', reasoning: '', tools: new Map<number, CompletionToolCall>() };
             const delta = item.delta ?? item.message ?? {};
-            value.content += typeof delta.content === 'string' ? delta.content : '';
+            value.content += replyText(delta.content) || replyText(delta.refusal);
             value.reasoning += delta.reasoning_content ?? delta.reasoning ?? '';
             if (delta.reasoning_signature) value.reasoning_signature = (adapt ? '' : value.reasoning_signature ?? '') + delta.reasoning_signature;
             for (const [index, tool] of (delta.tool_calls ?? []).entries()) {
@@ -218,7 +248,10 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
             }
             alternatives.set(item.index, value);
         }
-        if (choice) receivedMessage = true;
+        if (choice) {
+            receivedMessage = true;
+            finishReason = choice.finish_reason ?? finishReason;
+        }
         const delta = choice?.delta ?? choice?.message ?? {};
         if (delta.reasoning_signature) reasoningSignature = (adapt ? '' : reasoningSignature) + delta.reasoning_signature;
         if (!toolCalls.size && delta.tool_calls?.length) req.onToolCall?.();
@@ -231,7 +264,7 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
             if (item.thought_signature) call.thought_signature = item.thought_signature;
             toolCalls.set(key, call);
         }
-        const contentPiece = typeof delta.content === 'string' ? delta.content : '';
+        const contentPiece = replyText(delta.content) || replyText(delta.refusal);
         const reasoningPiece = typeof delta.reasoning_content === 'string' ? delta.reasoning_content
             : typeof delta.reasoning === 'string' ? delta.reasoning : '';
         if (contentPiece || reasoningPiece) {
@@ -253,6 +286,16 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
             const { done, value } = await reader.read();
             req.signal?.throwIfAborted();
             buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+            // Some relays return JSON without labeling it as JSON.
+            if (!responseFormat) {
+                const first = buffer.trimStart()[0];
+                if (!first && !done) continue;
+                responseFormat = first === '{' ? 'json' : 'sse';
+            }
+            if (responseFormat === 'json') {
+                if (done) return readJson(JSON.parse(buffer));
+                continue;
+            }
             // Keep a trailing CR until the next chunk so a split CRLF remains one separator.
             let separator: RegExpExecArray | null;
             while (!finished && (separator = /\r\n|\n|\r(?!$)/.exec(buffer))) {
@@ -265,11 +308,12 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
                 break;
             }
         }
-        if (!receivedMessage) throw new Error('LLM 接口未返回回复消息');
+        if (!receivedMessage && !req.requireReplyText) throw new Error('LLM 接口未返回回复消息');
         const first = { content: fullContent, reasoning: fullReasoning, ...(reasoningSignature ? { reasoning_signature: reasoningSignature } : {}),
             ...(toolCalls.size ? { tool_calls: [...toolCalls.entries()].sort(([a], [b]) => a - b).map(([, value]) => value) } : {}) };
-        return { ...first, ...(alternatives.size ? { candidates: [first, ...[...alternatives].sort(([a], [b]) => a - b).map(([, { tools, ...value }]) => ({ ...value,
-            ...(tools.size ? { tool_calls: [...tools].sort(([a], [b]) => a - b).map(([, tool]) => tool) } : {}) }))] } : {}) };
+        const candidates = [first, ...[...alternatives].sort(([a], [b]) => a - b).map(([, { tools, ...value }]) => ({ ...value,
+            ...(tools.size ? { tool_calls: [...tools].sort(([a], [b]) => a - b).map(([, tool]) => tool) } : {}) }))];
+        return withCandidates(candidates, req, finishReason);
     } finally {
         try { await reader.cancel(); } catch { /* Preserve the original request error. */ }
         reader.releaseLock();

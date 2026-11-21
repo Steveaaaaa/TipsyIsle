@@ -254,7 +254,7 @@ async function generateFreeReply(userText: string | undefined, regenerate: boole
         workspaceStore.setState(draft => { draft.messages.push(node); draft.activeLeafId = id; });
         placeholder = true;
         const result = await streamLlmCompletion({ ...connection, messages, parameters, stream: settings['api.stream'] !== false,
-            signal: controller.signal, onToken: (text, thought = '') => {
+            signal: controller.signal, requireReplyText: true, onToken: (text, thought = '') => {
                 if (controller.signal.aborted) return;
                 content += text; reasoning += thought;
                 workspaceStore.setState(draft => {
@@ -273,6 +273,7 @@ async function generateFreeReply(userText: string | undefined, regenerate: boole
         return content;
     } catch (error) {
         const stopped = controller.signal.aborted;
+        if (!content.trim()) content = '';
         if (!stopped && !placeholder) recordDiagnostic('生成', '夜灯畅谈', '失败', { stage: '准备对话', code: diagnosticErrorKind(error) });
         if (placeholder) workspaceStore.setState(draft => {
             if (content) {
