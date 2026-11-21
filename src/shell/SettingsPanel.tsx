@@ -13,7 +13,8 @@ import { pluginSettingsDestinations, settingsCategories, settingsCategoryForFiel
 import type { StreamDisplayMode } from '../pipeline/streaming-message';
 import { NativePluginManager } from '../plugins/native/PluginManager';
 import { nativeAppUpdates } from '../core/native-runtime';
-import { checkAppUpdate } from '../core/app-update';
+import { checkAppUpdate, showCurrentReleaseNotes } from '../core/app-update';
+import app from '../../package.json';
 
 type SettingsPanelProps = {
     advancedTools?: ReactNode; dataTools?: ReactNode; onOpenPersona?: (anchor: HTMLElement) => void;
@@ -140,9 +141,12 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
                 <SettingsDisclosure title="酒馆兼容扩展"><ExtensionManager /></SettingsDisclosure>
             </>}
             {category === 'advanced' && <>
-                {nativeAppUpdates && <SettingsSection title="应用更新">
-                    <button type="button" className="ttm-btn-secondary" onClick={() => void checkAppUpdate(true)}><Icon name="refresh" width={16} height={16} />检查更新</button>
-                </SettingsSection>}
+                <SettingsSection title="应用更新" description={`当前版本：TipsyIsle ${app.version}`}>
+                    <div className="ttm-app-update-buttons">
+                        <button type="button" className="ttm-btn-secondary" onClick={event => showCurrentReleaseNotes(event.currentTarget)}><Icon name="book" width={16} height={16} />查看当前版本日志</button>
+                        {nativeAppUpdates && <button type="button" className="ttm-btn-secondary" onClick={() => void checkAppUpdate(true)}><Icon name="refresh" width={16} height={16} />检查更新</button>}
+                    </div>
+                </SettingsSection>
                 <SettingsSection title="运行诊断与作者配置" description="普通阅读通常无需打开。遇到脚本或变量问题时，可查看诊断或按作者说明调整。">{advancedTools}</SettingsSection>
                 {ids.some(id => settingsCategoryForField(id) === 'advanced') && <SettingsDisclosure title="其他扩展参数">{renderFields(ids.filter(id => settingsCategoryForField(id) === 'advanced'))}</SettingsDisclosure>}
             </>}

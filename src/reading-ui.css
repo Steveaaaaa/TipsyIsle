@@ -160,7 +160,6 @@ a { color: var(--ti-accent); text-underline-offset: 3px; }
 .ttm-home-actions > button > svg { flex: 0 0 auto; }
 .ttm-home-actions .ttm-home-model-chat { border-color: color-mix(in srgb, var(--ti-text-primary) 34%, var(--ti-bg-surface)); }
 .ttm-home-model-note { display: inline-block; }
-.ttm-home-resume { margin-top: 8px; }
 .ttm-home-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 16px; padding-top: 6px; border-top: 1px solid var(--ti-border); }
 .ttm-home-links > button { min-height: 44px; padding-inline: 4px; }
 @media (max-width: 479px) { .ttm-home-model-note { display: block; } }

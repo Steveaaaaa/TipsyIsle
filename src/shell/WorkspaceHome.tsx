@@ -7,7 +7,6 @@ interface WorkspaceHomeProps {
     skin?: Appearance;
     hasStory: boolean;
     hasCards: boolean;
-    isFree: boolean;
     importing: boolean;
     clearing: boolean;
     generating: boolean;
@@ -22,7 +21,7 @@ interface WorkspaceHomeProps {
 }
 
 export function WorkspaceHome({
-    skin, hasStory, hasCards, isFree, importing, clearing, generating, onResume, onShowLibrary, onImport, onBeginFree, onFinishGuide, onOpenPersona, onOpenConnection, onReplayGuide,
+    skin, hasStory, hasCards, importing, clearing, generating, onResume, onShowLibrary, onImport, onBeginFree, onFinishGuide, onOpenPersona, onOpenConnection, onReplayGuide,
 }: WorkspaceHomeProps) {
     return (
         <div className="ttm-home-view"><section className="ttm-start-page" data-ti-shell="empty" aria-label="首页">
@@ -37,7 +36,6 @@ export function WorkspaceHome({
                     void onBeginFree().then(started => { if (started && finishGuide) onFinishGuide(); });
                 }}><Icon name="chat" width={18} height={18} /><span>{freeChatName}<span className="ttm-home-model-note">（和模型对话）</span></span></button>
             </div>
-            {isFree && <button type="button" className="ttm-btn-ghost ttm-home-resume" onClick={onResume}>返回当前对话</button>}
             <nav className="ttm-home-links" aria-label="首页快捷入口">
                 <button type="button" className="ttm-btn-ghost" onClick={event => onOpenPersona(event.currentTarget)}>个人资料</button>
                 <button type="button" className="ttm-btn-ghost" onClick={() => onOpenConnection()}>模型连接</button>

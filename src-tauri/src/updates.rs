@@ -18,11 +18,18 @@ struct UpdateState {
 }
 
 #[tauri::command]
-pub async fn tipsy_update_check(app: AppHandle) -> Result<Option<String>, String> {
+pub async fn tipsy_update_check(app: AppHandle) -> Result<Option<UpdateDetails>, String> {
     #[cfg(any(target_os = "android", all(target_os = "windows", target_arch = "x86_64")))]
-    return native::latest(&app).await.map(|release| release.map(|release| release.version));
+    return native::latest(&app).await.map(|release| release.map(|release| release.details));
     #[cfg(not(any(target_os = "android", all(target_os = "windows", target_arch = "x86_64"))))]
     { let _ = app; Ok(None) }
+}
+
+#[derive(serde::Serialize)]
+pub struct UpdateDetails {
+    version: String,
+    title: Option<String>,
+    notes: Option<String>,
 }
 
 #[tauri::command]
@@ -43,7 +50,7 @@ pub async fn tipsy_update_install(app: AppHandle, version: String) -> Result<Str
 
 #[cfg(any(target_os = "android", all(target_os = "windows", target_arch = "x86_64")))]
 mod native {
-    use super::{AppHandle, Manager, UpdateState};
+    use super::{AppHandle, Manager, UpdateDetails, UpdateState};
     use reqwest::{redirect::Policy, Client, Response};
     use serde::Deserialize;
     use std::{path::Path, time::Duration};
@@ -56,6 +63,8 @@ mod native {
     #[derive(Deserialize)]
     struct ReleaseInfo {
         tag_name: String,
+        name: Option<String>,
+        body: Option<String>,
         draft: bool,
         prerelease: bool,
         assets: Vec<ReleaseAsset>,
@@ -64,7 +73,7 @@ mod native {
     #[derive(Deserialize)]
     struct ReleaseAsset { name: String, size: u64, state: String }
 
-    pub(super) struct Update { pub version: String, file: String, size: u64 }
+    pub(super) struct Update { pub(super) details: UpdateDetails, file: String, size: u64 }
 
     fn client(timeout: Duration, assets: bool) -> Result<Client, String> {
         Client::builder()
@@ -91,7 +100,11 @@ mod native {
         let asset = release.assets.iter().find(|asset| asset.name == file && asset.state == "uploaded")
             .filter(|asset| (1..=MAX_INSTALLER_BYTES).contains(&asset.size))
             .ok_or("这个版本还没有适用于本机的安装包。")?;
-        Ok(Some(Update { version: version.to_string(), file, size: asset.size }))
+        Ok(Some(Update {
+            details: UpdateDetails { version: version.to_string(), title: release.name, notes: release.body },
+            file,
+            size: asset.size,
+        }))
     }
 
     pub(super) async fn latest(app: &AppHandle) -> Result<Option<Update>, String> {
@@ -130,9 +143,9 @@ mod native {
         if let Some((ready, path)) = downloaded.as_ref() {
             if ready == version && path.is_file() { return Ok(()); }
         }
-        let update = latest(app).await?.filter(|update| update.version == version)
+        let update = latest(app).await?.filter(|update| update.details.version == version)
             .ok_or("最新版本已变化，请重新检查更新。")?;
-        let url = format!("https://github.com/{REPO}/releases/download/v{}/{}", update.version, update.file);
+        let url = format!("https://github.com/{REPO}/releases/download/v{}/{}", update.details.version, update.file);
         let response = client(Duration::from_secs(300), true)?.get(url).send().await
             .map_err(|_| "无法从 GitHub 下载安装包，请重试。")?;
         if response.status() != reqwest::StatusCode::OK { return Err("GitHub 暂时无法提供安装包，请重试。".into()); }
@@ -150,7 +163,7 @@ mod native {
             let _ = tokio::fs::remove_file(&partial).await;
             return Err("无法保存安装包，请关闭上一次的安装程序后重试。".into());
         }
-        if let Some((_, old_path)) = downloaded.replace((update.version, path)) { let _ = tokio::fs::remove_file(old_path).await; }
+        if let Some((_, old_path)) = downloaded.replace((update.details.version, path)) { let _ = tokio::fs::remove_file(old_path).await; }
         Ok(())
     }
 
@@ -185,7 +198,7 @@ mod native {
                 "assets": [{ "name": name, "size": 100, "state": "uploaded", "browser_download_url": "https://untrusted.invalid/" }],
             })).unwrap();
             let target = "android-arm64.apk";
-            assert_eq!(available(release("v1.0.10", "TipsyIsle-1.0.10-android-arm64.apk"), &current, target).unwrap().unwrap().version, "1.0.10");
+            assert_eq!(available(release("v1.0.10", "TipsyIsle-1.0.10-android-arm64.apk"), &current, target).unwrap().unwrap().details.version, "1.0.10");
             for tag in ["v1.0.9", "v1.0.8", "v1.1.0-beta.1", "bad"] {
                 assert!(available(release(tag, "unused"), &current, target).unwrap().is_none());
             }

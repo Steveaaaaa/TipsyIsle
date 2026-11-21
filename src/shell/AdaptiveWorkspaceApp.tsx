@@ -17,6 +17,7 @@ import { storyIdentity } from '../core/story-identity';
 import { StoryGalleryPanel } from './StoryGalleryPanel';
 import { readStoryGallery } from '../core/story-gallery';
 import { NotificationRegion } from './NotificationRegion';
+import { ReleaseNotesDialog } from './ReleaseNotesDialog';
 import { DeleteAssetDialog, type DeleteAssetConfirmation, type DeleteAssetTarget } from './DeleteAssetDialog';
 import { useNativeNavigation } from './useNativeNavigation';
 import { lanSyncStore, beginWorldbookEditing, finishWorldbookEditing } from '../core/sync/engine';
@@ -423,7 +424,7 @@ export function AdaptiveWorkspaceApp() {
         const widget = widgets.get(id);
         if (widget && skin) return <ShellWidget key={id} skin={skin} widget={widget} values={{ character: hasStory ? activeStoryIdentity.name : '未选择故事', messages: activeMessages.length, library: state.characters.length }} onAction={widgetAction} />;
         const part = id as Part;
-        if ((isFree || showingHome) && ['routes', 'profile', 'continue', 'recalculate', 'retry-analysis'].includes(part)) return null;
+        if ((isFree || showingHome) && ['routes', 'continue', 'recalculate', 'retry-analysis'].includes(part)) return null;
         const button = (action: (anchor: HTMLButtonElement) => void, options: { disabled?: boolean; iconOnly?: boolean; className?: string; label?: string; title?: string; pressed?: boolean; current?: 'page' } = {}) => {
             const label = partText(skin, part, options.label);
             return <button key={id} type="button" data-ti-part={id} className={options.className ?? (options.iconOnly ? 'ttm-icon-btn' : area === 'toolbar' || area === 'more' || area.startsWith('input-') ? 'ttm-chip-btn' : 'ttm-btn-secondary')}
@@ -492,6 +493,7 @@ export function AdaptiveWorkspaceApp() {
             </header>
 
             <NotificationRegion />
+            <ReleaseNotesDialog />
 
             {/* Three-Column Adaptive Workbench */}
             <div className="ttm-workbench">
@@ -528,7 +530,7 @@ export function AdaptiveWorkspaceApp() {
                         }, undefined)} onEditFree={setFreeEditor}
                         storySaveMenu={storySaveMenu} onToggleStorySave={anchor => setStorySaveMenu(storySaveMenu ? undefined : anchor)}
                         workspaceReady={workspaceReady} clearing={clearing} />
-                    {showingHome && <WorkspaceHome skin={skin} hasStory={hasStory} hasCards={state.characters.length > 0} isFree={isFree}
+                    {showingHome && <WorkspaceHome skin={skin} hasStory={hasStory} hasCards={state.characters.length > 0}
                         importing={importing} clearing={clearing} generating={generating} onResume={resumeConversation}
                         onShowLibrary={() => { showLibrary(); if (!compactLayout) requestAnimationFrame(() => characterSearchRef.current?.focus()); }}
                         onImport={chooseAssetFile} onBeginFree={beginFreeChat} onFinishGuide={() => setGuide(null)}

@@ -1,0 +1,21 @@
+.ttm-asset-dialog.ttm-release-notes-dialog > .ttm-asset-dialog-content { display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: 0; }
+.ttm-release-notes-scroll { min-height: 0; padding: 18px 24px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; overflow-wrap: anywhere; font-size: .9375rem; line-height: 1.65; }
+.ttm-release-notes-scroll :is(h1, h2, h3, h4, h5, h6) { margin: 1em 0 .4em; font-size: 1rem; line-height: 1.4; }
+.ttm-release-notes-scroll :is(h1, h2) { font-size: 1.125rem; }
+.ttm-release-notes-scroll :is(p, ul, ol, pre, blockquote, table) { margin: .65em 0; }
+.ttm-release-notes-scroll :is(ul, ol) { padding-inline-start: 1.35em; }
+.ttm-release-notes-scroll li + li { margin-top: .5em; }
+.ttm-release-notes-scroll pre { white-space: pre-wrap; }
+.ttm-release-notes-scroll > :first-child, .ttm-release-notes-prose > :first-child { margin-top: 0; }
+.ttm-release-notes-scroll > :last-child, .ttm-release-notes-prose > :last-child { margin-bottom: 0; }
+.ttm-release-notes-dialog a { color: var(--ti-accent); text-decoration: underline; text-underline-offset: .16em; }
+.ttm-release-notes-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; border-top: 1px solid var(--ti-border); padding: 12px 24px; }
+.ttm-release-notes-actions > a { font-size: .875rem; }
+.ttm-release-notes-actions > div, .ttm-app-update-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.ttm-release-notes-actions > div { justify-content: flex-end; margin-inline-start: auto; }
+@media (max-width: 700px) {
+    .ttm-release-notes-scroll { padding: 16px; }
+    .ttm-release-notes-actions { padding: 10px 16px; }
+    .ttm-release-notes-dialog .ttm-release-notes-actions :is(button, a) { min-height: 44px; }
+    .ttm-release-notes-actions > a { display: inline-flex; align-items: center; }
+}

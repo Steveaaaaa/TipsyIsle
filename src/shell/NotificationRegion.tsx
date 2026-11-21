@@ -14,7 +14,7 @@ export function NotificationRegion() {
         return () => window.removeEventListener('tipsy-dialog-change', update);
     }, []);
     return createPortal(<aside className="ttm-notifications" data-ti-shell="notifications" aria-label="通知">{items.map(item =>
-        <div key={item.id} className={`ttm-notification is-${item.kind}`} role={item.kind === 'error' ? 'alert' : 'status'}>
+        <div key={item.id} data-notification-id={item.id} className={`ttm-notification is-${item.kind}`} role={item.kind === 'error' ? 'alert' : 'status'}>
             <span className="ttm-notification-state" aria-hidden="true" />
             <span className="ttm-notification-message">{item.message}</span>
             {item.action && <button type="button" className="ttm-notification-action" onClick={item.action.run}>{item.action.label}</button>}

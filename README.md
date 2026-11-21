@@ -12,7 +12,15 @@ We want this to become the place every AIRP player can eventually call home. Som
 
 **A beautiful interface draws you in. Stories, freedom, and a community with room to grow give you reasons to stay.**
 
-[Why make the move?](#why-make-the-move) · [Bring your favorites from SillyTavern](#bring-your-favorites-from-sillytavern) · [For community creators and developers](#for-community-creators-and-developers) · [Start your first story](#start-your-first-story)
+**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.0](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.0) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
+
+## New in 1.1.0
+
+- **Pick up where you left off.** Import a SillyTavern `.jsonl` chat and pair it with its character card. Export a TipsyIsle conversation as a `.tipsy-story` file to carry its routes, story state, and bundled resources to another device. The app also remembers the last main page you visited.
+- **Keep a wardrobe of looks.** Import and keep multiple appearance packs in your library, then switch between them whenever you like. The app keeps its own copy, so you don't need the original files after importing.
+- **Play more comfortably on your phone.** Touch dragging, pinch zoom, and fullscreen work better in supported card widgets, and older messages keep their formatting more reliably as you scroll back.
+- **Chat without setting the scene.** Open *Lamplight Chat* (夜灯畅谈) from the home page for a conversation with your model without a character card or a roleplay preset.
+- **Read the release notes before deciding.** The installed apps can show what's new, let you decide later, or skip just that version. The current version's notes are available in Settings.
 
 ## Why make the move?
 
@@ -65,6 +73,7 @@ From text conversations to stories driven by variables, dynamic status panels, a
 | --- | --- |
 | PNG / JSON character cards | Import cards with their embedded worldbooks enabled alongside the story. Export cards as standard V2 / V3 PNG files. |
 | Worldbooks and presets | Import JSON files to bring familiar worldbuilding and storytelling styles with you, then edit, adjust, and select them in the app. |
+| Existing chats | Import a `.jsonl` chat as a new conversation after selecting its character card. The migration guide explains which chat data comes with it. |
 | Macros, regex, and prompt templates | Run the text processing, display formatting, and prompt logic that creators use to shape their work. |
 | MVU variables, creator-authored HTML, and interactive scripts | Use variable updates, dynamic status panels, and HTML interactions in TipsyIsle's independent runtime. |
 | SillyTavern extensions | Install, update, enable, and disable extensions, with their functionality connected through compatibility APIs. |
@@ -112,7 +121,9 @@ This leaves room for the interface to evolve, more devices to join, and new ways
 
 ## Start your first story
 
-You can currently run the local web version from source. Install [Node.js](https://nodejs.org/) **22.19.0 or later** and [Git](https://git-scm.com/), then run:
+For the quickest start, grab the **Windows x64 installer** or **Android ARM64 APK** from [GitHub Releases](https://github.com/Steveaaaaa/TipsyIsle/releases/latest). Android requires version 8.0 or later.
+
+To run the local web version instead, install [Node.js](https://nodejs.org/) **22.19.0 or later** and [Git](https://git-scm.com/), then run:
 
 ```sh
 git clone https://github.com/Steveaaaaa/TipsyIsle.git
@@ -121,7 +132,7 @@ npm ci
 npm start
 ```
 
-Open [http://localhost:5179](http://localhost:5179) and follow the first-run guide. The steps below include the app's current Chinese menu labels:
+Launch the installed app or open [http://localhost:5179](http://localhost:5179) for the local web version, then follow the first-run guide. The steps below include the app's current Chinese menu labels:
 
 1. Import a character card into the library (馆藏), along with any worldbooks and presets recommended by its author.
 2. Open Settings → Persona (设置 → 个人资料) and choose your own name and identity for the story.
