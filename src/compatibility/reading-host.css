@@ -39,6 +39,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 button:focus-visible { outline: 2px solid var(--reader-accent); outline-offset: 3px; }
 .compat-message-actions button:hover:not(:disabled) { background: var(--reader-selection); }
 .compat-prose { padding: 24px 28px; overflow-wrap: anywhere; font-family: var(--reader-font); font-size: var(--reader-size); line-height: var(--reader-leading); }
+.compat-prose p { text-indent: var(--reader-indent, 0); }
 #chat > .mes:not(:nth-last-child(-n+4)):not(:focus-within) > .compat-defer-paint {
     content-visibility: auto;
     contain-intrinsic-block-size: auto var(--compat-row-estimate, 120px);

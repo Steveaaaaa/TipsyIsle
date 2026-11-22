@@ -46,6 +46,7 @@ export interface ThemeDesignTokens {
     fontSizeBasePx?: number;
     lineHeight: number;
     lineHeightBase?: number;
+    textIndentEm?: number;
     chatMaxWidthPx: number;
     stageMaxWidthPx?: number;
     portraitPlacement: PortraitPlacement;

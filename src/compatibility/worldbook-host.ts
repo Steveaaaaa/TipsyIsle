@@ -85,6 +85,10 @@ export function requestWorldbook(method: string, params: Record<string, any>): P
     requests = run.catch(() => {});
     return run;
 }
+function serializeNativeWorldbook(book: NormalizedLorebook) {
+    return { ...serializeLorebook(book), entries: Object.fromEntries(book.entries.map(entry => [entry.uid, toNativeWorldbookEntry(entry)])) };
+}
+
 async function executeWorldbookRequest(method: string, params: Record<string, any>): Promise<unknown> {
     const state = workspaceStore.getState();
     if (method === 'worldbook.mvu.config') {
@@ -114,14 +118,41 @@ async function executeWorldbookRequest(method: string, params: Record<string, an
         return '';
     }
     if (method.startsWith('worldbook.native.')) {
+        if (method === 'worldbook.native.list') {
+            const seen = new Set<string>();
+            return allWorldbooks()
+                .filter(book => !seen.has(book.name) && !!seen.add(book.name))
+                .map(book => ({
+                    file_id: book.name,
+                    name: book.name,
+                    extensions: _.isPlainObject(book.rawData?.extensions) ? structuredClone(book.rawData!.extensions) : {},
+                }))
+                .sort((a, b) => a.name.localeCompare(b.name));
+        }
         if (method === 'worldbook.native.load') {
             const book = params.name ? find(params.name, false) : undefined;
-            return book ? { ...serializeLorebook(book), entries: Object.fromEntries(book.entries.map(entry => [entry.uid, toNativeWorldbookEntry(entry)])) } : null;
+            return book ? serializeNativeWorldbook(book) : null;
+        }
+        if (method === 'worldbook.native.get') {
+            const book = find(params.name, false);
+            return book ? serializeNativeWorldbook(book) : { entries: {} };
         }
         if (method === 'worldbook.native.save') {
             if (!params.name || !params.data) return;
             const book = find(params.name, false);
-            const entries = Object.values(params.data.entries ?? {}).map((entry: any) => ({ ...entry, extensions: { ...entry.extensions, position: entry.position } }));
+            const previousDisabled = new Map(book?.entries.map(entry => [String(entry.uid), !!entry.disabled]));
+            const entries = Object.values(params.data.entries ?? {}).map((entry: any) => {
+                if (!entry || typeof entry !== 'object') return entry;
+                const uidKey = entry.uid !== undefined ? String(entry.uid) : entry.id !== undefined ? String(entry.id) : undefined;
+                const previous = uidKey !== undefined ? previousDisabled.get(uidKey) : undefined;
+                let disablePatch: Record<string, boolean> | undefined;
+                if (typeof entry.disable === 'boolean' && (previous === undefined || entry.disable === previous)) {
+                    if (typeof entry.disabled === 'boolean' && entry.disabled !== entry.disable) disablePatch = { disable: entry.disabled };
+                    else if (typeof entry.enabled === 'boolean' && entry.enabled === entry.disable) disablePatch = { disable: !entry.enabled };
+                }
+                const extensions = entry.position !== undefined ? { ...entry.extensions, position: entry.position } : entry.extensions;
+                return { ...entry, ...disablePatch, ...(extensions !== undefined ? { extensions } : {}) };
+            });
             const updated = normalizeLorebook({ ...params.data, name: params.name, entries }, params.name);
             writeHelperWorldbook({ ...updated, ...(book ? { id: book.id } : {}) }); await saved(); return;
         }

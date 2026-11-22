@@ -5,23 +5,31 @@ import { AnchoredDialog } from '../shell/AnchoredDialog';
 import { Icon } from '../shell/Icon';
 import { saveExport } from '../core/platform-files';
 import { isNativeRuntime } from '../core/native-runtime';
-import { AppearancePreview, type PreviewPage } from './AppearancePreview';
+import { AppearancePreview, type PreviewPage, type PreviewReadingTypography } from './AppearancePreview';
 import { appearanceAsset, appearanceDevice, appearanceLibrary, appearanceStore, decodeAppearance, deleteAppearancePack, importAppearancePacks,
     loadAppearancePack, pauseAppearance, saveAppearance, saveDeviceLayouts, useAppearancePack, type AppearancePackEntry } from './appearance-store';
 import { allowedAreas, areas, artLabels, assetUrl, blankAppearance, defaultText, fontLabels, parts, placements, shellSurfaces, textLabels, widgetValues,
     type Appearance, type Area, type Device, type FontRole, type Layout, type Part, type Widget } from './appearance-model';
 import { compileAppearance } from './appearance-style';
+import { themeEngineStore, updateThemeTokens } from './theme-engine';
 import './appearance-workbench.css';
 
 const tabs = { basic: '基础', layout: '布局与部件', css: '高级 CSS', packages: '外观包' } as const;
 const pages: Record<PreviewPage, string> = { chat: '会话', library: '馆藏', settings: '设置', empty: '空白页', startup: '启动画面' };
 const mediaExtensions = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'svg'];
 const fontExtensions = ['woff2', 'woff', 'ttf', 'otf'];
+const defaultReadingTypography: PreviewReadingTypography = { fontSizePx: 16, lineHeight: 1.9, textIndentEm: 0 };
+const indentOptions = [{ label: '无缩进', value: 0 }, { label: '1 字', value: 1 }, { label: '2 字', value: 2 }] as const;
 type DeviceLayouts = Partial<Record<Device, Layout>>;
-type Draft = { skin: Appearance; layouts: DeviceLayouts; reset: boolean; packId: string | null };
+type Draft = { skin: Appearance; layouts: DeviceLayouts; reading: PreviewReadingTypography; reset: boolean; packId: string | null };
+const readingFromTokens = (tokens = themeEngineStore.getState().tokens): PreviewReadingTypography => ({
+    fontSizePx: tokens.fontSizePx,
+    lineHeight: tokens.lineHeight,
+    textIndentEm: tokens.textIndentEm ?? 0,
+});
 const currentDraft = (): Draft => {
     const { saved, activePackId } = appearanceStore.getState();
-    return { skin: saved ?? defaultPreview, layouts: appearanceDevice.getState().layouts, reset: false, packId: activePackId };
+    return { skin: saved ?? defaultPreview, layouts: appearanceDevice.getState().layouts, reading: readingFromTokens(), reset: false, packId: activePackId };
 };
 const immutableDraft = new Immer({ autoFreeze: false });
 type History = { past: Draft[]; present: Draft; future: Draft[] };
@@ -66,6 +74,7 @@ function FilePick({ title, extensions, pick, pickMany, onError, disabled }: { ti
 export function ThemeStudioPanel({ open, showPackages, device, onClose }: { open: boolean; showPackages: boolean; device: Device; onClose: () => void }) {
     const saved = appearanceStore.useStore();
     const savedDevice = appearanceDevice.useStore();
+    const savedTheme = themeEngineStore.useStore();
     const { packs } = appearanceLibrary.useStore();
     const [history, setHistory] = useState(() => newHistory(currentDraft()));
     const [tab, setTab] = useState<keyof typeof tabs>('basic');
@@ -82,16 +91,18 @@ export function ThemeStudioPanel({ open, showPackages, device, onClose }: { open
     const [deleteError, setDeleteError] = useState('');
     const [status, setStatus] = useState('');
     const [error, setError] = useState('');
-    const { skin, layouts, reset: queuedReset, packId } = history.present;
+    const { skin, layouts, reading, reset: queuedReset, packId } = history.present;
     const busy = saving || packBusy;
     const editableLayout = localMode ? layouts[previewDevice] : undefined;
     const items = placements(skin, previewDevice, editableLayout);
     const narrowAreas: Area[] = ['top', 'sidebar', 'conversation', 'toolbar', 'more', 'input-before', 'input-after', ...(previewDevice === 'mobile' ? ['mobile' as const] : [])];
+    const savedReading = readingFromTokens(savedTheme.tokens);
     const displaySkin = useDeferredValue(compare ? saved.saved ?? defaultPreview : skin);
     const previewCss = useMemo(() => open ? compileAppearance(displaySkin) : '', [open, displaySkin]);
     const changedSkin = queuedReset ? !!saved.saved : packId !== saved.activePackId || !_.isEqual(skin, saved.saved ?? defaultPreview);
     const changedDevice = !_.isEqual(layouts, savedDevice.layouts);
-    const dirty = changedSkin || changedDevice;
+    const changedReading = !_.isEqual(reading, savedReading);
+    const dirty = changedSkin || changedDevice || changedReading;
     const selectedPart = Object.hasOwn(parts, selected) ? selected as Part : undefined;
     const selectedWidget = skin.widgets.find(item => item.id === selected);
     const selectedRegion = (Object.keys(areas) as Area[]).find(area => items[area].includes(selected));
@@ -131,7 +142,8 @@ export function ThemeStudioPanel({ open, showPackages, device, onClose }: { open
         try {
             if (changedSkin || changedDevice && !saved.saved && !queuedReset) await saveAppearance(queuedReset ? null : skin, packId);
             if (changedDevice) saveDeviceLayouts(layouts);
-            if (savedDevice.paused && !queuedReset) pauseAppearance(false);
+            if (changedReading) updateThemeTokens(reading);
+            if (savedDevice.paused && !queuedReset && (changedSkin || changedDevice)) pauseAppearance(false);
             setHistory(newHistory(currentDraft())); setCompare(false); setStatus('外观已保存。');
         } finally { setSaving(false); }
     });
@@ -220,6 +232,16 @@ export function ThemeStudioPanel({ open, showPackages, device, onClose }: { open
                 <div className="ttm-skin-editor-scroll" key={tab}>
                     {tab === 'basic' && <>
                         <Group title="应用名称" selected={selected === 'brand'}>{textField('name', textLabels.name, defaultText.name)}{textField('subtitle', textLabels.subtitle, defaultText.subtitle)}{textField('window', textLabels.window, '跟随软件名称')}</Group>
+                        <Group title="正文排版">
+                            <label>正文字号 · {reading.fontSizePx} px<input type="range" min={12} max={28} step={0.5} value={reading.fontSizePx} onChange={e => update(draft => { draft.reading.fontSizePx = Number(e.target.value); })} /></label>
+                            <label>正文行高 · {reading.lineHeight.toFixed(2)}<input type="range" min={1.3} max={2.4} step={0.05} value={reading.lineHeight} onChange={e => update(draft => { draft.reading.lineHeight = Number(e.target.value); })} /></label>
+                            <label>段落首行缩进</label>
+                            <div className="ttm-skin-segments" role="group" aria-label="段落首行缩进">{indentOptions.map(opt => (
+                                <button key={opt.value} type="button" aria-pressed={reading.textIndentEm === opt.value} onClick={() => update(draft => { draft.reading.textIndentEm = opt.value; })}>{opt.label}</button>
+                            ))}</div>
+                            <small style={{ color: 'var(--ti-text-muted)' }}>仅作用于普通正文段落；角色卡自带 HTML/CSS 的字体、字号和排版优先保留。</small>
+                            {!_.isEqual(reading, defaultReadingTypography) && <button type="button" className="ttm-btn-secondary" onClick={() => update(draft => { draft.reading = { ...defaultReadingTypography }; })}>恢复默认排版</button>}
+                        </Group>
                         <Group title="字体与字号">{(Object.keys(fontLabels) as FontRole[]).map(role => {
                             const font = skin.fonts[role] ?? { family: '', size: 0, asset: '' };
                             const change = (draft: Appearance, patch: Partial<typeof font>) => { draft.fonts[role] = { ...(draft.fonts[role] ?? font), ...patch }; };
@@ -308,7 +330,7 @@ export function ThemeStudioPanel({ open, showPackages, device, onClose }: { open
                     <label><span className="ttm-skin-visually-hidden">预览页面</span><select value={page} onChange={event => setPage(event.target.value as PreviewPage)}>{(Object.keys(pages) as PreviewPage[]).map(id => <option key={id} value={id}>{pages[id]}</option>)}</select></label>
                     <button type="button" className="ttm-btn-secondary" aria-pressed={compare} onClick={() => setCompare(!compare)}>{compare ? '查看草稿' : '对照已保存'}</button>
                 </div>
-                <AppearancePreview skin={displaySkin} css={previewCss} device={previewDevice} page={page} layout={compare ? savedDevice.layouts[previewDevice] : editableLayout} onSelect={onSelect} />
+                <AppearancePreview skin={displaySkin} css={previewCss} device={previewDevice} page={page} layout={compare ? savedDevice.layouts[previewDevice] : editableLayout} reading={compare ? savedReading : reading} onSelect={onSelect} />
             </div>
             <footer className="ttm-skin-footer">
                 <div className="ttm-skin-mobile-switch"><button type="button" className="ttm-btn-secondary" onClick={() => setPane(pane === 'edit' ? 'preview' : 'edit')}>{pane === 'edit' ? '查看预览' : '返回编辑'}</button></div>

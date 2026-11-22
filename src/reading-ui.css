@@ -208,7 +208,7 @@ a { color: var(--ti-accent); text-underline-offset: 3px; }
 .ttm-swipe-pill button:hover:not(:disabled) { background: var(--ti-soft); }
 .ttm-msg-prose { padding: 24px 28px; font-family: var(--ti-font-body); overflow-wrap: anywhere; }
 .ttm-msg-body > p { padding: 18px 24px; margin: 0; }
-.ttm-msg-prose p { margin: 0 0 20px; }
+.ttm-msg-prose p { margin: 0 0 20px; text-indent: var(--ti-text-indent, 0); }
 .ttm-msg-prose p:last-child { margin-bottom: 0; }
 .ttm-msg-footer:empty { display: none; }
 .ttm-chat-stream.is-layout-novel-reader .ttm-msg-bubble { background: transparent; border: 0; border-bottom: 1px solid var(--ti-border); }
@@ -557,7 +557,7 @@ a { color: var(--ti-accent); text-underline-offset: 3px; }
     .ttm-msg-toolbar { gap: 0; flex-wrap: nowrap; }
     .ttm-swipe-pill { gap: 0; }
     .ttm-swipe-pill button { min-width: 40px; min-height: 44px; }
-    .ttm-msg-prose { padding: 18px 16px; font-size: max(15px, var(--ti-font-size)); }
+    .ttm-msg-prose { padding: 18px 16px; font-size: var(--ti-font-size); }
     .ttm-chat-stream.is-layout-im-messenger .ttm-msg-card { max-width: 94%; }
     .ttm-composer-quickbar { gap: 3px; margin-bottom: 7px; }
     .ttm-composer-shortcuts .ttm-btn-secondary { min-height: 44px; }

@@ -18,6 +18,7 @@ export function applyReadingPresentation(presentation: ReadingPresentation, targ
         '--reader-font': tokens.fontFamilyBody,
         '--reader-size': `${tokens.fontSizePx}px`,
         '--reader-leading': String(tokens.lineHeight),
+        '--reader-indent': tokens.textIndentEm ? `${tokens.textIndentEm}em` : '0',
         '--reader-width': `${tokens.chatMaxWidthPx}px`,
         '--reader-radius': `${tokens.borderRadiusPx}px`,
     };

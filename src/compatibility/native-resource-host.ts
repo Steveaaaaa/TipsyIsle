@@ -1,9 +1,9 @@
 import _ from 'lodash';
 import { platformStorage } from '../core/platform-bridge';
-import { serializeCharacterCard, serializeLorebook } from '../pipeline/asset-serializer';
+import { serializeCharacterCard } from '../pipeline/asset-serializer';
 import { workspaceStore, persistWorkspaceNow, updateCharacterDocument, type WorkspaceState } from '../store/workspace-store';
 import { characterAvatarId } from './asset-identity';
-import { toNativeWorldbookEntry } from './worldbook-codec';
+import { allWorldbooks, requestWorldbook } from './worldbook-host';
 import type { NormalizedCharacterCard } from '../types';
 
 let readSources: unknown[] = [];
@@ -44,7 +44,28 @@ export async function requestNativeResource(path: string, body: Record<string, a
         await persistWorkspaceNow();
         return { ok: true };
     }
-    if (!['/api/characters/get', '/api/settings/get', '/api/worldinfo/get'].includes(path)) throw new Error(`未适配宿主资源路径：${path}`);
+    if (path === '/api/worldinfo/list') {
+        return requestWorldbook('worldbook.native.list', {});
+    }
+    if (path === '/api/worldinfo/get') {
+        if (typeof body.name !== 'string' || !body.name.trim()) throw new Error('世界书名称必须是非空字符串');
+        return requestWorldbook('worldbook.native.get', { name: body.name });
+    }
+    if (path === '/api/worldinfo/edit') {
+        if (typeof body.name !== 'string' || !body.name.trim()) throw new Error('World file must have a name');
+        if (!body.data || typeof body.data !== 'object' || Array.isArray(body.data) || !('entries' in body.data) || !body.data.entries || typeof body.data.entries !== 'object') {
+            throw new Error('Is not a valid world info file');
+        }
+        await requestWorldbook('worldbook.native.save', { name: body.name, data: body.data });
+        return { ok: true };
+    }
+    if (path === '/api/worldinfo/delete') {
+        if (typeof body.name !== 'string' || !body.name.trim()) throw new Error('世界书名称必须是非空字符串');
+        const deleted = await requestWorldbook('worldbook.delete', { name: body.name });
+        if (!deleted) throw new Error(`World info file ${body.name}.json doesn't exist.`);
+        return { ok: true };
+    }
+    if (!['/api/characters/get', '/api/settings/get'].includes(path)) throw new Error(`未适配宿主资源路径：${path}`);
     await persistWorkspaceNow();
     const [assets, workspace] = await readSavedResources();
     if (path === '/api/characters/get') {
@@ -52,13 +73,8 @@ export async function requestNativeResource(path: string, body: Record<string, a
         if (!card) throw new Error('找不到已保存的角色');
         return rawCharacter(card);
     }
-    const books = [...new Map([...assets.lorebooks, ...assets.characters.flatMap(card => card.characterBook ?? card.embeddedLorebook ?? [])].map(book => [book.id, book])).values()];
-    if (path === '/api/worldinfo/get') {
-        const book = books.find(book => book.name === body.name);
-        if (!book) throw new Error('找不到已保存的世界书');
-        return { ...serializeLorebook(book), entries: Object.fromEntries(book.entries.map(entry => [entry.uid, toNativeWorldbookEntry(entry)])) };
-    }
+    const worldNames = [...new Set(allWorldbooks().map(book => book.name))];
     const charLore = assets.characters.map(card => ({ name: characterAvatarId(card).replace(/\.[^/.]+$/, ''),
         extraBooks: workspace.characterWorldbookBindings?.[card.id]?.additional ?? card.additionalWorldbooks ?? [] }));
-    return { world_names: [...new Set(books.map(book => book.name))], settings: JSON.stringify({ world_info_settings: { world_info: { charLore } } }) };
+    return { world_names: worldNames, settings: JSON.stringify({ world_info_settings: { world_info: { charLore } } }) };
 }

@@ -10,8 +10,9 @@ import { applyAppearanceStyle, wallpaperStyle } from './appearance-style';
 import { ShellArt, ShellBrand, ShellPartIcon, ShellWidget } from './appearance-shell';
 
 export type PreviewPage = 'chat' | 'library' | 'settings' | 'empty' | 'startup';
-export function AppearancePreview({ skin, css, device, page, layout, onSelect }: { skin: Appearance; css: string; device: Device;
-    page: PreviewPage; layout?: Layout; onSelect: (id: string) => void }) {
+export type PreviewReadingTypography = { fontSizePx: number; lineHeight: number; textIndentEm: number };
+export function AppearancePreview({ skin, css, device, page, layout, reading, onSelect }: { skin: Appearance; css: string; device: Device;
+    page: PreviewPage; layout?: Layout; reading?: PreviewReadingTypography; onSelect: (id: string) => void }) {
     const frame = useRef<HTMLIFrameElement>(null);
     const stage = useRef<HTMLDivElement>(null);
     const [target, setTarget] = useState<HTMLElement>();
@@ -27,7 +28,15 @@ export function AppearancePreview({ skin, css, device, page, layout, onSelect }:
         const observer = new ResizeObserver(measure); measure(); observer.observe(el);
         return () => observer.disconnect();
     }, []);
-    useLayoutEffect(() => { if (target) applyAppearanceStyle(target.ownerDocument, css); }, [target, css]);
+    useLayoutEffect(() => {
+        if (!target) return;
+        applyAppearanceStyle(target.ownerDocument, css);
+        if (!reading) return;
+        const root = target.ownerDocument.documentElement;
+        root.style.setProperty('--ti-font-size', `${reading.fontSizePx}px`);
+        root.style.setProperty('--ti-line-height', String(reading.lineHeight));
+        root.style.setProperty('--ti-text-indent', reading.textIndentEm ? `${reading.textIndentEm}em` : '0');
+    }, [target, css, reading]);
     const onLoad = () => { const doc = frame.current?.contentDocument; if (doc) setTarget(doc.body); };
     const placed = placements(skin, device, layout);
     const control = (area: Area) => placed[area].map(id => {
@@ -61,7 +70,7 @@ export function AppearancePreview({ skin, css, device, page, layout, onSelect }:
             <main className={`ttm-center-stage${tab === 'chat' ? ' is-mobile-active' : ''}`}><header className="ttm-conversation-header" data-ti-shell="conversation"><div className="ttm-conversation-person" data-ti-part="conversation-title"><Icon name="book" /><div><h2 data-ti-type="heading">{page === 'empty' ? textOf(skin, 'name') : '长夜电台'}</h2><p>24 条消息</p></div></div><div className="ttm-conversation-actions" data-ti-area="conversation">{control('conversation')}</div></header>
                 <div className={`ttm-reading-viewport${paper && page !== 'empty' ? ' ttm-skin-story-surface' : ''}`} data-ti-protected={page !== 'empty' ? '' : undefined}>
                     {page === 'empty' ? <section className="ttm-start-page" data-ti-shell="empty"><span className="ttm-welcome-mark" data-ti-part="welcome-art" onClick={() => onSelect('welcome')}><ShellArt skin={skin} id="welcome" fallback={<Icon name="book" width={56} height={56} />} /></span><h2 data-ti-type="heading">{textOf(skin, 'empty')}</h2><button type="button" className="ttm-btn-primary" data-ti-part="import" onClick={() => onSelect('import')}>{textOf(skin, 'import')}</button></section> :
-                        <div className="ttm-chat-stream"><article className="ttm-msg-card is-user"><header className="ttm-msg-header">你 · #22</header><div className="ttm-msg-bubble ttm-msg-prose">我推开电台的门，听见了海的声音。</div></article><article className="ttm-msg-card is-assistant"><header className="ttm-msg-header">电台守夜人 · #23</header><div className="ttm-msg-bubble ttm-msg-prose">窗边的收音机还亮着。他放低音量，把那封信推到了你面前。</div></article></div>}
+                        <div className="ttm-chat-stream"><article className="ttm-msg-card is-user"><header className="ttm-msg-header">你 · #22</header><div className="ttm-msg-bubble ttm-msg-prose"><p>我推开电台的门，听见了海的声音。</p></div></article><article className="ttm-msg-card is-assistant"><header className="ttm-msg-header">电台守夜人 · #23</header><div className="ttm-msg-bubble ttm-msg-prose"><p>窗边的收音机还亮着。他放低音量，把那封信推到了你面前。</p></div></article></div>}
                 </div>
                 {page !== 'empty' && <footer className="ttm-composer"><div className="ttm-composer-quickbar" data-ti-shell="composer-controls" data-ti-area="toolbar">{control('toolbar')}<button type="button" data-ti-part="more" className="ttm-chip-btn" aria-expanded={tools} onClick={() => setTools(!tools)}><ShellArt skin={skin} id="more" fallback={<Icon name="more" />} />{textOf(skin, 'more')}</button></div>
                 <div className="ttm-composer-tools" data-ti-shell="composer-controls" data-ti-part="more-panel" hidden={!tools}><div className="ttm-composer-quickbar" data-ti-area="more">{control('more')}</div></div>

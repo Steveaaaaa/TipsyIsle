@@ -90,10 +90,11 @@ export const BUILTIN_THEME_PRESETS: ThemePresetPackage[] = [
             fontFamilyMono: "'JetBrains Mono', monospace",
             fontSizePx: 16.5,
             lineHeight: 1.92,
+            textIndentEm: 2,
             chatMaxWidthPx: 820,
             portraitPlacement: 'right-standing',
         },
-        scopedCustomCss: `.ttm-msg-prose p { text-indent: 2em; margin-bottom: 0.85em; }`,
+        scopedCustomCss: `.ttm-msg-prose p { margin-bottom: 0.85em; }`,
     },
     {
         id: 'galgame-stage',
@@ -234,6 +235,7 @@ export function applyThemeToDocument(state: ThemeEngineState = themeEngineStore.
     root.style.setProperty('--ti-font-mono', tokens.fontFamilyMono);
     root.style.setProperty('--ti-font-size', `${tokens.fontSizePx}px`);
     root.style.setProperty('--ti-line-height', String(tokens.lineHeight));
+    root.style.setProperty('--ti-text-indent', tokens.textIndentEm ? `${tokens.textIndentEm}em` : '0');
     root.style.setProperty('--ti-chat-max-width', `${tokens.chatMaxWidthPx}px`);
     // Theme only the presentation. Existing presets and user token values remain intact.
     const scheme = readingColorScheme(tokens.bgPrimary);
@@ -303,8 +305,12 @@ export function selectThemePreset(presetId: string): void {
 }
 
 export function updateThemeToken<K extends keyof ThemeDesignTokens>(key: K, value: ThemeDesignTokens[K]): void {
+    updateThemeTokens({ [key]: value });
+}
+
+export function updateThemeTokens(patch: Partial<ThemeDesignTokens>): void {
     themeEngineStore.setState((draft) => {
-        draft.tokens[key] = value;
+        Object.assign(draft.tokens, patch);
     });
     persistThemeState();
 }
