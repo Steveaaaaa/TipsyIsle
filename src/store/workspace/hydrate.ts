@@ -34,6 +34,7 @@ export async function hydrateWorkspaceFromPlatform(preview = true): Promise<void
             draft.branchEpoch = saved.branchEpoch ?? 0;
             draft.sessionKind = saved.sessionKind ?? 'character';
             draft.freeChat = saved.freeChat;
+            draft.storyChatTitle = saved.storyChatTitle;
             draft.storyImportFingerprint = saved.storyImportFingerprint;
             draft.portableStory = saved.portableStory;
             draft.chatMetadata = saved.chatMetadata;

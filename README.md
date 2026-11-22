@@ -12,13 +12,13 @@ We want this to become the place every AIRP player can eventually call home. Som
 
 **A beautiful interface draws you in. Stories, freedom, and a community with room to grow give you reasons to stay.**
 
-**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.2](docs/releases/1.1.2.en.md) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
+**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.3](docs/releases/1.1.3.en.md) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
 
-## New in 1.1.2
+## New in 1.1.3
 
-- **Get help without piecing together screenshots.** Export a local diagnostic report from an error notification or from Settings. You decide whether to share it with the developers.
-- **Bring more of a creator's interface with you.** The compatibility layer supports more of the dialogs that cards and presets use, including prompts and image cropping.
-- **Connect and read with fewer interruptions.** Model discovery supports HTTP-only services on custom ports, and dialogue now stands out in ordinary prose, including lines in `「…」`.
+- **More reliable MVU variable updates and status panels.** Fixed variable macro scoping during worldbook scanning, opening swipe variable restoration, and status placeholder rendering so MVU dialogue updates and frontends stay in sync.
+- **Built-in Regex and TavernHelper Script managers.** View, toggle, add, edit, reorder, delete, and import/export JSON across Global, Preset, and Character scopes.
+- **Easier story conversation management.** Search, rename, and bulk-delete story conversations while keeping conversation titles across LAN sync.
 
 ## Why make the move?
 

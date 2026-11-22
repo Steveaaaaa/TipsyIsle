@@ -3,7 +3,7 @@ import type { NormalizedCharacterCard, RegexScriptRule } from '../types';
 
 /** A script inside a regex widget can need the host even without Helper scripts. */
 export function messageNeedsAuthorHost(source: string): boolean {
-    return /\b(?:parent|top)\s*\.\s*(?:document\b|SillyTavern\b|TavernHelper\b|jQuery\b|\$)|\b(?:SillyTavern|TavernHelper)\s*\.|\b(?:getChatMessages|setChatMessages?|triggerSlash(?:WithResult)?|executeSlashCommands(?:WithOptions)?)\s*\(|#send_textarea\b/.test(source);
+    return /\b(?:parent|top)\s*\.\s*(?:document\b|SillyTavern\b|TavernHelper\b|jQuery\b|\$|Mvu\b)|\b(?:SillyTavern|TavernHelper|Mvu)\s*\.|\b(?:getChatMessages|setChatMessages?|triggerSlash(?:WithResult)?|executeSlashCommands(?:WithOptions)?|waitGlobalInitialized|initializeGlobal|getVariables|getAllVariables|replaceVariables|updateVariablesWith|insertOrAssignVariables|insertVariables|deleteVariable|registerVariableSchema|registerMvuSchema|eventOn|eventOnce|eventMakeFirst|eventMakeLast|eventEmit(?:AndWait)?|tavern_events|iframe_events|getCurrentMessageId|getCurrentChatId|getLastMessageId|getWorldbook|replaceWorldbook|updateWorldbookWith|substitudeMacros|formatAsTavernRegexedString)\s*\(|\b(?:tavern_events|iframe_events)\s*\.|#send_textarea\b/.test(source);
 }
 
 const ruleNeedsHost = new WeakMap<RegexScriptRule, boolean>();

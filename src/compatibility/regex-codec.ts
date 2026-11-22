@@ -9,10 +9,14 @@ export function toTavernRegex(rule: RegexScriptRule) {
         destination: { display: !!rule.markdownOnly, prompt: !!rule.promptOnly }, run_on_edit: !!rule.runOnEdit,
         min_depth: rule.minDepth ?? null, max_depth: rule.maxDepth ?? null };
 }
-export function fromTavernRegexes(values: any[], previous: RegexScriptRule[] = []): RegexScriptRule[] {
+export function fromTavernRegexes(values: any[], previous: RegexScriptRule[] = [], allowRawPresetRules = false): RegexScriptRule[] {
     if (!Array.isArray(values)) throw new Error('正则列表必须为数组');
     const old = new Map(previous.map(rule => [rule.id, rule]));
     return normalizeRegexScripts(values.map(value => {
+        // Preset writes in Tavern Helper also accept raw SillyTavern rules.
+        if (allowRawPresetRules && typeof value?.findRegex === 'string' && typeof value.replaceString === 'string') {
+            return { ...value, id: value.id || crypto.randomUUID() };
+        }
         if (!value || typeof value.find_regex !== 'string' || typeof value.replace_string !== 'string') throw new Error('正则需要 find_regex 和 replace_string 字符串');
         const prior = old.get(value.id);
         return { ...prior?.rawData, id: value.id || crypto.randomUUID(), scriptName: value.script_name || `未命名-${value.id ?? ''}`,

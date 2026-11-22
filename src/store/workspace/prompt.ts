@@ -146,10 +146,11 @@ export function createPromptAssemblyInput(injections: PromptInjection[] = [], cl
         maxRecursionSteps: Number(schemaValues['lorebook.max_recursion_steps'] ?? 4),
         injections,
         mvuWarnings: mvu.warnings,
-        ...(mvu.settings['mvu.mode'] === '额外模型解析' ? { mvuWorldbookFilter: { primary: binding.primary,
+        mvuWorldbookFilter: { primary: binding.primary,
             character: [binding.primary, ...binding.additional].filter((name): name is string => !!name),
             whitelist: String(mvu.settings['mvu.whitelist'] ?? ''), blacklist: String(mvu.settings['mvu.blacklist'] ?? ''),
-            characterWhitelist: String(mvu.settings['mvu.character_whitelist'] ?? ''), characterBlacklist: String(mvu.settings['mvu.character_blacklist'] ?? '') } } : {}),
+            characterWhitelist: String(mvu.settings['mvu.character_whitelist'] ?? ''), characterBlacklist: String(mvu.settings['mvu.character_blacklist'] ?? ''),
+            inlineMode: mvu.settings['mvu.mode'] !== '额外模型解析' },
     };
     const sources = [state.storyWorldbooks, state.storyCharacter, state.storyPersona, state.storyCharacterBinding, state.characters, state.lorebooks, preset, state.activeChatId, state.activeLorebookIds,
         state.characterWorldbookBindings, state.chatWorldbookBindings, state.userName, state.personas, state.activePersonaId,

@@ -98,10 +98,23 @@ export function validateStoryCharacterJson(text: string): void {
     }
 }
 
-export function classifyLibraryJson(raw: Record<string, unknown>) {
-    if (typeof raw.name === 'string' && Array.isArray(raw.qrList)) return { kind: 'quick-reply', name: raw.name, replies: raw.qrList } as const;
-    if (Array.isArray(raw.prompts) || Array.isArray(raw.prompt_order)) return { kind: 'preset' } as const;
-    if (raw.entries && !raw.data && !raw.first_mes) return { kind: 'worldbook' } as const;
+export function classifyLibraryJson(raw: unknown) {
+    if (Array.isArray(raw)) {
+        if (raw.length > 0 && raw.every(item => item && typeof item === 'object' && (typeof (item as any).findRegex === 'string' || typeof (item as any).find_regex === 'string'))) {
+            return { kind: 'regex' } as const;
+        }
+        if (raw.length > 0 && raw.every(item => item && typeof item === 'object' && ((item as any).type === 'script' || (item as any).type === 'folder' || (typeof (item as any).content === 'string' && typeof (item as any).name === 'string' && ('button' in item || 'info' in item || 'enabled' in item))))) {
+            return { kind: 'tavern-script' } as const;
+        }
+    }
+    const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    if (typeof obj.findRegex === 'string' || typeof obj.find_regex === 'string') return { kind: 'regex' } as const;
+    if (obj.type === 'script' || obj.type === 'folder' || (typeof obj.content === 'string' && typeof obj.name === 'string' && ('button' in obj || 'info' in obj || 'enabled' in obj) && !('prompts' in obj) && !('entries' in obj))) {
+        return { kind: 'tavern-script' } as const;
+    }
+    if (typeof obj.name === 'string' && Array.isArray(obj.qrList)) return { kind: 'quick-reply', name: obj.name, replies: obj.qrList } as const;
+    if (Array.isArray(obj.prompts) || Array.isArray(obj.prompt_order)) return { kind: 'preset' } as const;
+    if (obj.entries && !obj.data && !obj.first_mes) return { kind: 'worldbook' } as const;
     return { kind: 'character' } as const;
 }
 

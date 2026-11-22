@@ -926,6 +926,7 @@ const context = () => {
             await request('legacy.finishOpening');
             return;
         }
+        if (chat.length === 1 && snapshot.messages[0]?.extra?.tipsy_mvu_initialization_pending) await initializeMvuSession();
         await helper.builtin.reloadChatWithoutEvents();
         await emit(events.CHAT_CHANGED, snapshot.session);
     },
@@ -1313,6 +1314,7 @@ const helper: Record<string, any> = {
         const card = catalog.characters.find(card => option.character_name ? [card.name, card.id, card.avatar].includes(option.character_name) : card.id === snapshot.character.id);
         const rules = orderedRegexScripts(catalog.global, catalog.inUse, card?.rules);
         const macro = { userName: snapshot.userName, charName: card?.name ?? snapshot.character.name, variables: metadata.variables, globalVariables: snapshot.scopes.global,
+            variableScopes: { ...snapshot.scopes, chat: metadata.variables, message: chat.at(-1)?.variables?.[chat.at(-1)?.swipe_id] ?? {} },
             lastMessageId: chat.length - 1, lastMessage: chat.at(-1)?.mes };
         return evaluateMacros(applyRegexScripts(text, rules, { stage: source, role: source === 'user_input' ? 'user' : source === 'ai_output' ? 'assistant' : 'system',
             isPrompt: destination === 'prompt', isMarkdown: destination === 'display', depth: option.depth, ignoreDepth: option.depth === undefined, macroContext: macro }), macro);
@@ -1329,13 +1331,20 @@ const helper: Record<string, any> = {
         return { variables: value, delete_occurred };
     },
     getChatMessages,
-    setChatMessage: (message: string, floor: any, options: any = {}) => {
+    setChatMessage: async (message: string | { message?: string; data?: Record<string, any> }, floor: any = chat.length - 1, options: any = {}) => {
         if (transaction) throw new Error('MVU 结算期间请通过 BEFORE_MESSAGE_UPDATE 修改正文');
-        return track(request('chat.setMessage', { message, floor, options }));
+        const result = await track(request('chat.setMessage', { message, floor, options }));
+        if (chat.length === 1 && snapshot.messages[0]?.extra?.tipsy_mvu_initialization_pending) await initializeMvuSession();
+        const resolvedFloor = floor === undefined ? chat.length - 1 : Number(floor) < 0 ? chat.length + Number(floor) : Number(floor);
+        if (options.refresh === 'display_and_render_current' && Number.isInteger(resolvedFloor) && chat[resolvedFloor]) {
+            await emit(chat[resolvedFloor].role === 'user' ? events.USER_MESSAGE_RENDERED : events.CHARACTER_MESSAGE_RENDERED, resolvedFloor);
+        }
+        return result;
     },
     setChatMessages: async (messages: any[], options: any = {}) => {
         if (transaction) throw new Error('MVU 结算期间请通过 BEFORE_MESSAGE_UPDATE 修改正文');
         const affected = await track(request('chat.setMessages', { messages, options }));
+        if (chat.length === 1 && snapshot.messages[0]?.extra?.tipsy_mvu_initialization_pending) await initializeMvuSession();
         await refreshHelperMessages(affected, options.refresh);
     },
     createChatMessages: async (messages: any[], options: any = {}) => {
@@ -1627,7 +1636,8 @@ function mvuInitialBooks() {
 }
 function mvuInitialMacros(text: string) {
     return evaluateMacros(text, { userName: snapshot.userName, charName: snapshot.character.name,
-        variables: structuredClone(metadata.variables), globalVariables: structuredClone(snapshot.scopes.global) });
+        variables: structuredClone(metadata.variables), globalVariables: structuredClone(snapshot.scopes.global),
+        variableScopes: { ...snapshot.scopes, chat: metadata.variables, message: chat.at(-1)?.variables?.[chat.at(-1)?.swipe_id] ?? {} } });
 }
 async function initializeNewMvuBindings(): Promise<void> {
     const current = currentVariables();
@@ -1725,6 +1735,7 @@ async function settle(text: string, before: Record<string, any>, emitEnded: bool
             lastMessage: chat.at(-1)?.mes, lastUserMessage: [...chat].reverse().find(message => message.is_user)?.mes,
             lastCharMessage: [...chat].reverse().find(message => !message.is_user)?.mes,
             variables: macroChat, globalVariables: macroGlobals,
+            variableScopes: { ...snapshot.scopes, chat: macroChat, message: next, global: macroGlobals },
             onSetVariable: () => replaceVariables(macroChat, { type: 'chat' }),
             onSetGlobalVariable: () => replaceVariables(macroGlobals, { type: 'global' }) });
         const plan = readMvuCommands(processedText);

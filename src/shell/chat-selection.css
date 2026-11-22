@@ -1,0 +1,81 @@
+.ttm-asset-dialog[data-dialog-surface='sheet'] {
+    inset: auto 0 0;
+    margin-inline: auto;
+    width: min(100%, 580px);
+    height: min(76dvh, 660px);
+    max-height: 100dvh;
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0;
+}
+.ttm-asset-dialog[data-dialog-surface='sheet'] > .ttm-asset-dialog-heading { padding-inline: 16px 10px; }
+.ttm-asset-dialog[data-dialog-surface='sheet'] > .ttm-asset-dialog-heading button { min-width: 48px; min-height: 48px; }
+.ttm-asset-dialog[data-dialog-surface='sheet'] > .ttm-asset-dialog-content { display: flex; flex-direction: column; padding: 0 0 env(safe-area-inset-bottom); }
+.ttm-story-chat-controls { padding: 8px 12px 10px; border-bottom: 1px solid var(--ti-border); }
+.ttm-story-chat-tools { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.ttm-story-chat-tools button { min-height: 48px; padding-inline: 8px; white-space: nowrap; }
+.ttm-story-chat-search { position: relative; display: block; }
+.ttm-story-chat-search > svg { position: absolute; inset-inline-start: 12px; top: 50%; transform: translateY(-50%); color: var(--ti-text-muted); pointer-events: none; }
+.ttm-story-chat-search input.ttm-text-input { width: 100%; min-height: 48px; padding-inline-start: 38px; }
+.ttm-story-chat-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 8px 12px; }
+.ttm-story-chat-entries { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.ttm-story-chat-entries li { display: flex; min-width: 0; align-items: center; border-radius: 8px; padding-inline-end: 2px; }
+.ttm-story-chat-entries li.is-current, .ttm-chat-check:has(input:checked) { background: var(--ti-selection); }
+.ttm-story-chat-entries li:hover:not(.is-current) { background: var(--ti-soft); }
+.ttm-story-chat-row { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; min-height: 62px; padding: 8px 10px; border: 0; border-radius: inherit; background: transparent; color: var(--ti-text-primary); font: inherit; text-align: start; cursor: pointer; }
+.ttm-story-chat-row > svg { flex: none; color: var(--ti-accent); }
+.ttm-story-chat-text { flex: 1; display: grid; gap: 3px; min-width: 0; }
+.ttm-story-chat-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ttm-story-chat-title strong, .ttm-story-chat-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ttm-story-chat-title strong { font-size: 14px; }
+.ttm-story-chat-text small, .ttm-story-chat-meta { font-size: 12px; color: var(--ti-text-muted); }
+.ttm-story-chat-meta { display: flex; align-items: center; max-width: 42%; gap: 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ttm-story-chat-meta small { font: inherit; }
+.ttm-story-chat-meta small:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ttm-story-chat-current { flex: none; color: var(--ti-accent); font-size: 11px; }
+.ttm-story-chat-entries .ttm-asset-more { flex: none; width: 48px; height: 48px; color: var(--ti-text-muted); }
+.ttm-chat-check input { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--ti-accent); }
+.ttm-chat-selection-bar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--ti-border); flex: none; }
+.ttm-chat-selection-bar > span { margin-inline-end: auto; font-size: 13px; color: var(--ti-text-muted); }
+.ttm-chat-selection-bar button { min-height: 48px; padding-inline: 8px; white-space: nowrap; }
+.ttm-chat-confirm { display: grid; gap: 10px; }
+.ttm-chat-confirm p, .ttm-chat-dialog-error { margin: 0; }
+.ttm-chat-confirm ul { display: grid; gap: 7px; max-height: min(34dvh, 240px); overflow: auto; margin: 0; padding: 8px 0; border-block: 1px solid var(--ti-border); list-style: none; }
+.ttm-chat-confirm li { min-width: 0; overflow-wrap: anywhere; }
+.ttm-chat-confirm li small { display: block; color: var(--ti-text-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ttm-chat-confirm .ttm-editor-actions button { min-height: 48px; }
+.ttm-chat-dialog-error { color: var(--ti-danger); overflow-wrap: anywhere; }
+.ttm-conversation-actions .ttm-story-chat-trigger { display: inline-flex; align-items: center; gap: 4px; min-width: 48px; min-height: 48px; padding-inline: 5px; white-space: nowrap; }
+.ttm-story-chat-trigger[aria-expanded='true'] { background: var(--ti-selection); color: var(--ti-accent); }
+.ttm-story-chat-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    min-height: 0;
+    max-height: min(52dvh, 480px);
+    overflow: hidden;
+    border-bottom: 1px solid var(--ti-border);
+    background: var(--ti-bg-surface);
+}
+.ttm-story-chat-panel > * { width: min(100%, 920px); margin-inline: auto; }
+.ttm-story-chat-heading { display: flex; justify-content: space-between; align-items: center; flex: none; padding: 9px 20px 4px; }
+.ttm-story-chat-heading h3 { margin: 0; font-size: 16px; line-height: 1.4; }
+.ttm-story-chat-panel .ttm-story-chat-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 4px 20px 10px; }
+.ttm-story-chat-panel .ttm-story-chat-search { flex: 1 1 200px; }
+.ttm-story-chat-panel .ttm-story-chat-tools { margin: 0; }
+.ttm-story-chat-panel .ttm-story-chat-tools button,
+.ttm-story-chat-panel .ttm-story-chat-search input.ttm-text-input,
+.ttm-story-chat-panel .ttm-chat-selection-bar button { min-height: 38px; }
+.ttm-story-chat-panel .ttm-chat-dialog-error { flex-basis: 100%; }
+.ttm-story-chat-panel .ttm-story-chat-scroll { padding: 4px 20px 8px; scrollbar-color: var(--ti-border) transparent; }
+.ttm-story-chat-panel .ttm-story-chat-entries .ttm-asset-more { width: 38px; height: 38px; }
+.ttm-story-chat-panel .ttm-story-chat-row { min-height: 52px; }
+.ttm-story-chat-panel .ttm-chat-selection-bar { padding-inline: 20px; }
+@media (max-width: 1024px) {
+    .ttm-story-chat-row { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 3px 10px; }
+    .ttm-story-chat-row > :first-child { grid-row: 1 / span 2; }
+    .ttm-story-chat-meta { grid-column: 2; max-width: 100%; gap: 6px; font-size: 11px; }
+    .ttm-story-chat-tools { margin: 4px 0 0; }
+}
+@media (max-height: 620px) and (min-width: 1025px) {
+    .ttm-story-chat-panel { max-height: min(62dvh, 400px); }
+}

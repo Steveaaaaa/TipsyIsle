@@ -12,13 +12,13 @@
 
 **好看的界面是相遇的开始。值得留下的，是故事、自由，以及能一起生长的社区。**
 
-**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.2 更新日志](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.2) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
+**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.3 更新日志](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.3) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
 
-## 1.1.2 新变化
+## 1.1.3 新变化
 
-- **遇到问题，不必只靠截图。** 从错误通知或设置一键导出诊断日志，把运行环境、插件和故障线索交给开发者，帮我们更快找到问题。
-- **作者做好的互动，少一点水土不服。** 兼容层补齐了角色卡和预设会用到的弹窗接口，包括输入、确认和图片裁剪。
-- **连接更顺手，台词更醒目。** 安装版可从使用自定义端口的 HTTP 服务获取模型列表；普通正文中的引号与 `「」` 台词也更易辨认。
+- **MVU 对话更新与美化状态栏更可靠。** 修复提示词组装中 `stat_data` 变量宏求值为 `null`、开场白切页覆盖变量及缺失状态栏占位的问题，变量更新和前端状态面板正常联动。
+- **内置「正则管理」与「酒馆助手脚本管理」。** 支持全局、预设、故事三层作用域的开关、手动添加、编辑、排序、删除与 JSON 导入导出。
+- **故事会话管理更顺手。** 支持故事会话搜索、重命名与批量删除，并在局域网同步时保留会话标题。
 
 ## 为什么值得换
 

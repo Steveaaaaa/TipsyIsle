@@ -40,13 +40,13 @@ const steps: Array<GuideCue & { id: GuideStep }> = [
     { id: 'reading-colors', selector: '[data-guide="reading-colors"]', title: '换一种阅读配色', action: '切换阅读配色', paragraphs: [
         '点顶栏的太阳或月亮，就能在日间和夜间配色之间切换。现在就可以试一次。',
     ] },
-    { id: 'history', selector: '.ttm-conversation-actions [data-ti-part="history"], [aria-controls="ttm-conversation-history"]', title: '找回以前的会话', action: '打开会话与分支', paragraphs: [
-        '对话顶部的历史图标会打开「会话与分支」。在「已保存会话」选一段，点「恢复」。',
-        '还没保存过会话的话，列表会是空的。玩出不同剧情后，也可以从面板里的「故事路线」切换分支。',
+    { id: 'history', selector: '[aria-controls="ttm-story-conversations"]', title: '找回以前的会话', action: '打开故事会话', paragraphs: [
+        '点顶部的「会话」，搜索角色或会话名称。点一段就能直接接着聊。',
+        '要整理旧会话，可以点「多选」逐一勾选。要换同一段故事的分支，点「故事路线」。',
     ] },
     { id: 'story-save', selector: '[data-guide="story-save"]', title: '把走过的故事带过来', action: '导入存档', pause: true, paragraphs: [
         '已有酒馆或 TauriTavern 的聊天记录，可以从「馆藏 → 导入存档」选择 .jsonl，并关联对应的角色卡。',
-        'TipsyIsle 的 .tipsy-story 也从这里导入。想备份角色会话，在历史面板里点「故事存档 → 导出故事存档」。',
+        'TipsyIsle 的 .tipsy-story 也从这里导入。想备份角色会话，打开会话列表，点「故事存档 → 导出故事存档」。',
     ] },
     { id: 'model-chat', selector: '[data-guide="model-chat"]', title: `${freeChatName} · 和模型对话`, action: `打开${freeChatName}`, paragraphs: [
         `只想问个问题、写点东西？首页和顶栏都有「${freeChatName}」，不用选角色卡、世界书或预设。`,
@@ -91,8 +91,8 @@ export function OnboardingTour({ hasStory, hasCards, onNavigate, onFinish }: { h
     const [index, setIndex] = useState(0), [paused, setPaused] = useState(false), [dialogOpen, setDialogOpen] = useState(false);
     const [actionReady, setActionReady] = useState(false), [historyOpen, setHistoryOpen] = useState(false);
     const step = steps[index];
-    const cue = step.id === 'play' && !hasStory ? hasCards ? choosePlay : emptyPlay : step;
     const mobile = useMobileGuide();
+    const cue = step.id === 'play' && !hasStory ? hasCards ? choosePlay : emptyPlay : step;
     const navigate = useRef(onNavigate); navigate.current = onNavigate;
     const panel = useRef<HTMLElement>(null), target = useRef<HTMLElement>();
     const motion = useRef<Animation>();
@@ -162,7 +162,7 @@ export function OnboardingTour({ hasStory, hasCards, onNavigate, onFinish }: { h
         if (cue.interaction === 'focus') anchor.focus();
         else anchor.click();
     };
-    const actionLabel = step.id === 'history' && historyOpen ? '收起会话与分支' : cue.action;
+    const actionLabel = step.id === 'history' && !mobile && historyOpen ? '收起故事会话' : cue.action;
     const tip = <aside className="ttm-guide-tip" data-step={step.id} ref={panel} tabIndex={-1} role="region" aria-label="使用引导">
         <header><span>{index + 1} / {steps.length}</span><button type="button" className="ttm-btn-ghost" onClick={() => leave(onFinish)}>跳过引导</button></header>
         <div className="ttm-guide-step-copy" key={cue.title} aria-live="polite"><h2>{cue.title}</h2>{cue.paragraphs.map(paragraph => <p key={paragraph}>{paragraph}</p>)}</div>

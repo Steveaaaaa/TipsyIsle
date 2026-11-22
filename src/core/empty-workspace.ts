@@ -12,5 +12,5 @@ NO_PRESET.promptSlots!.splice(7, 0, { identifier: 'authorsNote', name: '作者�
 export function emptyStory() {
     return { sessionKind: 'character' as const, freeChat: undefined, branchEpoch: 0, chatMetadata: undefined, nativePluginRoute: undefined, branchExtensionKeys: [], deletedMessageIds: [], activeCharacterId: '', activeChatId: '', messages: [], activeLeafId: null, timedStates: {},
         templateInjections: [], templateActivations: [], lastAssembledPrompt: null,
-        storyWorldbooks: undefined, storyCharacterBinding: undefined, storyCharacter: undefined, storyPersona: undefined, storyImportFingerprint: undefined, portableStory: undefined };
+        storyWorldbooks: undefined, storyCharacterBinding: undefined, storyCharacter: undefined, storyPersona: undefined, storyChatTitle: undefined, storyImportFingerprint: undefined, portableStory: undefined };
 }

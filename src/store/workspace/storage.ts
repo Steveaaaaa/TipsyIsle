@@ -74,6 +74,7 @@ export function registerWorkspaceSnapshots() {
             activePresetId: s.activePresetId,
             inUsePreset: s.inUsePreset,
             activeChatId: s.activeChatId,
+            storyChatTitle: s.storyChatTitle,
             sessionKind: s.sessionKind,
             freeChat: s.freeChat,
             storyImportFingerprint: s.storyImportFingerprint,

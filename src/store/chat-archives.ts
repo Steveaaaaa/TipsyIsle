@@ -12,6 +12,7 @@ export interface FreeChatDetails { title?: string; model?: string; createdAt?: n
 
 export interface ArchivedChat {
     kind?: ChatSessionKind;
+    title?: string;
     freeChat?: FreeChatDetails;
     importedFrom?: string;
     deletedMessageIds?: string[];
@@ -42,6 +43,8 @@ export interface ArchivedChat {
 }
 export interface ChatArchiveSummary {
     kind?: ChatSessionKind;
+    title?: string;
+    characterName?: string;
     freeChat?: FreeChatDetails;
     importedFrom?: string;
     id: string; characterId: string; messageCount: number; activeCount: number;
@@ -55,9 +58,9 @@ let writes: Promise<unknown> = Promise.resolve();
 export function summarizeChat(chat: ArchivedChat): ChatArchiveSummary {
     const path = activePath(chat.messages, chat.activeLeafId);
     const last = path.at(-1);
-    return { id: chat.id, kind: chat.kind, freeChat: chat.freeChat, characterId: chat.characterId, importedFrom: chat.importedFrom, syncLabel: chat.syncLabel, messageCount: chat.messages.length,
+    return { id: chat.id, kind: chat.kind, title: chat.title, characterName: chat.continuation?.character?.name, freeChat: chat.freeChat, characterId: chat.characterId, importedFrom: chat.importedFrom, syncLabel: chat.syncLabel, messageCount: chat.messages.length,
         activeCount: path.length, lastMessage: last?.content ?? '', lastDate: last?.sendDate,
-        lastActivity: chat.kind === 'free' ? last?.updatedAt ?? last?.createdAt ?? chat.freeChat?.createdAt : undefined };
+        lastActivity: last?.updatedAt ?? last?.createdAt ?? chat.freeChat?.createdAt };
 }
 export async function listChatArchives(): Promise<ChatArchiveSummary[]> {
     await writes.catch(() => {});
@@ -83,9 +86,14 @@ export function publishChatArchive(chat: ArchivedChat, extras: Record<string, un
 }
 type ArchiveUpdate<T> = { chat: ArchivedChat; extras: Record<string, unknown>; result?: T; silent?: boolean };
 export function deleteChatArchive(id: string, extras: Record<string, unknown> = {}): Promise<void> {
+    return deleteChatArchives([id], extras);
+}
+export function deleteChatArchives(ids: readonly string[], extras: Record<string, unknown> = {}): Promise<void> {
+    const removed = new Set(ids);
     const job = writes.catch(() => {}).then(async () => {
         const index = await platformStorage.loadSnapshot<ChatArchiveSummary[]>(indexKey, []);
-        await platformStorage.saveSnapshots({ ...extras, [indexKey]: index.filter(item => item.id !== id), [chatKey(id)]: null });
+        await platformStorage.saveSnapshots({ ...extras, [indexKey]: index.filter(item => !removed.has(item.id)),
+            ...Object.fromEntries([...removed].map(id => [chatKey(id), null])) });
     });
     writes = job;
     return job;

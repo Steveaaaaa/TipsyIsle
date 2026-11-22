@@ -151,9 +151,22 @@ export class TemplateRuntime {
             lastMessage: this.input.messages.at(-1)?.content,
             lastUserMessage: this.input.macroLastUserMessage ?? [...this.input.messages].reverse().find(message => message.role === 'user')?.content,
             lastCharMessage: [...this.input.messages].reverse().find(message => message.role === 'assistant')?.content,
-            variableScopes: this.macroScopes(),
+            variableScopes: this.variableScopes(),
             onSetVariable: this.environment.isDryRun ? undefined : this.recordLocalChange,
             onSetGlobalVariable: this.environment.isDryRun ? undefined : (key: string, value: unknown) => { this.globalChanges[key] = value; },
+        };
+    }
+    variableScopes() {
+        const node = this.message(this.currentMessageId);
+        const currentMessage = node ? this.swipeVariables[node.id]?.[this.currentSwipeIndex ?? node.activeSwipeIndex] : undefined;
+        const message = currentMessage && Object.keys(currentMessage).length > 0 ? currentMessage : this.findVariables();
+        const preset = this.input.preset.rawData as any;
+        return {
+            global: this.globals,
+            chat: this.localVariables,
+            message: message ?? {},
+            character: (this.input.character.extensions?.tavern_helper as any)?.variables ?? {},
+            preset: preset?.extensions?.tavern_helper?.variables ?? {},
         };
     }
     prepare(raw: string, depth = 0, role: 'system' | 'user' | 'assistant' = 'system', stage: RegexPlacementStage = 'prompt', importedRegexApplied = false): string {
@@ -181,14 +194,6 @@ export class TemplateRuntime {
             onSetVariable: this.environment.isDryRun ? undefined : this.recordLocalChange,
             onSetGlobalVariable: this.environment.isDryRun ? undefined : (key: string, value: unknown) => { this.globalChanges[key] = value; },
         })).join('');
-    }
-    private macroScopes() {
-        const node = this.message(this.currentMessageId);
-        const preset = this.input.preset.rawData as any;
-        return { global: this.globals, chat: this.localVariables,
-            message: node ? this.swipeVariables[node.id]?.[this.currentSwipeIndex ?? node.activeSwipeIndex] ?? {} : {},
-            character: (this.input.character.extensions?.tavern_helper as any)?.variables ?? {},
-            preset: preset?.extensions?.tavern_helper?.variables ?? {} };
     }
     hostEvent(name: string, ...args: any[]): Promise<void> {
         return this.input.templatePreview ? Promise.resolve() : this.hooks.event?.(name, ...args) ?? Promise.resolve();
@@ -855,7 +860,7 @@ export class TemplateRuntime {
             order: entry.order, uid: Number(entry.uid) }));
     }
     selectActivatedEntries = <T extends TemplateWorldInfo>(entries: T[], keywords: string | string[], condition: WorldInfoQueryCondition = {}) => queryTemplateWorldInfo(entries, keywords, condition,
-        text => evaluateMacros(text, { userName: this.input.userName, charName: this.input.character.name, variables: structuredClone(this.variables), globalVariables: structuredClone(this.globals) }),
+        text => evaluateMacros(text, { userName: this.input.userName, charName: this.input.character.name, variables: structuredClone(this.variables), globalVariables: structuredClone(this.globals), variableScopes: this.variableScopes() }),
         { caseSensitive: this.input.worldinfoSettings?.case_sensitive, matchWholeWords: this.input.worldinfoSettings?.match_whole_words, useGroupScoring: this.input.worldinfoSettings?.use_group_scoring });
     async injectionEntries(): Promise<LorebookEntry[]> {
         if (!this.features.enabled || !this.features.generate_enabled || !this.features.inject_loader_enabled) return [];
@@ -968,7 +973,7 @@ export class TemplateRuntime {
         const source = template ?? `<${card.name}>\n${card.systemPrompt ? `System: ${card.systemPrompt}\n` : ''}name: ${card.name}\n${card.personality ? `personality: ${card.personality}\n` : ''}${card.description ? `description: ${card.description}\n` : ''}${card.mesExample ? `example:\n${define.message_example}\n` : ''}${card.depthPrompt?.prompt ? `System: ${card.depthPrompt.prompt}\n` : ''}</${card.name}>`;
         return evaluateMacros(await this.render(source, `getchar:${card.id}`, {},
             { ...invocation, data: { ...invocation.data, ...data, ...define, chara_name: card.name } }),
-            { userName: this.input.userName, charName: card.name, variables: this.variables, globalVariables: this.globals });
+            { userName: this.input.userName, charName: card.name, variables: this.variables, globalVariables: this.globals, variableScopes: this.variableScopes() });
     };
     getprp = async (name: string | RegExp, data: Record<string, unknown> = {}, invocation = this.invocation()) => {
         const expression = name instanceof RegExp ? name : new RegExp(name);
@@ -1191,7 +1196,7 @@ export class TemplateRuntime {
                 getPromptsInjected: this.injections.get, hasPromptsInjected: this.injections.has,
                 activateRegex: (...args: Parameters<TemplateRegexRegistry['activate']>) => { this.hooks.assertWritable?.(); return this.regex.activate(...args); },
                 execute: this.executeCommand,
-                substitute: (text: string) => evaluateMacros(text, { userName: this.input.userName, charName: this.input.character.name, variables: this.variables }),
+                substitute: (text: string) => evaluateMacros(text, { userName: this.input.userName, charName: this.input.character.name, variables: this.variables, globalVariables: this.globals, variableScopes: this.variableScopes() }),
             };
             for (const [suffix, scope] of [['Local', 'local'], ['Global', 'global'], ['Message', 'message']] as const) {
                 locals[`inc${suffix}Var`] = (key: string, value = 1, options: Record<string, unknown> = {}) => this.incvar(key, value, { ...options, outscope: scope });

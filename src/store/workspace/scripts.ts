@@ -30,6 +30,11 @@ export function replaceWorkspaceScriptTrees(values: any[], type: ScriptScope, no
         const card = draft.storyCharacter;
         const helper = (card.extensions?.tavern_helper ?? card.extensions?.TavernHelper ?? {}) as object;
         card.extensions = { ...card.extensions, tavern_helper: { ...helper, scripts: trees } };
+        const libraryCard = draft.characters.find(item => item.id === card.id);
+        if (libraryCard) {
+            const libHelper = (libraryCard.extensions?.tavern_helper ?? libraryCard.extensions?.TavernHelper ?? {}) as object;
+            libraryCard.extensions = { ...libraryCard.extensions, tavern_helper: { ...libHelper, scripts: trees } };
+        }
     });
     else if (type === 'preset') {
         const current = getActivePreset();
@@ -38,6 +43,11 @@ export function replaceWorkspaceScriptTrees(values: any[], type: ScriptScope, no
             const preset = draft.inUsePreset;
             const extensions = preset.rawData?.extensions as any ?? {};
             preset.rawData = { ...preset.rawData, extensions: { ...extensions, tavern_helper: { ...extensions.tavern_helper, scripts: trees } } };
+            const listPreset = draft.presets.find(item => item.id === preset.id);
+            if (listPreset) {
+                const listExt = listPreset.rawData?.extensions as any ?? {};
+                listPreset.rawData = { ...listPreset.rawData, extensions: { ...listExt, tavern_helper: { ...listExt.tavern_helper, scripts: trees } } };
+            }
         });
     } else throw new Error(`未知脚本作用域：${type}`);
 }

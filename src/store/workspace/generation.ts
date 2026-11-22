@@ -26,7 +26,7 @@ import { applyNativeContributions } from '../../plugins/native/prompt';
 import { tavernEventBus } from '../../sandbox/event-bus';
 import { commandCompatibilityRuntime, publishNativeGenerationProgress, requireCompatibilityRouteReady, saveCompatibilityBeforeRouteChange } from '../../compatibility/runtime-client';
 import type { VariableWrite } from '../../compatibility/contracts';
-import { readMvuCommands, settleMvuWithoutScripts } from '../../pipeline/mvu-commands';
+import { readMvuCommands, settleMvuWithoutScripts, formatMvuMessageContent } from '../../pipeline/mvu-commands';
 import type { AssembledPromptResult, ChatMessageNode } from '../../types';
 import type { AssemblePromptInput } from '../../pipeline/prompt-assembler';
 import { enqueuePersistentOperation, waitForReplicaCommit } from '../persistence';
@@ -102,13 +102,15 @@ export async function reprocessLastMvuMessage(extraModel = false): Promise<strin
         const variables = result.variables ?? await settleMvuWithoutScripts(before, evaluateMacros(content, {
             userName: state.userName, charName: getActiveCharacter(state).name, variables: structuredClone(before) }),
             (command, error) => setStatusBanner(`MVU 命令 ${command.full_match}：${error instanceof Error ? error.message : String(error)}`));
+        const hasMvuData = Object.hasOwn(before, 'stat_data') || Object.hasOwn(variables, 'stat_data');
+        const messageContent = result.messageContent ?? formatMvuMessageContent(content, hasMvuData);
         controller.signal.throwIfAborted();
         const current = getActiveChatMessages().at(-1)!;
         await commitMvuMessage({ session: state.activeChatId, id: target.id, swipe: target.activeSwipeIndex, content: current.content },
             { variables, writes: result.writes });
         workspaceStore.setState(draft => {
             const node = draft.messages.find(message => message.id === target.id)!;
-            node.content = result.messageContent ?? content;
+            node.content = messageContent;
             const swipe = node.swipes[node.activeSwipeIndex];
             node.swipes[node.activeSwipeIndex] = typeof swipe === 'string' ? node.content : { ...swipe, content: node.content };
             node.updatedAt = Date.now(); node.extra = { ...node.extra }; delete node.extra.tipsy_generation_incomplete;
@@ -160,7 +162,8 @@ export async function prepareMvuRepair(direction = ''): Promise<MvuRepairPreview
             userName: state.userName, charName: getActiveCharacter(state).name, variables: structuredClone(before) }), (_command, error) => { throw error; });
         controller.signal.throwIfAborted();
         if (_.isEqual(variables.stat_data, before.stat_data)) { setStatusBanner('校正未产生变量变化，已保留原回复。'); return; }
-        return { expected, result: { variables, writes: result.writes, messageContent: result.messageContent ?? content },
+        const hasMvuData = Object.hasOwn(before, 'stat_data') || Object.hasOwn(variables, 'stat_data');
+        return { expected, result: { variables, writes: result.writes, messageContent: result.messageContent ?? formatMvuMessageContent(content, hasMvuData) },
             before: before.stat_data, after: variables.stat_data };
     } finally {
         workspaceStore.setState({ isGenerating: false, mvuExtraAnalysisActive: false });
@@ -688,11 +691,27 @@ async function settleStoryCandidates(result: CompletionResult, summaryChannel: S
                 evaluateMacros(analyzed, { userName: state.userName, charName: card.name, variables: structuredClone(before) }),
                 (command, error) => setStatusBanner(`MVU 命令 ${command.full_match}：${error instanceof Error ? error.message : String(error)}`));
             controller.signal.throwIfAborted();
-            const regexes = orderedRegexScripts(globalRegexes(), getActivePreset(state).regexScripts, card.regexScripts);
-            const output = applyRegexScripts(settled.messageContent ?? analyzed, regexes, {
-                stage: 'ai_output', role: 'assistant', macroContext: { userName: state.userName, charName: card.name } });
+            const hasMvuData = Object.hasOwn(before, 'stat_data') || Object.hasOwn(settled.variables, 'stat_data');
+            const settledText = settled.messageContent ?? formatMvuMessageContent(analyzed, hasMvuData);
+            const activePreset = getActivePreset(state);
+            const regexMacroContext = {
+                userName: state.userName,
+                charName: card.name,
+                variables: settled.variables,
+                globalVariables: getScopedVariables('global'),
+                variableScopes: {
+                    global: getScopedVariables('global'),
+                    chat: getScopedVariables('chat', { chatId: state.activeChatId }),
+                    message: settled.variables,
+                    character: getScopedVariables('character', { characterId: card.id }),
+                    preset: getScopedVariables('preset', { presetId: activePreset.id }),
+                },
+            };
+            const regexes = orderedRegexScripts(globalRegexes(), activePreset.regexScripts, card.regexScripts);
+            const output = applyRegexScripts(settledText, regexes, {
+                stage: 'ai_output', role: 'assistant', macroContext: regexMacroContext });
             const reasoning = applyRegexScripts(candidate.reasoning, regexes, {
-                stage: 'reasoning', role: 'assistant', macroContext: { userName: state.userName, charName: card.name } });
+                stage: 'reasoning', role: 'assistant', macroContext: regexMacroContext });
             const content = await executePluginHooks('afterMessageReceive', output);
             if (typeof content !== 'string') throw new Error('消息处理插件必须返回字符串');
             controller.signal.throwIfAborted();

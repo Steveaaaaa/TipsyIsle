@@ -356,6 +356,15 @@ export async function setMvuVariable(statData: Record<string, any>, path: string
     return true;
 }
 
+/** Append the MVU status placeholder and strip echoed current-variable blocks on settled assistant replies. */
+export function formatMvuMessageContent(content: string, hasMvuData: boolean): string {
+    if (!hasMvuData) return content;
+    let next = content;
+    if (!next.includes('<StatusPlaceHolderImpl/>')) next += '\n\n<StatusPlaceHolderImpl/>';
+    next = next.replace(/<(status_current_variable)>(?:(?!<\1>).)*<\/\1?>/gis, '');
+    return next;
+}
+
 /** Script-free sessions use the same interpreter and schema metadata rules. */
 export async function settleMvuWithoutScripts(before: Record<string, any>, text: string,
     warning: (command: MvuCommand, error: unknown) => void): Promise<Record<string, any>> {

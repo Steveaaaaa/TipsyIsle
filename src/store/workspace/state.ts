@@ -31,6 +31,7 @@ export interface WorkspaceState {
     activePresetId: string;
     inUsePreset?: NormalizedPreset;
     activeChatId: string;
+    storyChatTitle?: string;
     sessionKind: ChatSessionKind;
     freeChat?: FreeChatDetails;
     storyImportFingerprint?: string;

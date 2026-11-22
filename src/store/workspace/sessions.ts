@@ -1,4 +1,4 @@
-import { listChatArchives, loadChatArchive, saveChatArchive, deleteChatArchive, summarizeChat, freeChatName, type ArchivedChat, type FreeChatDetails } from '../chat-archives';
+import { listChatArchives, loadChatArchive, saveChatArchive, deleteChatArchives, updateChatArchive, summarizeChat, freeChatName, type ArchivedChat, type ChatSessionKind, type FreeChatDetails } from '../chat-archives';
 import { batchReactiveUpdates, cloneStateValue, withoutStoreNotifications } from '../reactive-store';
 import { normalizeChatPayload } from '../../pipeline/normalizer';
 import { emptyStory } from '../../core/empty-workspace';
@@ -8,7 +8,7 @@ import type { StoryImport } from '../../core/story-save-format';
 import { platformStorage } from '../../core/platform-bridge';
 import { getSchemaValues, schemaRegistryStore } from '../../registry/schema-registry';
 import { scopedVariableStore, replaceExtensionVariables, replaceScopedVariables } from '../scoped-variable-store';
-import { activePath, swipeId, storyRoutes, withSwipe } from '../chat-tree';
+import { activePath, branchExcerpt, swipeId, storyRoutes, withSwipe } from '../chat-tree';
 import { branchMessageVariables } from '../branch-state';
 import { pendingBranchOperations, runBranchOperation } from '../branch-runtime';
 import { compatibilityComposer } from '../../compatibility/composer-bridge';
@@ -79,7 +79,7 @@ function readActiveArchive(id: string): ArchivedChat | null {
     if (state.sessionKind !== 'free' && !state.messages.length) return null;
     if (state.sessionKind === 'free') return { id, kind: 'free', freeChat: state.freeChat, characterId: '', messages: state.messages,
         activeLeafId: state.activeLeafId, timedStates: {} };
-    return { id: state.activeChatId, characterId: state.activeCharacterId, importedFrom: state.storyImportFingerprint,
+    return { id: state.activeChatId, title: state.storyChatTitle, characterId: state.activeCharacterId, importedFrom: state.storyImportFingerprint,
         messages: state.messages, deletedMessageIds: state.deletedMessageIds, activeLeafId: state.activeLeafId, timedStates: state.timedStates, worldbookName: state.chatWorldbookBindings[state.activeChatId] ?? null, templateInjections: state.templateInjections, templateActivations: state.templateActivations,
         continuation: captureChatContinuation() };
 }
@@ -87,11 +87,15 @@ function readActiveArchive(id: string): ArchivedChat | null {
 export async function listArchivedChats() {
     const archives = await listChatArchives();
     const state = workspaceStore.getState();
-    return archives.filter(chat => chat.id !== state.activeChatId).map(chat => ({ id: chat.id, characterId: chat.characterId, kind: chat.kind,
-        title: chat.freeChat?.title || freeChatName,
-        label: chat.kind === 'free' ? `${chat.freeChat?.title || freeChatName} · ${chat.activeCount} 条` : `${chat.syncLabel ? `${chat.syncLabel} · ` : ''}${state.characters.find(card => card.id === chat.characterId)?.name ?? '角色'} · ${chat.messageCount} 条 · ${chat.lastMessage.replace(/\s+/g, ' ').slice(0, 30)}`,
-        messageCount: chat.activeCount, lastActivity: chat.lastActivity ?? (Date.parse(chat.lastDate ?? '') || undefined),
-    }));
+    const names = new Map(state.characters.map(card => [card.id, card.name]));
+    return archives.filter(chat => chat.id !== state.activeChatId).map(chat => {
+        const characterName = chat.characterName ?? names.get(chat.characterId) ?? '角色';
+        const preview = branchExcerpt(chat.lastMessage, 90);
+        const title = chat.kind === 'free' ? chat.freeChat?.title || freeChatName : chat.title || chat.syncLabel || '';
+        return { id: chat.id, characterId: chat.characterId, kind: chat.kind, title, characterName, preview,
+            label: chat.kind === 'free' ? `${title} · ${chat.activeCount} 条` : `${title ? `${title} · ` : ''}${characterName} · ${chat.messageCount} 条${preview ? ` · ${preview}` : ''}`,
+            messageCount: chat.activeCount, lastActivity: chat.lastActivity ?? (Date.parse(chat.lastDate ?? '') || undefined) };
+    });
 }
 
 export async function readHelperChatArchives(characterId?: string, files?: string[]): Promise<any> {
@@ -352,7 +356,7 @@ export function applyArchivedChatState(chat: ArchivedChat, keepChoices = false):
         });
     }
     workspaceStore.setState(draft => {
-        draft.sessionKind = 'character'; draft.freeChat = undefined;
+        draft.sessionKind = 'character'; draft.freeChat = undefined; draft.storyChatTitle = chat.title;
         applyCharacterPersona(draft, chat.characterId);
         if (chat.continuation) {
             const { activePresetId, inUsePreset, activeLorebookIds, userName, activePersonaId } = chat.continuation;
@@ -396,6 +400,7 @@ export function createChat(card: NormalizedCharacterCard, notify = true): void {
     workspaceStore.setState(draft => {
         draft.sessionKind = 'character'; draft.freeChat = undefined;
         draft.storyImportFingerprint = undefined;
+        draft.storyChatTitle = undefined;
         draft.portableStory = undefined;
         draft.storyWorldbooks = undefined; draft.storyCharacterBinding = undefined; draft.storyCharacter = undefined; draft.storyPersona = undefined;
         applyCharacterPersona(draft, card.id);
@@ -527,22 +532,54 @@ export async function updateFreeChat(id: string, changes: FreeChatDetails): Prom
     });
 }
 
-export async function deleteFreeChat(id: string): Promise<void> {
+export async function renameStoryChat(id: string, title: string): Promise<void> {
+    const name = title.trim();
+    if (!name) throw new Error('请填写会话名称');
     await waitForReplicaCommit();
-    if (branchBusy()) return;
+    if (branchBusy()) throw new Error('请等待当前操作完成');
     await runBranchOperation(async () => {
         const state = workspaceStore.getState();
-        if (state.activeChatId === id && state.sessionKind === 'free') {
-            await persistWorkspaceNow();
-            workspaceStore.setState({ ...emptyStory(), streamingReasoning: '' });
-            try {
-                const snapshots = registeredSnapshots();
-                await deleteChatArchive(id, snapshots);
-                acknowledgeSnapshots(snapshots);
-            } catch (error) { workspaceStore.setState(state); throw error; }
-        } else {
-            const archive = await loadChatArchive(id);
-            if (archive?.kind === 'free') await deleteChatArchive(id);
-        }
+        if (state.activeChatId === id && state.sessionKind === 'character') {
+            await enqueuePersistentOperation(() => commitWorkspaceMutation(() => workspaceStore.setState({ storyChatTitle: name })));
+        } else await updateChatArchive(id, current => {
+            if (!current || current.kind === 'free') throw new Error('找不到该故事会话');
+            return { chat: { ...current, title: name }, extras: {} };
+        });
     });
+}
+
+export async function deleteWorkspaceChats(ids: readonly string[], kind: ChatSessionKind): Promise<{ ids: string[]; removedCurrent: boolean }> {
+    await waitForReplicaCommit();
+    if (branchBusy()) throw new Error('请等待当前操作完成');
+    return runBranchOperation(() => enqueuePersistentOperation(async () => {
+        const release = holdReplicaCommit();
+        try {
+            const state = workspaceStore.getState();
+            const requested = new Set(ids);
+            const removedCurrent = state.sessionKind === kind && requested.has(state.activeChatId);
+            const removed = (await listChatArchives()).filter(chat => requested.has(chat.id) && chat.id !== state.activeChatId
+                && (chat.kind ?? 'character') === kind).map(chat => chat.id);
+            if (removedCurrent) removed.push(state.activeChatId);
+            if (!removed.length) return { ids: removed, removedCurrent };
+            if (!removedCurrent) { await deleteChatArchives(removed); return { ids: removed, removedCurrent }; }
+
+            await persistWorkspaceNow();
+            const resume = suspendRegisteredPersistence();
+            try {
+                const cleared = { ...emptyStory(), streamingReasoning: '', nativeToolPreview: undefined, nativeStoryReply: undefined };
+                const snapshots = withoutStoreNotifications(() => {
+                    workspaceStore.setState(cleared);
+                    try { return registeredSnapshots(); }
+                    finally { workspaceStore.setState(state); }
+                });
+                await deleteChatArchives(removed, snapshots);
+                acknowledgeSnapshots(snapshots);
+                stopCompatibilityRuntime();
+                invalidateTemplateEnvironment();
+                workspaceStore.setState(cleared);
+                void tavernEventBus.emit('chat_changed', '');
+            } finally { await resume(false); }
+            return { ids: removed, removedCurrent };
+        } finally { release(); }
+    }));
 }

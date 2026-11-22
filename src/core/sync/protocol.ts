@@ -94,7 +94,7 @@ export function sameAuthorStory(left: ArchivedChat, right: ArchivedChat): boolea
 function sameStoryValue(left: ArchivedChat, right: ArchivedChat, authorOnly = false): boolean {
     const { messages: leftMessages, continuation: leftContinuation, ...leftFields } = left;
     const { messages: rightMessages, continuation: rightContinuation, ...rightFields } = right;
-    if (authorOnly) { delete leftFields.syncLabel; delete rightFields.syncLabel; }
+    if (authorOnly) { delete leftFields.syncLabel; delete rightFields.syncLabel; delete leftFields.title; delete rightFields.title; }
     return leftMessages.length === rightMessages.length && canonical(leftFields) === canonical(rightFields)
         && leftMessages.every((message, index) => {
             const peer = rightMessages[index];

@@ -7,9 +7,11 @@ import type { ReactNode } from 'react';
 import { workspaceStore, saveSettingsEdits, setStatusBanner } from '../store/workspace-store';
 import { updateSyncOptions } from '../core/sync/engine';
 import { MvuSettingsPanel } from './MvuSettingsPanel';
+import { RegexManagerPanel } from './RegexManagerPanel';
+import { ScriptManagerPanel } from './ScriptManagerPanel';
 import { Icon } from './Icon';
 import { SettingsDisclosure, SettingsSection } from './SettingsPrimitives';
-import { pluginSettingsDestinations, settingsCategories, settingsCategoryForField, settingsFieldLabels, type PluginSettingsDestination, type SettingsCategory } from './settings-presentation';
+import { pluginSettingsDestinations, settingsCategories, settingsCategoryForField, settingsFieldLabels, storyToolDestinations, type PluginSettingsDestination, type SettingsCategory } from './settings-presentation';
 import type { StreamDisplayMode } from '../pipeline/streaming-message';
 import { NativePluginManager } from '../plugins/native/PluginManager';
 import { nativeAppUpdates } from '../core/native-runtime';
@@ -66,7 +68,11 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
         const text = `${item.title} ${item.description} ${item.keywords}`.toLocaleLowerCase();
         return words.every(word => text.includes(word));
     }) : [];
-    const resultCount = results.length + pluginResults.length;
+    const storyToolResults = words.length ? storyToolDestinations.filter(item => {
+        const text = `${item.title} ${item.description} ${item.keywords}`.toLocaleLowerCase();
+        return words.every(word => text.includes(word));
+    }) : [];
+    const resultCount = results.length + pluginResults.length + storyToolResults.length;
     const navigate = (next: SettingsCategory, pluginView: PluginSettingsDestination = 'overview') => {
         setDirection(settingsCategories.findIndex(item => item.id === next) < settingsCategories.findIndex(item => item.id === category) ? 'backward' : 'forward');
         setCategory(next); setPluginDestination(pluginView); setQuery('');
@@ -78,6 +84,10 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
             {query && <button type="button" className="ttm-icon-btn" aria-label="清空搜索" onClick={() => { setQuery(''); searchInput.current?.focus(); }}><Icon name="close" width={16} height={16} /></button>}</div>
         <nav className="ttm-settings-categories" aria-label="设置分类">{settingsCategories.map(item => <button key={item.id} type="button" data-guide={item.id === 'plugins' ? 'plugins' : undefined} aria-current={!words.length && category === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}><Icon name={item.icon} width={17} height={17} /><span>{item.label}</span></button>)}</nav>
         {words.length ? <div className="ttm-settings-results" aria-live="polite"><h3>找到 {resultCount} 项设置</h3>
+            {storyToolResults.map(item => <button type="button" className="ttm-settings-result" key={item.id} onClick={() => navigate(item.category)}>
+                <span><strong>{item.title}</strong><small>{item.description}</small></span>
+                <span>故事运行<Icon name="chevron" width={15} height={15} /></span>
+            </button>)}
             {pluginResults.map(item => <button type="button" className="ttm-settings-result" key={item.id} onClick={() => navigate('plugins', item.id)}>
                 <span><strong>{item.title}</strong><small>{item.description}</small></span>
                 <span>插件<Icon name="chevron" width={15} height={15} /></span>
@@ -107,6 +117,8 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
             </>}
             {category === 'story' && <>
                 <MvuSettingsPanel />
+                <SettingsDisclosure title="正则管理（全局 / 预设 / 故事）"><RegexManagerPanel /></SettingsDisclosure>
+                <SettingsDisclosure title="酒馆助手脚本管理（全局 / 预设 / 故事）"><ScriptManagerPanel /></SettingsDisclosure>
                 <SettingsSection title="作者互动页面" description="封面、状态栏和交互按钮依赖这些能力。优先遵循故事作者的说明。">{renderFields(['helper.render_depth', 'sandbox.enable_html_frames'])}</SettingsSection>
                 <SettingsDisclosure title="世界书触发与语义检索">
                     {renderFields(ids.filter(id => id.startsWith('lorebook.')))}
@@ -139,6 +151,8 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
             {category === 'sync' && <LanSyncPanel />}
             {category === 'plugins' && <>
                 <NativePluginManager initialSection={pluginDestination} />
+                <SettingsDisclosure title="酒馆助手脚本管理（全局 / 预设 / 故事）"><ScriptManagerPanel /></SettingsDisclosure>
+                <SettingsDisclosure title="正则管理（全局 / 预设 / 故事）"><RegexManagerPanel /></SettingsDisclosure>
                 <SettingsDisclosure title="酒馆兼容扩展"><ExtensionManager /></SettingsDisclosure>
             </>}
             {category === 'advanced' && <>

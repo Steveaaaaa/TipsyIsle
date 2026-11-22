@@ -75,7 +75,7 @@ export function fromHelperPreset(value: HelperPreset, name: string, previous?: N
     raw.prompts = [...used, ...(value.prompts_unused ?? []).map(convert)];
     raw.prompt_order = [{ character_id: 100001, order: used.map(prompt => ({ identifier: prompt.identifier, enabled: prompt.enabled })) }];
     raw.extensions = structuredClone(value.extensions ?? {});
-    raw.extensions.regex_scripts = fromTavernRegexes(raw.extensions.regex_scripts ?? [], previous?.regexScripts).map(serializeRegexRule);
+    raw.extensions.regex_scripts = fromTavernRegexes(raw.extensions.regex_scripts ?? [], previous?.regexScripts, true).map(serializeRegexRule);
     const next = normalizePreset(raw, name);
     // An explicitly empty list must stay empty rather than receiving starter prompts.
     if (!raw.prompts.length) next.promptSlots = [];

@@ -347,7 +347,7 @@ export function installWorkspaceCompatibility(): void {
                     if (Object.hasOwn(metadata, baibaiBundles)) metadata[baibaiBundles] = baibaiBundleIds(metadata).filter(hash => params.allowedBundles.includes(hash));
                     return commitNewChatOpening(state.activeChatId, params.opening, messages, metadata, params.variables);
                 }
-                case 'chat.setMessage': return editHelperChatMessage(params.floor, String(params.message), params.options);
+                case 'chat.setMessage': return editHelperChatMessage(params.floor, params.message, params.options);
                 case 'chat.setMessages': {
                     return setHelperChatMessages(params.messages, params.options);
                 }

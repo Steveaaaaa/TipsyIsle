@@ -162,6 +162,7 @@ async function assemble(input: AssemblePromptInput, templates: TemplateRuntime, 
         variableContext: { presetId: preset.id, characterId: character.id, chatId },
         variables: finalVariables,
         globalVariables,
+        get variableScopes() { return templates.variableScopes(); },
         onSetVariable: templates.recordLocalChange,
         onSetGlobalVariable: (key: string, value: unknown) => { globalVariableChanges[key] = value; },
     };
@@ -246,7 +247,10 @@ async function assemble(input: AssemblePromptInput, templates: TemplateRuntime, 
             recursive: worldSettings.recursive,
             minActivations: worldSettings.min_activations,
             maxScanDepth: worldSettings.max_depth,
-            prepareContent: entry => evaluateMacros(literals?.mask(entry.content) ?? entry.content, macroCtx),
+            prepareContent: entry => (literals?.mask(entry.content) ?? entry.content)
+                .split(/(<%[\s\S]*?%>)/g)
+                .map(part => part.startsWith('<%') ? part : evaluateMacros(part, macroCtx))
+                .join(''),
             onScanDone: templates.worldInfoScanListener(),
         });
     };

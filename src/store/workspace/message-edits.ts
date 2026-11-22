@@ -17,6 +17,9 @@ import { persistWorkspace, persistWorkspaceNow } from './storage';
 import { setStatusBanner } from './notice';
 import { getActiveChatMessages, getEffectiveMvuSettings } from './queries';
 import { initialChatVariables, mvuChatProjection } from './story-initialization';
+import { readMvuCommands } from '../../pipeline/mvu-commands';
+import { readMvuGreetingVariables } from '../../pipeline/initial-variables';
+import { normalizeMvuVariables } from '../../pipeline/mvu-data';
 import { isNativeStorySaving } from './activity';
 import { sealBranchPoint, restoreMessageSnapshot, rememberBranch, publishBranchChange, captureMessageSnapshot, selectChatBranch, preserveReplyVersion, remapBranchSnapshots, swipeBranchMessage, settleRouteChange } from './branches';
 import { saveHelperVariables } from './story-variables';
@@ -28,6 +31,25 @@ import { remapRouteMessageData, routeContent, routeMessageDataKey, routeMessages
 type LegacyMessagePatch = { id: string; swipe: number; content: string; mes?: string; hidden?: boolean; extra?: Record<string, unknown>; variables?: Record<string, unknown> };
 
 type LegacyMetadataPatch = { values: Record<string, unknown>; removed: string[] };
+
+function textHasMvuSetup(text: string): boolean {
+    if (!text) return false;
+    try { return readMvuCommands(text).commands.length > 0 || !!readMvuGreetingVariables(text); }
+    catch { return false; }
+}
+
+function shouldRestoreOpeningSwipeVariables(node: ChatMessageNode, targetSwipe: number, targetContent: string, currentVariables: Record<string, unknown>): boolean {
+    if (targetSwipe === node.activeSwipeIndex) return false;
+    if (textHasMvuSetup(targetContent)) return true;
+    const snapshots = node.extra?.swipeVariables as Record<string, Record<string, unknown>> | undefined;
+    const targetVariables = snapshots?.[targetSwipe];
+    const originVariables = snapshots?.[node.activeSwipeIndex];
+    if (!targetVariables || !Object.keys(targetVariables).length) return false;
+    // If the user/script did not mutate the active opening swipe's variables since initialization,
+    // or if the target swipe has its own distinct pre-settled snapshot, restore the target swipe's snapshot.
+    if (originVariables && _.isEqual(currentVariables, originVariables)) return true;
+    return originVariables ? !_.isEqual(targetVariables, originVariables) : false;
+}
 
 export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<string, unknown>, metadata: LegacyMetadataPatch = { values: {}, removed: [] }): boolean {
     const state = workspaceStore.getState();
@@ -89,10 +111,14 @@ export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<st
                 const key = swipeId(node, patch.swipe);
                 if (patch.mes !== undefined) {
                     const previous = node.swipes[patch.swipe];
+                    const oldText = typeof previous === 'object' ? previous.content : previous;
                     node.swipes[patch.swipe] = typeof previous === 'object' ? { ...previous, content: patch.mes } : patch.mes;
                     if (node.activeSwipeIndex === patch.swipe) node.content = patch.mes;
                     node.updatedAt = Date.now();
                     delete node.storySummaries?.[key];
+                    if (node.floor === 0 && path.size === 1 && patch.mes !== oldText && textHasMvuSetup(patch.mes)) {
+                        node.extra = { ...node.extra, tipsy_mvu_initialization_pending: true };
+                    }
                 }
                 // Keep saved choices pointing at the edited text without rolling back their variables.
                 for (const point of [node.branchBases?.[key], node.branchStates?.[key]]) if (point?.reply) {
@@ -115,49 +141,67 @@ export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<st
     return true;
 }
 
-export async function editHelperChatMessage(floor: number | string, content: string, options: { swipe_id?: number; refresh?: 'none' | 'affected' | 'all' } = {}): Promise<boolean> {
+export async function editHelperChatMessage(floor: number | string | undefined, content: string | { message?: string; data?: Record<string, unknown> }, options: { swipe_id?: number | 'current'; data?: Record<string, unknown>; refresh?: 'none' | 'affected' | 'all' | 'display_and_render_current' } = {}): Promise<boolean> {
     const path = getActiveChatMessages();
-    const node = path.find(m => m.id === floor) ?? path.at(Number(floor));
+    const resolvedFloor = floor === undefined ? -1 : floor;
+    const node = path.find(m => m.id === resolvedFloor) ?? path.at(Number(resolvedFloor));
     if (!node) throw new Error('消息楼层不存在');
     const duringNotification = workspaceStore.getState().isGenerating && getGenerationNotificationMessage() === node.id;
     if (workspaceStore.getState().isGenerating && !duringNotification) throw new Error('生成期间不能修改消息');
-    const swipe = options.swipe_id ?? node.activeSwipeIndex;
+    const swipe = options.swipe_id === undefined || options.swipe_id === 'current' ? node.activeSwipeIndex : Number(options.swipe_id);
     if (swipe !== node.activeSwipeIndex && isNativeStorySaving()) throw new Error('正在保存插件数据，请稍后切换路线');
-    if (!Number.isInteger(swipe) || swipe < 0 || swipe >= node.swipes.length) throw new Error('消息分支不存在');
+    if (!Number.isInteger(swipe) || swipe < 0 || swipe > 16384) throw new Error('消息分支不存在');
     if (duringNotification && swipe !== node.activeSwipeIndex) throw new Error('生成事件中不能切换消息分支');
-    if (node.floor > 0 && !duringNotification && swipe !== node.activeSwipeIndex) {
+    const fieldValues = typeof content === 'object' && content !== null ? content : { message: content, data: options.data };
+    const existingSwipe = node.swipes[swipe];
+    const existingText = existingSwipe === undefined ? '' : typeof existingSwipe === 'string' ? existingSwipe : existingSwipe.content;
+    const nextContent = fieldValues.message !== undefined ? String(fieldValues.message) : existingText;
+    const nextData = fieldValues.data ?? options.data;
+    if (node.floor > 0 && !duringNotification && swipe !== node.activeSwipeIndex && swipe < node.swipes.length) {
         const routes = storyRoutes(workspaceStore.getState().messages).filter(route => route.path.some(item => item.id === node.id && item.activeSwipeIndex === swipe));
         if (routes.length > 1) throw new Error('这个回复有多条后续，请从故事路线选择要继续的一条');
         if (routes.length === 1) {
             const current = node.swipes[swipe];
-            if ((typeof current === 'string' ? current : current.content) === content) { await selectChatBranch(routes[0].key, true); return true; }
+            if ((typeof current === 'string' ? current : current.content) === nextContent && nextData === undefined) { await selectChatBranch(routes[0].key, true); return true; }
         }
     }
-    if (!duringNotification && (swipe !== node.activeSwipeIndex || node.floor > 0 && node.id !== workspaceStore.getState().activeLeafId && content !== node.content)) await settleRouteChange(true);
+    if (!duringNotification && (swipe !== node.activeSwipeIndex || node.floor > 0 && node.id !== workspaceStore.getState().activeLeafId && nextContent !== node.content)) await settleRouteChange(true);
+    const liveVariables = getScopedVariables('message', { messageId: node.id });
+    const restoreOpeningSwipe = node.floor === 0 && nextData === undefined && shouldRestoreOpeningSwipeVariables(node, swipe, nextContent, liveVariables);
+    const needsOpeningMvuInit = node.floor === 0 && path.length === 1 && nextContent !== existingText && textHasMvuSetup(nextContent);
     captureMessageSnapshot(node.id);
-    const forksHistory = node.floor > 0 && !duringNotification && content !== node.content && node.id !== workspaceStore.getState().activeLeafId;
+    const forksHistory = node.floor > 0 && !duringNotification && nextContent !== node.content && node.id !== workspaceStore.getState().activeLeafId;
     if (forksHistory) preserveReplyVersion(workspaceStore.getState().messages.find(item => item.id === node.id)!);
     workspaceStore.setState(draft => {
         const target = draft.messages.find(m => m.id === node.id)!;
         target.swipes = [...target.swipes];
+        while (target.swipes.length <= swipe) target.swipes.push('');
         const previous = target.swipes[swipe];
-        target.swipes[swipe] = typeof previous === 'string' ? content : { ...previous, content };
-        target.activeSwipeIndex = swipe; target.content = content; target.updatedAt = Date.now();
+        target.swipes[swipe] = typeof previous === 'string' || previous === undefined ? nextContent : { ...previous, content: nextContent };
+        target.activeSwipeIndex = swipe; target.content = nextContent; target.updatedAt = Date.now();
+        if (needsOpeningMvuInit) target.extra = { ...target.extra, tipsy_mvu_initialization_pending: true };
         if (target.floor === 0 && draft.activeLeafId === target.id && swipe !== node.activeSwipeIndex) draft.nativePluginRoute = node.nativePluginOpeningRoutes?.[swipeId(node, swipe)];
-        if (swipe !== node.activeSwipeIndex) target.reasoning = typeof previous === 'string' ? '' : previous.reasoning ?? '';
+        if (swipe !== node.activeSwipeIndex) target.reasoning = typeof previous === 'string' || previous === undefined ? '' : previous.reasoning ?? '';
         if (forksHistory) {
             target.branchBases = undefined; target.branchStates = undefined;
             draft.activeLeafId = target.id;
         }
     });
-    if (node.floor > 0 && (forksHistory || swipe !== node.activeSwipeIndex)) restoreMessageSnapshot(node.id);
-    else captureMessageSnapshot(node.id);
+    if (nextData !== undefined) {
+        const normalized = normalizeMvuVariables(structuredClone(nextData)).variables;
+        saveHelperVariables(normalized, { type: 'message', message_id: node.floor });
+        captureMessageSnapshot(node.id);
+    } else if (node.floor > 0 && (forksHistory || swipe !== node.activeSwipeIndex) || restoreOpeningSwipe) {
+        restoreMessageSnapshot(node.id);
+    } else {
+        captureMessageSnapshot(node.id);
+    }
     if (forksHistory) { sealBranchPoint(true); publishBranchChange(false); }
     persistWorkspace();
     if (!duringNotification) {
         if (options.refresh !== 'none') schedulePreview();
         if (options.refresh === 'all') void commandCompatibilityRuntime('event', ['chat_changed', workspaceStore.getState().activeChatId]).catch(error => setStatusBanner(String(error)));
-        else notifyMessage('message_edited', { ...node, content });
+        else if (options.refresh !== 'none') notifyMessage('message_edited', { ...node, activeSwipeIndex: swipe, content: nextContent });
     }
     return true;
 }
@@ -180,16 +224,22 @@ export async function setHelperChatMessages(items: Array<Record<string, any>>, o
     const plans = [...merged.values()].sort((a, b) => a.node.floor - b.node.floor).map(({ node, item }) => {
         const variables = getScopedVariables('message', { messageId: node.id });
         const plan = patchHelperMessage(node, item, variables);
-        if (node.floor === 0 && item.data === undefined && item.swipes_data === undefined) {
+        const restoreOpeningSwipe = node.floor === 0 && item.data === undefined && item.swipes_data === undefined
+            && shouldRestoreOpeningSwipeVariables(node, plan.node.activeSwipeIndex, plan.node.content, variables);
+        if (node.floor === 0 && item.data === undefined && item.swipes_data === undefined && !restoreOpeningSwipe) {
             // Changing the opening display does not roll back the author's live setup.
             plan.variables = variables;
             (plan.node.extra!.swipeVariables as Record<string, Record<string, unknown>>)[plan.node.activeSwipeIndex] = variables;
+        }
+        if (node.floor === 0 && path.length === 1 && (item.message !== undefined || item.swipes !== undefined)
+            && plan.node.content !== node.content && textHasMvuSetup(plan.node.content)) {
+            plan.node.extra = { ...plan.node.extra, tipsy_mvu_initialization_pending: true };
         }
         if (state.isGenerating && (getGenerationNotificationMessage() !== node.id || plan.node.activeSwipeIndex !== node.activeSwipeIndex
             || ['swipes', 'swipes_data', 'swipes_info', 'role', 'is_hidden'].some(key => item[key] !== undefined))) {
             throw new Error('生成期间不能修改其他消息或改变分支结构');
         }
-        return plan;
+        return { ...plan, restoreOpeningSwipe };
     });
     if (!plans.length) return [];
     const changesChoice = plans.find(plan => plan.node.activeSwipeIndex !== path.find(node => node.id === plan.node.id)!.activeSwipeIndex);
@@ -216,7 +266,7 @@ export async function setHelperChatMessages(items: Array<Record<string, any>>, o
     for (const plan of plans) {
         replaceScopedVariables(plan.variables, 'message', { messageId: plan.node.id });
         if (plan.node.id === path.at(-1)?.id) {
-            if (plan.node.floor > 0 && plan.node.activeSwipeIndex !== path.at(-1)!.activeSwipeIndex) restoreMessageSnapshot(plan.node.id);
+            if ((plan.node.floor > 0 || plan.restoreOpeningSwipe) && plan.node.activeSwipeIndex !== path.at(-1)!.activeSwipeIndex) restoreMessageSnapshot(plan.node.id);
             if ('stat_data' in plan.variables && getEffectiveMvuSettings(state).settings['mvu.update_chat'] === true) {
                 const projection = mvuChatProjection(plan.variables);
                 const chat = getScopedVariables('chat', { chatId: state.activeChatId });

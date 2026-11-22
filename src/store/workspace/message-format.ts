@@ -10,13 +10,16 @@ export function formatMessageWithoutTemplate(node: ChatMessageNode): string {
     const state = workspaceStore.getState();
     const card = getActiveCharacter(state);
     const preset = getActivePreset(state);
+    const scopedMessage = getScopedVariables('message', { messageId: node.id });
+    const swipeMessage = (node.extra?.swipeVariables as Record<number, Record<string, unknown>> | undefined)?.[node.activeSwipeIndex];
+    const messageVariables = Object.keys(scopedMessage).length > 0 ? scopedMessage : swipeMessage ?? {};
     const macroContext = {
         userName: state.userName,
         charName: card.name,
         variables: resolveMergedVariables({ presetId: preset.id, characterId: card.id, chatId: state.activeChatId, messageId: node.id, floor: node.floor }),
         globalVariables: getScopedVariables('global'),
         variableScopes: {
-            global: getScopedVariables('global'), chat: getScopedVariables('chat', { chatId: state.activeChatId }), message: getScopedVariables('message', { messageId: node.id }),
+            global: getScopedVariables('global'), chat: getScopedVariables('chat', { chatId: state.activeChatId }), message: messageVariables,
             character: getScopedVariables('character', { characterId: card.id }), preset: getScopedVariables('preset', { presetId: preset.id }),
         },
         variableContext: {

@@ -2,13 +2,17 @@ import { saveExport } from '../../core/platform-files';
 import { diagnosticErrorKind, diagnosticOperation } from '../../core/diagnostics';
 import { listChatArchives, loadChatArchive, clearChatArchives, summarizeChat, type ArchivedChat } from '../chat-archives';
 import { batchReactiveUpdates, cloneStateValue, withoutStoreNotifications } from '../reactive-store';
-import { normalizeCharacterCard, normalizeLorebook, normalizePreset } from '../../pipeline/normalizer';
+import { normalizeCharacterCard, normalizeLorebook, normalizePreset, normalizeRegexScripts } from '../../pipeline/normalizer';
 import { emptyStory } from '../../core/empty-workspace';
 import { embedCharacterCardIntoPng } from '../../core/png-chunk-codec';
 import { importCharacterFile } from '../../core/character-import';
 import { platformStorage } from '../../core/platform-bridge';
 import { setSchemaValues, schemaRegistryStore } from '../../registry/schema-registry';
 import { scopedVariableStore, replaceExtensionVariables } from '../scoped-variable-store';
+import { workspaceGlobalRegexes } from '../global-regex-store';
+import { normalizeScriptTrees } from '../../compatibility/script-trees';
+import { fromTavernRegexes } from '../../compatibility/regex-codec';
+import { getWorkspaceScriptTrees, replaceWorkspaceScriptTrees } from './scripts';
 import { serializeCharacterCard, serializeLorebook, serializeRegexRule } from '../../pipeline/asset-serializer';
 import { tavernEventBus } from '../../sandbox/event-bus';
 import { stopCompatibilityRuntime } from '../../compatibility/runtime-client';
@@ -207,10 +211,44 @@ export function importHelperCharacter(card: NormalizedCharacterCard, previous?: 
 
 export function replaceHelperCharacterRegexes(id: string, rules: NormalizedCharacterCard['regexScripts']): void {
     workspaceStore.setState(draft => {
-        const target = draft.characters.find(item => item.id === id)!;
-        target.regexScripts = rules;
-        target.extensions = { ...target.extensions, regex_scripts: rules.map(serializeRegexRule) };
+        const target = draft.characters.find(item => item.id === id);
+        if (target) {
+            target.regexScripts = rules;
+            target.extensions = { ...target.extensions, regex_scripts: rules.map(serializeRegexRule) };
+        }
+        if (draft.storyCharacter?.id === id) {
+            draft.storyCharacter.regexScripts = rules;
+            draft.storyCharacter.extensions = { ...draft.storyCharacter.extensions, regex_scripts: rules.map(serializeRegexRule) };
+        }
     });
+}
+
+export async function saveWorkspaceRegexRules(scope: 'global' | 'preset' | 'character', rules: NormalizedCharacterCard['regexScripts']): Promise<void> {
+    const state = workspaceStore.getState();
+    if (state.isGenerating || state.helperGenerationCount) throw new Error('请等待生成结束后修改正则');
+    if (scope === 'global') {
+        replaceExtensionVariables('tipsy_regex', { rules });
+    } else if (scope === 'preset') {
+        const preset = state.inUsePreset ?? state.presets.find(item => item.id === state.activePresetId);
+        if (!preset) throw new Error('当前未选用预设，无法保存到预设正则');
+        workspaceStore.setState(draft => {
+            const listPreset = draft.presets.find(item => item.id === preset.id);
+            if (listPreset) {
+                listPreset.regexScripts = rules;
+                listPreset.rawData = { ...listPreset.rawData, extensions: { ...(listPreset.rawData?.extensions as object ?? {}), regex_scripts: rules.map(serializeRegexRule) } };
+            }
+            if (draft.inUsePreset) {
+                draft.inUsePreset.regexScripts = rules;
+                draft.inUsePreset.rawData = { ...draft.inUsePreset.rawData, extensions: { ...(draft.inUsePreset.rawData?.extensions as object ?? {}), regex_scripts: rules.map(serializeRegexRule) } };
+            }
+        });
+    } else {
+        const card = getActiveCharacter(state);
+        if (!card.id) throw new Error('当前未选择故事角色卡');
+        replaceHelperCharacterRegexes(card.id, rules);
+    }
+    await persistWorkspaceNow();
+    schedulePreview();
 }
 
 export function replaceActiveWorldbookEntries(entries: unknown[]): boolean {
@@ -400,7 +438,7 @@ export async function deleteWorkspaceCharacters(ids: readonly string[], deleteCh
     const extras: Record<string, any> = {};
     let index = archives;
     if (switching && !deleteChats && state.messages.length) {
-        const chat: ArchivedChat = { id: state.activeChatId, characterId: state.activeCharacterId, importedFrom: state.storyImportFingerprint, messages: state.messages, deletedMessageIds: state.deletedMessageIds,
+        const chat: ArchivedChat = { id: state.activeChatId, title: state.storyChatTitle, characterId: state.activeCharacterId, importedFrom: state.storyImportFingerprint, messages: state.messages, deletedMessageIds: state.deletedMessageIds,
             activeLeafId: state.activeLeafId, timedStates: state.timedStates, worldbookName: state.chatWorldbookBindings[state.activeChatId],
             templateInjections: state.templateInjections, templateActivations: state.templateActivations, continuation: captureChatContinuation() };
         extras[`chat_archive:${chat.id}`] = chat;
@@ -555,13 +593,38 @@ async function importLibraryAsset(file: File, png: boolean, progress: (stage: st
 
     const text = await file.text();
     progress('解析 JSON');
-    const raw = JSON.parse(text) as Record<string, unknown>;
+    const raw = JSON.parse(text) as unknown;
     const format = classifyLibraryJson(raw);
     progress('转换素材格式', format.kind);
 
+    if (format.kind === 'regex') {
+        const items = Array.isArray(raw) ? raw : [raw];
+        const normalized = items.map(item => {
+            const entry = item as Record<string, unknown>;
+            if (typeof entry.find_regex === 'string' && typeof entry.findRegex !== 'string') {
+                return fromTavernRegexes([entry])[0];
+            }
+            return normalizeRegexScripts([{ ...entry, id: (entry.id as string) || crypto.randomUUID() }])[0];
+        });
+        const existing = workspaceGlobalRegexes();
+        replaceExtensionVariables('tipsy_regex', { rules: [...existing, ...normalized] });
+        progress('保存到本机'); await persistWorkspaceNow(); schedulePreview();
+        return `已导入 ${normalized.length} 条全局正则规则，可在「设置 → 故事运行 → 正则管理」中查看和调整。`;
+    }
+
+    if (format.kind === 'tavern-script') {
+        const items = Array.isArray(raw) ? raw : [raw];
+        const normalized = normalizeScriptTrees(items.map(item => ({ ...(item as Record<string, unknown>), id: (item as Record<string, unknown>).id ?? crypto.randomUUID() })));
+        const existing = getWorkspaceScriptTrees().global;
+        replaceWorkspaceScriptTrees([...existing, ...normalized], 'global', false);
+        progress('保存到本机'); await persistWorkspaceNow(); schedulePreview();
+        return `已导入 ${normalized.length} 项全局酒馆助手脚本，可在「设置 → 插件 → 酒馆助手脚本管理」中查看和开关。`;
+    }
+
+    const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     if (format.kind === 'quick-reply') {
         const settings = structuredClone(readExtensionVariables(scopedVariableStore.getState().extension, 'quickReplyV2'));
-        const set = { ...raw, name: format.name, qrList: format.replies.map((reply: any, index: number) => ({ ...reply,
+        const set = { ...obj, name: format.name, qrList: format.replies.map((reply: any, index: number) => ({ ...reply,
             id: Number.isInteger(reply.id) ? reply.id : index + 1, label: String(reply.label ?? ''), message: String(reply.message ?? '') })) } as QuickReplySetData;
         settings.sets = [...quickReplySets(settings).filter(item => item.name !== set.name), set];
         settings.config ??= { setList: [] }; settings.config.setList ??= [];
@@ -575,7 +638,7 @@ async function importLibraryAsset(file: File, png: boolean, progress: (stage: st
     if (format.kind === 'preset') {
         // 兼容复杂结构：NormalizePreset 本身已处理采样参数解析，这里避免重复判断导致的解析报错
         const preset: NormalizedPreset = {
-            ...normalizePreset(raw, String(raw.name || file.name.replace(/\.json$/i, ''))),
+            ...normalizePreset(obj, String(obj.name || file.name.replace(/\.json$/i, ''))),
             id: `preset_${crypto.randomUUID()}`,
         };
 
@@ -588,7 +651,7 @@ async function importLibraryAsset(file: File, png: boolean, progress: (stage: st
     }
 
     if (format.kind === 'worldbook') {
-        const book = normalizeLorebook(raw, String(raw.name ?? file.name.replace(/\.json$/i, '')));
+        const book = normalizeLorebook(obj, String(obj.name ?? file.name.replace(/\.json$/i, '')));
         assertNewAsset('世界书', book, getAvailableWorldbooks());
         workspaceStore.setState(draft => { draft.lorebooks.push(book); draft.activeLorebookIds.push(book.id); });
         progress('提交本地保存'); persistWorkspace(); schedulePreview();

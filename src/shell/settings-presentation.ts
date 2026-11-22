@@ -22,6 +22,11 @@ export const pluginSettingsDestinations = [
 ] as const;
 export type PluginSettingsDestination = typeof pluginSettingsDestinations[number]['id'];
 
+export const storyToolDestinations = [
+    { id: 'regex', category: 'story' as const, title: '正则管理', description: '查看、开关、添加、编辑与删除全局、预设及故事正则规则。', keywords: '正则 正则管理 regex 替换 美化 状态栏 前端' },
+    { id: 'scripts', category: 'story' as const, title: '酒馆助手脚本管理', description: '查看、开关、添加、编辑与删除酒馆助手（TavernHelper）脚本。', keywords: '酒馆助手 脚本 脚本管理 tavernhelper script mvu 开关' },
+] as const;
+
 const help = (title: string, description: string): Partial<SchemaFieldDescriptor> => ({ title, description });
 export const settingsFieldLabels: Record<string, Partial<SchemaFieldDescriptor>> = {
     'api.chat_completion_source': help('接口协议', '按服务商提供的协议选择。安装版支持 OpenAI 兼容和 Google Gemini (AI Studio)；Claude、Vertex AI 和 OpenAI Responses 仍需要本地网页版。'),

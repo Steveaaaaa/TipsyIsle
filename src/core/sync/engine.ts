@@ -138,7 +138,7 @@ function capture(target: SyncState, sources: Record<string, any>, previous: Reco
     }
     const key = `chat:${workspace.activeChatId}`; chats.add(key);
     if (workspace.sessionKind !== 'free' && ['workspace_snapshot', 'workspace_assets', 'scoped_variables', 'story_settings'].some(key => sources[key] !== previous[key]) && workspace.activeChatId && !workspace.messages.some(message => message.extra?.tipsy_generation_incomplete && !message.extra?.tipsy_generation_terminal)) {
-        const chat: ArchivedChat = { id: workspace.activeChatId, characterId: workspace.activeCharacterId, importedFrom: workspace.storyImportFingerprint, messages: workspace.messages, deletedMessageIds: workspace.deletedMessageIds,
+        const chat: ArchivedChat = { id: workspace.activeChatId, title: workspace.storyChatTitle, characterId: workspace.activeCharacterId, importedFrom: workspace.storyImportFingerprint, messages: workspace.messages, deletedMessageIds: workspace.deletedMessageIds,
             activeLeafId: workspace.activeLeafId, timedStates: workspace.timedStates,
             worldbookName: workspace.chatWorldbookBindings[workspace.activeChatId] ?? null,
             templateInjections: workspace.templateInjections, templateActivations: workspace.templateActivations,
@@ -357,13 +357,13 @@ async function applyInbox(repairGuides = false, resolution?: SyncRevision, force
                     pluginOnly = true;
                     restore = false;
                     const route = active.continuation?.nativePluginRoute;
-                    Object.assign(workspace, { messages: carryNativePluginState(local.messages, active.messages),
+                    Object.assign(workspace, { storyChatTitle: active.title, messages: carryNativePluginState(local.messages, active.messages),
                         ...(canonical(local.nativePluginRoute) !== canonical(route) && { nativePluginRoute: route }) });
                 }
             }
             if (active && (restore || missing)) {
                 active = structuredClone(active);
-                Object.assign(workspace, { activeChatId: active.id, activeCharacterId: active.characterId, messages: active.messages, deletedMessageIds: active.deletedMessageIds ?? [],
+                Object.assign(workspace, { activeChatId: active.id, storyChatTitle: active.title, activeCharacterId: active.characterId, messages: active.messages, deletedMessageIds: active.deletedMessageIds ?? [],
                     activeLeafId: active.activeLeafId, branchEpoch: (before.workspace.branchEpoch ?? 0) + 1, timedStates: active.timedStates, templateInjections: active.templateInjections ?? [],
                     chatMetadata: active.continuation?.chatMetadata,
                     nativePluginRoute: active.continuation?.nativePluginRoute,
