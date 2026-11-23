@@ -2,6 +2,7 @@ import { fetchModelCatalog } from '../core/model-catalog';
 import { waitForReplicaCommit } from '../store/persistence';
 import { streamLlmCompletion, type CompletionResult, type StreamCompletionRequest } from '../core/platform-bridge';
 import { presetSamplingParameters } from '../core/generation-settings';
+import { resolvePromptPostProcessing, resolveUseSystemPrompt } from '../core/prompt-post-process';
 import { getSchemaValues } from '../registry/schema-registry';
 import { finishPromptTemplateTask, runPromptPipelineAsync } from '../pipeline/pipeline-worker-client';
 import { createPromptAssemblyInput, commitPromptTask, workspaceStore, getActivePreset, setStatusBanner, ensureTemplatePreload, updateHelperGenerationCount } from '../store/workspace-store';
@@ -133,6 +134,7 @@ export async function generateForHelper(config: HelperGenerationConfig, raw: boo
         if (usingSelectedPreset) {
             input.maxContextTokens = selected.maxContextTokens ?? input.maxContextTokens;
             input.maxResponseTokens = selected.maxResponseTokens ?? input.maxResponseTokens;
+            input.promptPostProcessing = resolvePromptPostProcessing(samplerPreset);
         }
         // Raw layouts have no author-note placeholder; preserve its configured chat depth.
         if (raw && config.overrides?.chat_history?.author_note !== undefined) {
@@ -182,7 +184,7 @@ export async function generateForHelper(config: HelperGenerationConfig, raw: boo
         const response = await streamLlmCompletion({ source: api.source ?? String(settings['api.chat_completion_source'] ?? 'openai'), baseUrl,
             apiKey: api.key ?? String(settings['api.key'] ?? ''), model: assembled.generationSettings?.model ?? api.model ?? String(settings['api.model'] ?? ''),
             messages: outputMessages, includeBody: api.custom_include_body, excludeBody: api.custom_exclude_body, includeHeaders: api.custom_include_headers,
-            parameters, stream: shouldStream, signal: controller.signal, provider: internal?.provider,
+            parameters, useSystemPrompt: resolveUseSystemPrompt(samplerPreset, usingSelectedPreset ? undefined : settings), stream: shouldStream, signal: controller.signal, provider: internal?.provider,
             onToken: (text, reasoning = '') => { if (shouldStream && !controller.signal.aborted) progress(id, text, reasoning); } });
         controller.signal.throwIfAborted();
         return config.should_return_reasoning || response.tool_calls?.length ? { content: response.content, ...(response.reasoning ? { reasoning: response.reasoning } : {}),

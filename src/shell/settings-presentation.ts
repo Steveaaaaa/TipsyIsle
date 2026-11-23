@@ -29,6 +29,8 @@ export const storyToolDestinations = [
 
 const help = (title: string, description: string): Partial<SchemaFieldDescriptor> => ({ title, description });
 export const settingsFieldLabels: Record<string, Partial<SchemaFieldDescriptor>> = {
+    'api.connection_profiles': help('已保存模型渠道', '可保存多个不同中转或官方渠道，并一起记录推理强度、提示词后处理与原厂 System 通道。'),
+    'api.active_profile': help('当前模型渠道', '快速在不同已保存的模型渠道之间切换。'),
     'api.chat_completion_source': help('接口协议', '按服务商提供的协议选择。安装版支持 OpenAI 兼容和 Google Gemini (AI Studio)；Claude、Vertex AI 和 OpenAI Responses 仍需要本地网页版。'),
     'api.custom_url': help('API 地址', '填写服务商提供的基础地址，例如 https://api.example.com/v1，不必填写密钥或模型名称。'),
     'api.model': help('模型名称', '填写地址和密钥后，可获取服务商的模型列表并选择；也可以直接填写模型 ID。'),
@@ -44,6 +46,8 @@ export const settingsFieldLabels: Record<string, Partial<SchemaFieldDescriptor>>
     'sampler.frequency_penalty': help('频率惩罚', '按词语的重复次数降低其出现概率，用于减少重复表达。'),
     'sampler.presence_penalty': help('存在惩罚', '降低已出现词语的概率，可能使回复引入更多新内容。'),
     'sampler.reasoning_effort': help('模型推理强度', '只对支持此参数的模型生效。较高强度可能增加等待时间和 Token 消耗。'),
+    'sampler.prompt_post_processing': help('提示词后处理', '对应酒馆的 Prompt Post-Processing。依赖 Semi-strict / Strict / Single 的破限预设，建议保持「跟随预设」或按预设说明手动指定。'),
+    'sampler.use_sysprompt': help('原厂 System 提示词通道', '仅影响 Gemini / Claude 原厂协议。开启时只把开头连续 system 放入顶层 system，文末 @depth 0 等中间 system 会留在原位转为 user；关闭时全部转为 user。'),
     'helper.render_depth': help('互动页面预加载楼数', '设为 0 时自动选择预加载楼数。翻阅旧消息时，互动页面会随滚动加载。'),
     'sandbox.enable_html_frames': help('显示作者互动页面', '呈现故事自带的 HTML 封面、状态栏和按钮。关闭后这些互动内容将无法显示。'),
     'lorebook.scan_depth': help('世界书扫描消息数', '默认读取最近多少条消息来匹配世界书关键词；故事和条目自身的配置也会参与。'),

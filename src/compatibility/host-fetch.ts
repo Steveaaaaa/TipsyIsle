@@ -17,6 +17,7 @@ type HostMemoryHooks = {
     revision(): string | undefined;
     beforeVector?(action: string): Promise<unknown> | undefined;
     vectorResult(action: string, body: any): void;
+    onWorldInfoEdited?(name: string, data: unknown): void;
 };
 
 interface MatchedHostRoute {
@@ -93,6 +94,9 @@ async function dispatchHostRequest(
         }
         const result = await request('host.http', { path: url.pathname, body });
         signal.throwIfAborted();
+        if (url.pathname === '/api/worldinfo/edit' && body && typeof body === 'object' && 'name' in body && 'data' in body) {
+            memory?.onWorldInfoEdited?.(String((body as Record<string, unknown>).name), (body as Record<string, unknown>).data);
+        }
         return response(result);
     } catch (error) {
         signal.throwIfAborted();

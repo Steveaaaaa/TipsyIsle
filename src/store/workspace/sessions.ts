@@ -6,7 +6,8 @@ import { removeStarterContinuation } from '../../core/retired-starter-content';
 import { restoreStoryResources } from '../../core/story-save';
 import type { StoryImport } from '../../core/story-save-format';
 import { platformStorage } from '../../core/platform-bridge';
-import { getSchemaValues, schemaRegistryStore } from '../../registry/schema-registry';
+import { getSchemaValues, schemaRegistryStore, setSchemaValues } from '../../registry/schema-registry';
+import { presetSchemaValues } from '../../core/generation-settings';
 import { scopedVariableStore, replaceExtensionVariables, replaceScopedVariables } from '../scoped-variable-store';
 import { activePath, branchExcerpt, swipeId, storyRoutes, withSwipe } from '../chat-tree';
 import { branchMessageVariables } from '../branch-state';
@@ -17,7 +18,7 @@ import { routeGraph, vertexPath } from '../../plugins/native/route-graph';
 import { tavernEventBus } from '../../sandbox/event-bus';
 import { stopCompatibilityRuntime } from '../../compatibility/runtime-client';
 import { readExtensionVariables } from '../../compatibility/extension-variables';
-import type { ChatMessageNode, NormalizedCharacterCard } from '../../types';
+import type { ChatMessageNode, NormalizedCharacterCard, NormalizedPreset } from '../../types';
 import { enqueuePersistentOperation, suspendRegisteredPersistence, waitForReplicaCommit, holdReplicaCommit, registeredSnapshots, acknowledgeSnapshots } from '../persistence';
 import { workspaceStore, type WorkspaceState } from './state';
 import { getActivePreset, getActiveLorebooks, getCharacterWorldbooks, getActiveCharacter, getActivePersona } from './library';
@@ -334,18 +335,42 @@ export async function applyArchivedChat(chat: ArchivedChat, keepChoices = false,
     });
 }
 
+function applyRememberedCharacterPreset(draft: WorkspaceState, characterId: string): NormalizedPreset | undefined {
+    if (!characterId || !Object.hasOwn(draft.characterPresetBindings, characterId)) return undefined;
+    const rememberedId = draft.characterPresetBindings[characterId];
+    if (!rememberedId) {
+        draft.activePresetId = '';
+        draft.inUsePreset = undefined;
+        return undefined;
+    }
+    const preset = draft.presets.find(item => item.id === rememberedId);
+    if (!preset) return undefined;
+    const cloned = cloneStateValue(preset);
+    draft.activePresetId = cloned.id;
+    draft.inUsePreset = cloned;
+    return cloned;
+}
+
 export function applyArchivedChatState(chat: ArchivedChat, keepChoices = false): void {
     if (chat.kind === 'free') {
         workspaceStore.setState(draft => {
             Object.assign(draft, emptyStory(), { sessionKind: 'free', freeChat: chat.freeChat, activeChatId: chat.id,
-                messages: chat.messages, activeLeafId: chat.activeLeafId, activeLorebookIds: [], streamingReasoning: '' });
+                messages: chat.messages, activeLeafId: chat.activeLeafId, streamingReasoning: '' });
         });
         return;
     }
     if (chat.continuation) chat = { ...chat, continuation: removeStarterContinuation(chat.continuation) };
     if (chat.continuation) {
         const continuation = chat.continuation;
-        if (continuation.settings && !keepChoices) schemaRegistryStore.setState(draft => { Object.assign(draft.values, continuation.settings); });
+        if (continuation.settings && !keepChoices) {
+            schemaRegistryStore.setState(draft => {
+                const preserveChannelSettings = !continuation.portable && Boolean(draft.values['api.active_profile']);
+                for (const [key, value] of Object.entries(continuation.settings!)) {
+                    if (preserveChannelSettings && ['sampler.reasoning_effort', 'sampler.prompt_post_processing', 'sampler.use_sysprompt'].includes(key)) continue;
+                    draft.values[key] = value;
+                }
+            });
+        }
         scopedVariableStore.setState(draft => {
             if (!continuation.portable) draft.global = structuredClone(continuation.variables.global);
             Object.assign(draft.chat, structuredClone(continuation.variables.chat));
@@ -355,19 +380,27 @@ export function applyArchivedChatState(chat: ArchivedChat, keepChoices = false):
             restoreChatExtensions(draft.extension, continuation, chat.id, workspaceStore.getState().branchExtensionKeys);
         });
     }
+    let restoredPreset: NormalizedPreset | undefined;
     workspaceStore.setState(draft => {
         draft.sessionKind = 'character'; draft.freeChat = undefined; draft.storyChatTitle = chat.title;
         applyCharacterPersona(draft, chat.characterId);
         if (chat.continuation) {
             const { activePresetId, inUsePreset, activeLorebookIds, userName, activePersonaId } = chat.continuation;
-            Object.assign(draft, structuredClone(keepChoices ? { userName, activePersonaId, ...(chat.continuation.portable ? { activeLorebookIds } : {}) } : { activePresetId, inUsePreset, activeLorebookIds, userName, activePersonaId }));
+            Object.assign(draft, structuredClone(keepChoices
+                ? { userName, activePersonaId, ...(chat.continuation.portable ? { activeLorebookIds } : {}) }
+                : { activePresetId, inUsePreset, ...(chat.continuation.portable ? { activeLorebookIds } : {}), userName, activePersonaId }));
+        }
+        if (!chat.continuation?.portable && Object.hasOwn(draft.characterPresetBindings, chat.characterId)) {
+            restoredPreset = applyRememberedCharacterPreset(draft, chat.characterId);
         }
         draft.lastAssembledPrompt = null;
         draft.branchExtensionKeys = chat.continuation?.extensionKeys ?? [];
         draft.chatMetadata = chat.continuation?.chatMetadata;
         draft.nativePluginRoute = chat.continuation?.nativePluginRoute;
         draft.storyWorldbooks = cloneStateValue(keepChoices && !chat.continuation?.portable ? routeWorldbooks(chat.continuation?.worldbooks, draft) : chat.continuation?.worldbooks);
-        draft.storyCharacterBinding = structuredClone(chat.continuation?.characterBinding);
+        draft.storyCharacterBinding = !chat.continuation?.portable && Object.hasOwn(draft.characterWorldbookBindings, chat.characterId)
+            ? undefined
+            : structuredClone(chat.continuation?.characterBinding);
         draft.storyCharacter = structuredClone(chat.continuation?.character);
         draft.storyPersona = structuredClone(chat.continuation?.persona);
         draft.branchEpoch = (draft.branchEpoch ?? 0) + 1;
@@ -381,6 +414,7 @@ export function applyArchivedChatState(chat: ArchivedChat, keepChoices = false):
         draft.templateActivations = chat.templateActivations ?? [];
         if (chat.continuation && (!keepChoices || chat.continuation.portable) || !Object.hasOwn(draft.chatWorldbookBindings, chat.id)) draft.chatWorldbookBindings[chat.id] = chat.worldbookName ?? null;
     });
+    if (restoredPreset) setSchemaValues(presetSchemaValues(restoredPreset), false);
     if (!chat.continuation) {
         ensureInitialVariables();
         if (chat.activeLeafId) sessionBranches.restore(chat.activeLeafId);
@@ -397,6 +431,7 @@ export function applyCharacterPersona(draft: WorkspaceState, characterId: string
 export function createChat(card: NormalizedCharacterCard, notify = true): void {
     const messages = buildInitialMessages(card);
     const greeting = messages[0];
+    let restoredPreset: NormalizedPreset | undefined;
     workspaceStore.setState(draft => {
         draft.sessionKind = 'character'; draft.freeChat = undefined;
         draft.storyImportFingerprint = undefined;
@@ -404,6 +439,7 @@ export function createChat(card: NormalizedCharacterCard, notify = true): void {
         draft.portableStory = undefined;
         draft.storyWorldbooks = undefined; draft.storyCharacterBinding = undefined; draft.storyCharacter = undefined; draft.storyPersona = undefined;
         applyCharacterPersona(draft, card.id);
+        restoredPreset = applyRememberedCharacterPreset(draft, card.id);
         draft.lastAssembledPrompt = null;
         draft.activeCharacterId = card.id;
         draft.activeChatId = `chat_${card.id}_${crypto.randomUUID()}`;
@@ -417,6 +453,7 @@ export function createChat(card: NormalizedCharacterCard, notify = true): void {
         draft.templateInjections = [];
         draft.templateActivations = [];
     });
+    if (restoredPreset) setSchemaValues(presetSchemaValues(restoredPreset), notify);
     ensureInitialVariables();
     sessionBranches.capture(greeting.id);
     if (notify) {
@@ -507,7 +544,7 @@ export async function startFreeChat(): Promise<void> {
         stopCompatibilityRuntime();
         invalidateTemplateEnvironment();
         workspaceStore.setState({ ...emptyStory(), sessionKind: 'free', freeChat: { createdAt: Date.now() }, activeChatId: `free_${crypto.randomUUID()}`,
-            activeLorebookIds: [], streamingReasoning: '' });
+            streamingReasoning: '' });
         await persistWorkspaceNow();
     });
 }

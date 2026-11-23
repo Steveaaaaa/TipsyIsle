@@ -12,13 +12,13 @@
 
 **好看的界面是相遇的开始。值得留下的，是故事、自由，以及能一起生长的社区。**
 
-**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.3 更新日志](https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v1.1.3) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
+**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.4 更新日志](docs/releases/v1.1.4.md) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
 
-## 1.1.3 新变化
+## 1.1.4 新变化
 
-- **MVU 对话更新与美化状态栏更可靠。** 修复提示词组装中 `stat_data` 变量宏求值为 `null`、开场白切页覆盖变量及缺失状态栏占位的问题，变量更新和前端状态面板正常联动。
-- **内置「正则管理」与「酒馆助手脚本管理」。** 支持全局、预设、故事三层作用域的开关、手动添加、编辑、排序、删除与 JSON 导入导出。
-- **故事会话管理更顺手。** 支持故事会话搜索、重命名与批量删除，并在局域网同步时保留会话标题。
+- **删楼不再卡在纯色屏。** 修复删除楼层时阅读区变空、重开会话后被删楼层又出现的问题。
+- **换模型、换角色不用重新配。** 剧情模型可保存多套连接；角色可以绑定多本世界书，切回来会恢复上次使用的叙事预设。
+- **阅读排版可调，酒馆兼容继续完善。** 可以自行调整正文排版。本次还补上了更多酒馆世界书接口，并修复一批卡片脚本、模板和预设兼容问题。
 
 ## 为什么值得换
 

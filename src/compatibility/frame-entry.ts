@@ -52,11 +52,12 @@ import { getImageTokenCost, getVideoTokenCost } from './media-tokens';
 import { installHostSlashCommands } from './host-slash-commands';
 import { SlashCommandClosureResult } from '../sandbox/slash-control';
 import { createExtensionApi, findCompatibilityExtension, type CompatibilityExtension } from './extensions';
-import { adaptAuthorWindow, explainAuthorScriptFailure } from './author-window';
+import { adaptAuthorHtml, adaptAuthorWindow, explainAuthorScriptFailure, needsAuthorWindowAdapt, unwrapAuthorScript } from './author-window';
 import { authorBrowserRuntime } from './author-browser-runtime';
 import { authorDocument } from './author-document';
 import { observeFrameHeight, setFrameHeight } from './frame-sizing';
 import { installHostFetch, tavernCompletionResponse } from './host-fetch';
+import { createWorldInfoCache, createWorldInfoEntry, deleteWIOriginalDataValue, originalWIDataKeyMap, setWIOriginalDataValue } from './world-info-helpers';
 import { installBaibaiFrameStorage } from './baibai-frame-storage';
 import { baibaiBody, baibaiHash } from './baibai-route';
 import { createChatCompletionService } from './chat-completion-service';
@@ -70,6 +71,12 @@ let transportedTemplateAssets: Partial<TemplateAssets> = {};
 
 // This entry runs on the separate compatibility origin. Only public model metadata crosses it, never stored credentials.
 const outer = window.parent;
+const crossOriginAncestors = new Set<unknown>();
+for (const candidate of [outer, window.top]) {
+    if (!candidate || candidate === window) continue;
+    try { void candidate.location.href; } catch { crossOriginAncestors.add(candidate); }
+}
+const clampAuthorWindow = (value: unknown) => crossOriginAncestors.has(value) ? window : value;
 const documentId = crypto.randomUUID();
 const retainedResources: Partial<SessionResources> = {};
 const root = document.getElementById('compat-root')!;
@@ -86,10 +93,15 @@ personaMount.id = 'persona-management-button'; extensionTopBar.append(personaMou
 document.body.append(extensionTopBar);
 const composerMount = document.createElement('div');
 composerMount.id = 'send_form'; composerMount.hidden = true;
+const qrBarMount = document.createElement('div');
+qrBarMount.id = 'qr--bar'; composerMount.append(qrBarMount);
 document.body.append(composerMount);
+const extensionSettingsMount = document.createElement('div');
+extensionSettingsMount.id = 'extensions_settings2'; extensionSettingsMount.hidden = true;
+document.body.append(extensionSettingsMount);
 const extensionMenuIds = new WeakMap<Element, string>();
 function extensionActionTargets() {
-    return [...extensionMenu.children, ...extensionTopBar.querySelectorAll('.drawer-toggle'), ...composerMount.querySelectorAll('.qr--button')];
+    return [...extensionMenu.children, ...extensionTopBar.querySelectorAll('.drawer-toggle'), ...composerMount.querySelectorAll('.qr--button, button')];
 }
 function extensionMenuEntries() {
     return extensionActionTargets().flatMap(element => {
@@ -494,6 +506,7 @@ async function flush() {
     if (writeFailure !== undefined) { const error = writeFailure; writeFailure = undefined; throw error; }
 }
 const legacyChatWrites = new Set<Promise<unknown>>();
+let legacySaveQueue: Promise<unknown> = Promise.resolve();
 function trackLegacySave(promise: Promise<unknown>) {
     legacyChatWrites.add(promise);
     void promise.then(() => legacyChatWrites.delete(promise), () => legacyChatWrites.delete(promise));
@@ -853,35 +866,44 @@ function saveChatMetadata(withMetadata?: Record<string, unknown>, explicitSave =
         openingSave = saved;
         return saved;
     }
-    const baseline = snapshot.chatMetadata ?? {};
-    if (explicitSave && (chat.length !== snapshot.messages.length || chat.some((row, index) => row._id !== snapshot.messages[index]?.id || row.swipe_id !== snapshot.messages[index]?.activeSwipeIndex))) {
-        throw new Error('此接口目前不支持直接改变聊天结构或切换回复版本');
-    }
-    const savedMetadata = { ...metadata, ...withMetadata };
-    const values = Object.fromEntries(Object.entries(savedMetadata).filter(([key, value]) => key !== 'variables' && !_.isEqual(value, baseline[key])));
-    const removed = Object.keys(baseline).filter(key => key !== hostHiddenKey && key !== routeMessageDataKey && !Object.hasOwn(savedMetadata, key));
-    const variables = !_.isEqual(savedMetadata.variables, normalizeMvuVariables(snapshot.scopes.chat).variables) ? savedMetadata.variables : undefined;
-    const messageState = chat.flatMap((row, index) => {
-        const node = snapshot.messages[index];
-        if (!node || node.id !== row._id || node.activeSwipeIndex !== row.swipe_id) return [];
-        const mes = typeof row.mes === 'string' && row.mes !== node.content ? row.mes : undefined;
-        const extra = _.isEqual(row.extra, messageExtra(node, node.activeSwipeIndex, snapshot.chatMetadata)) ? undefined : row.extra;
-        const hidden = Boolean(row.is_system) === hostMessageHidden(node, snapshot.chatMetadata) ? undefined : Boolean(row.is_system);
-        const current = row.variables[row.swipe_id];
-        const variables = _.isEqual(current, normalizeMvuVariables(node.variables).variables) ? undefined : current;
-        return mes === undefined && extra === undefined && hidden === undefined && variables === undefined ? [] : [{ id: node.id, swipe: row.swipe_id, content: node.content, mes, extra, hidden, variables }];
+    const currentSession = snapshot.session;
+    const run = legacySaveQueue.then(async () => {
+        if (snapshot.session !== currentSession) return;
+        const baseline = snapshot.chatMetadata ?? {};
+        if (explicitSave && (chat.length !== snapshot.messages.length || chat.some((row, index) => row._id !== snapshot.messages[index]?.id || row.swipe_id !== snapshot.messages[index]?.activeSwipeIndex))) {
+            throw new Error('此接口目前不支持直接改变聊天结构或切换回复版本');
+        }
+        const savedMetadata = { ...metadata, ...withMetadata };
+        const values = Object.fromEntries(Object.entries(savedMetadata).filter(([key, value]) => key !== 'variables' && !_.isEqual(value, baseline[key])));
+        const removed = Object.keys(baseline).filter(key => key !== hostHiddenKey && key !== routeMessageDataKey && !Object.hasOwn(savedMetadata, key));
+        const variables = !_.isEqual(savedMetadata.variables, normalizeMvuVariables(snapshot.scopes.chat).variables) ? savedMetadata.variables : undefined;
+        const messageState = chat.flatMap((row, index) => {
+            const node = snapshot.messages[index];
+            if (!node || node.id !== row._id || node.activeSwipeIndex !== row.swipe_id) return [];
+            const mes = typeof row.mes === 'string' && row.mes !== node.content ? row.mes : undefined;
+            const extra = _.isEqual(row.extra, messageExtra(node, node.activeSwipeIndex, snapshot.chatMetadata)) ? undefined : row.extra;
+            const hidden = Boolean(row.is_system) === hostMessageHidden(node, snapshot.chatMetadata) ? undefined : Boolean(row.is_system);
+            const current = row.variables[row.swipe_id];
+            const variables = _.isEqual(current, normalizeMvuVariables(node.variables).variables) ? undefined : current;
+            return mes === undefined && extra === undefined && hidden === undefined && variables === undefined ? [] : [{ id: node.id, swipe: row.swipe_id, content: node.content, mes, extra, hidden, variables }];
+        });
+        if (!messageState.length && !variables && !removed.length && !Object.keys(values).length) return;
+        await request('legacy.save', { messageState, variables, metadata: { values, removed } });
+        if (snapshot.session === currentSession) await request('runtime.sync');
     });
-    if (!messageState.length && !variables && !removed.length && !Object.keys(values).length) return Promise.resolve();
-    return trackLegacySave(request('legacy.save', { messageState, variables, metadata: { values, removed } }));
+    legacySaveQueue = run.catch(() => {});
+    return trackLegacySave(run);
 }
 async function generateTavernRaw(options: { prompt?: string | unknown[]; responseLength?: number; signal?: AbortSignal } = {}) {
     const messages = Array.isArray(options.prompt) ? options.prompt : [{ role: 'user', content: options.prompt ?? '' }];
-    const response = await tavernCompletionResponse(window, request, '/api/backends/chat-completions/generate',
-        { messages, max_tokens: options.responseLength ?? snapshot.modelSettings.maxResponse, stream: false }, options.signal, true);
+    const body: Record<string, unknown> = { messages, max_tokens: options.responseLength ?? snapshot.modelSettings.maxResponse, stream: false };
+    await emit(events.CHAT_COMPLETION_SETTINGS_READY, body);
+    const response = await tavernCompletionResponse(window, request, '/api/backends/chat-completions/generate', body, options.signal, true);
     const payload = await response.json();
     if (!response.ok || payload.error) throw new Error(payload.error?.message ?? payload.error ?? `HTTP ${response.status}`);
     return String(payload.choices?.[0]?.message?.content ?? '');
 }
+const worldInfoCache = createWorldInfoCache();
 const chatCompletionService = createChatCompletionService(name => {
     const settings = name === snapshot.assetCatalog.loadedPresetName ? snapshot.assetCatalog.inUsePreset.settings
         : snapshot.assetCatalog.presets.find(preset => preset.name === name)?.data.settings;
@@ -968,8 +990,51 @@ const context = () => {
     setUserAvatar: (name: string) => track(request('persona.select', { name })),
     extensionSettings, extension_settings: extensionSettings, extensionTypes, saveSettingsDebounced: saveExtensionSettings,
     findExtension: (id: string) => findCompatibilityExtension(snapshot.extensions, id) ?? null,
-    loadWorldInfo: (name: string) => request('worldbook.native.load', { name }),
-    saveWorldInfo: (name: string, data: unknown, _immediately = false) => track(request('worldbook.native.save', { name, data })),
+    loadWorldInfo: async (name: string) => {
+        if (!name) return null;
+        const data = await request('worldbook.native.load', { name });
+        if (data) worldInfoCache.set(name, data);
+        return data ? structuredClone(data) : null;
+    },
+    saveWorldInfo: async (name: string, data: unknown, _immediately = false) => {
+        if (!name || !data) return;
+        worldInfoCache.set(name, structuredClone(data));
+        await track(request('worldbook.native.save', { name, data }));
+        await emit(events.WORLDINFO_UPDATED, name, data);
+    },
+    worldInfoCache,
+    originalWIDataKeyMap,
+    createWorldInfoEntry,
+    setWIOriginalDataValue,
+    deleteWIOriginalDataValue,
+    updateWorldInfoList: async () => { await request('runtime.sync'); return [...snapshot.worldbookBindings.names]; },
+    writeExtensionField: async (characterId: string | number, key: string, value: unknown) => {
+        const index = Number(characterId);
+        const card = Number.isInteger(index) && index >= 0 ? snapshot.assetCatalog.characters[index]
+            : snapshot.assetCatalog.characters.find(item => item.id === characterId || item.avatar === characterId);
+        if (!card) throw new Error(`找不到角色：${characterId}`);
+        await track(request('host.http', { path: '/api/characters/merge-attributes', body: { avatar: card.avatar, data: { extensions: { [key]: value } } } }));
+        await request('runtime.sync');
+    },
+    updateMessageBlock: async (messageId: number, message?: Record<string, any>) => {
+        ensureSession();
+        const content = message?.mes ?? chat[messageId]?.mes;
+        if (typeof content !== 'string' || !chat[messageId]) return;
+        chat[messageId].mes = content;
+        await helper.setChatMessages([{ message_id: messageId, message: content }]);
+    },
+    addOneMessage: async (message: Record<string, any>, options?: { insertAfter?: number }) => {
+        ensureSession();
+        const role = message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
+        await helper.createChatMessages([{ role, name: message.name, message: String(message.mes ?? ''), is_hidden: Boolean(message.is_system) }],
+            options?.insertAfter !== undefined ? { insert_before: options.insertAfter + 1 } : {});
+    },
+    groupId: null as string | null,
+    get isGenerating() { return Boolean(snapshot.generating); },
+    get is_send_press() { return Boolean(snapshot.generating); },
+    get streamingProcessor() { return snapshot.generating ? {} : null; },
+    shouldSendOnEnter: () => true,
+    getVariables: helper.getVariables,
     worldInfoNames: snapshot.worldbookBindings.names, selectedWorldInfo: snapshot.worldbookBindings.global,
     getWorldInfoNames: () => [...snapshot.worldbookBindings.names], checkWorldInfo, getWorldInfoPrompt,
     getCharacterCardFields: () => { const raw = snapshot.assetCatalog.characters.find(card => card.id === snapshot.character.id)?.raw as any; return structuredClone(raw?.data ?? raw ?? {}); },
@@ -1975,6 +2040,7 @@ function installApi(win: any, floor?: number, scriptId?: string) {
     Object.assign(win, authorLibraries, api, childSlashRegistration, { TavernHelper: api, SillyTavern: sillyTavernApi(childContext), tavern_events: events, iframe_events: iframeEvents, Mvu,
         __VUE_PROD_DEVTOOLS__: true, __VUE_OPTIONS_API__: true, __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: false,
         __tipsyHostWindow: window,
+        __tipsySafeWindow: clampAuthorWindow,
         __tipsyHostContext: childContext,
         quickReplyApi: quickReplies.api, executeQuickReplyByName: quickReplies.executeByName,
         EjsTemplate: templateExports(() => templateCallbackOwners.get(win)) });
@@ -2050,6 +2116,8 @@ function importMap(source: string) {
         const slash = /(?:^|\/)slash-commands\/(\w+)(?:\.js)?(?:\?|$)/.exec(url);
         if (slash && slashModules[slash[1]]) imports[url] = `data:text/javascript,${encodeURIComponent(slashModules[slash[1]].map(name => `export const ${name}=globalThis.${name};`).join(''))}`;
         else if (/(?:^|\/)scripts\/popup\.js(?:[?#]|$)/.test(url)) imports[url] = '/scripts/popup.js';
+        else if (/(?:^|\/)scripts\/world-info\.js(?:[?#]|$)/.test(url)) imports[url] = '/scripts/world-info.js';
+        else if (/(?:^|\/)scripts\/openai\.js(?:[?#]|$)/.test(url)) imports[url] = '/scripts/openai.js';
         else if (/(?:^|\/)scripts\/slash-commands(?:\.js)?(?:\?|$)/.test(url)) imports[url] = `data:text/javascript,${encodeURIComponent('const c=globalThis.SillyTavern.getContext();export const executeSlashCommands=c.executeSlashCommands;export const executeSlashCommandsWithOptions=c.executeSlashCommandsWithOptions;export const registerSlashCommand=c.registerSlashCommand;')}`;
         else if (/(?:^|\/)extensions\/quick-reply\/index\.js(?:\?|$)/.test(url)) imports[url] = `data:text/javascript,${encodeURIComponent('export const quickReplyApi=globalThis.quickReplyApi;')}`;
         else if (/\/mvu_zod\.js(?:\?|$)/i.test(url)) imports[url] = `data:text/javascript,${encodeURIComponent('export const registerMvuSchema=(...a)=>globalThis.registerMvuSchema(...a);')}`;
@@ -2076,10 +2144,17 @@ function createChild(html: string, floor?: number, script?: CardScript, componen
     const head = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>@layer tipsy-reader {:where(html){font-size:16px;-webkit-text-size-adjust:100%;text-size-adjust:100%}:where(body){margin:0;background:transparent;color:var(--reader-text,#252d3b);font-family:var(--reader-font,system-ui);font-size:var(--reader-size,16px);line-height:var(--reader-leading,1.9);overflow-wrap:normal;overflow-x:hidden}:where(body > *){min-width:0}}</style>${bootstrap}${vueRuntime}${importMap(script?.content ?? html)}`;
     const content = script ? `<script type="module">\n${escapeScript(script.content)}\n;await __compatReady();parent.__compatScriptDone(${safeJson(id)});</script>` : html;
     const ready = script ? '' : `<script>window.addEventListener('DOMContentLoaded',()=>{__compatReady().catch(__compatReport);(${observeFrameHeight.toString()})(height=>parent.__compatResize(${safeJson(id)},height),parent);},{once:true});</script>`;
-    frame.srcdoc = authorDocument(content, head, ready);
+    if (!script && /<script\b/i.test(content) && needsAuthorWindowAdapt(content)) {
+        void adaptAuthorHtml(content).then(adapted => {
+            if (children.has(frame)) frame.srcdoc = authorDocument(adapted, head, ready);
+        });
+    } else {
+        frame.srcdoc = authorDocument(content, head, ready);
+    }
     children.add(frame);
     if (!script) messageFrames.set(id, frame);
     frame.addEventListener('load', () => {
+        if (!frame.getAttribute('srcdoc')) return;
         loadedMessageFrames.add(frame);
         scheduleReadingPosition();
         if (readingPresentation && frame.contentDocument) applyReadingPresentation(readingPresentation, frame.contentDocument);
@@ -2139,7 +2214,8 @@ async function mountScript(script: CardScript): Promise<{ completion: Promise<vo
     startupStage(`加载作者脚本：${script.name}`);
     scriptButtons.set(script.id, script.buttons.map(button => ({ name: button.name, visible: button.visible !== false })));
     scriptInfo.set(script.id, script.info); renderButtons();
-    const frame = createChild('', undefined, { ...script, content: await adaptAuthorWindow(script.content) });
+    const unwrapped = unwrapAuthorScript(script.content);
+    const frame = createChild('', undefined, { ...script, content: await adaptAuthorWindow(unwrapped) });
     const id = frame.dataset.compatChild!;
     const promise = new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => { scriptJobs.delete(id); reject(new DOMException(`脚本初始化超时：${script.name}`, 'TimeoutError')); }, 20000);
@@ -2154,7 +2230,7 @@ async function loadScripts(scripts: CardScript[], bindingToken: string): Promise
     const completions: Promise<void>[] = [];
     const recordFailure = async (script: CardScript, error: unknown) => {
         if (token !== bindingToken) return;
-        const message = await explainAuthorScriptFailure(script.content, error).catch(() => String(error));
+        const message = await explainAuthorScriptFailure(unwrapAuthorScript(script.content), error).catch(() => String(error));
         if (token !== bindingToken) return;
         scriptFailures.set(script.id, { name: script.name, message });
         reportComponent('script', script, 'failed', error instanceof Error && error.name === 'TimeoutError' ? 'TIMEOUT' : 'LOAD_ERROR');
@@ -2422,6 +2498,10 @@ installHostFetch(window, request, {
         if (action === 'status') baibaiStorage.probe(body?.data?.driver?.available === true);
         else if (['vec/clear-scope', 'vec/delete', 'vec/reconcile'].includes(action) && body?.data?.deleted > 0) baibaiStorage.invalidate();
     },
+    onWorldInfoEdited: (name, data) => {
+        worldInfoCache.set(name, structuredClone(data));
+        void emit(events.WORLDINFO_UPDATED, name, data);
+    },
 });
 installGallery(window);
 eventOn(events.APP_READY, () => snapshot.branchEpoch ? undefined : quickReplies.automatic('executeOnStartup'));
@@ -2502,6 +2582,7 @@ async function switchCompatibilitySession(next: CompatSnapshot, scripts: CardScr
     if (token !== bindingToken) { releaseSessionData(); return; }
     pendingVariableWrites.clear(); externalWorldInfo.clear(); deferredDeltas.length = 0; writeFailure = undefined;
     helperWorldbookCache.clear();
+    worldInfoCache.clear();
     for (const row of rows.values()) disposeRow(row.element); rows.clear();
     const retained = new Set(scriptsFromTrees(next.scriptTrees.global).filter(script => script.enabled).map(script => script.id));
     if (snapshot.assetCatalog.loadedPresetName === next.assetCatalog.loadedPresetName) {
@@ -2536,9 +2617,42 @@ async function switchCompatibilitySession(next: CompatSnapshot, scripts: CardScr
     await startupEventsTask;
     await finishStartupForSync(bindingToken);
 }
-onPopupVisibility(visible => {
+const hostBodyContainers = new Set<Element>([root, extensionMenu, extensionTopBar, composerMount, extensionSettingsMount]);
+let nativePopupVisible = false;
+let extensionOverlayVisible = false;
+let lastPublishedOverlay = false;
+function publishOverlayVisibility() {
+    const visible = nativePopupVisible || extensionOverlayVisible;
+    if (visible === lastPublishedOverlay) return;
+    lastPublishedOverlay = visible;
     document.documentElement.toggleAttribute('data-compat-popup', visible);
     outer.postMessage({ kind: 'compat:popup', session: snapshot?.session, visible }, '*');
+}
+function checkExtensionOverlay() {
+    const minW = window.innerWidth * 0.7, minH = window.innerHeight * 0.6;
+    extensionOverlayVisible = [...document.body.children].some(el => {
+        if (hostBodyContainers.has(el) || !(el instanceof HTMLElement) || el.hidden || el.tagName === 'IFRAME' || el.tagName === 'DIALOG') return false;
+        const style = window.getComputedStyle(el);
+        if (style.position !== 'fixed' || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width >= minW && rect.height >= minH;
+    });
+    publishOverlayVisibility();
+}
+const observedOverlays = new WeakSet<Element>();
+const overlayAttrObserver = new MutationObserver(checkExtensionOverlay);
+const observeExtensionChildren = () => {
+    for (const el of document.body.children) {
+        if (hostBodyContainers.has(el) || observedOverlays.has(el) || el.tagName === 'IFRAME' || el.tagName === 'DIALOG') continue;
+        observedOverlays.add(el);
+        overlayAttrObserver.observe(el, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+    }
+    checkExtensionOverlay();
+};
+new MutationObserver(observeExtensionChildren).observe(document.body, { childList: true });
+onPopupVisibility(visible => {
+    nativePopupVisible = visible;
+    publishOverlayVisibility();
 });
 window.addEventListener('message', event => {
     if (event.source !== outer || !event.data) return;

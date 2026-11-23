@@ -2,18 +2,18 @@ import { batchReactiveUpdates } from '../reactive-store';
 import { applyRegexScripts, orderedRegexScripts } from '../../pipeline/macro-regex-engine';
 import _ from 'lodash';
 import { getScopedVariables, readScopedVariables, replaceScopedVariables } from '../scoped-variable-store';
-import { activePath, swipeId, storyRoutes } from '../chat-tree';
+import { removeChatTreeNode, swipeId, storyRoutes } from '../chat-tree';
 import { continueNativeRoute } from '../../plugins/native/route-graph';
 import { tavernEventBus } from '../../sandbox/event-bus';
 import { commandCompatibilityRuntime, resetCompatibilityBranch } from '../../compatibility/runtime-client';
 import type { ChatMessageNode } from '../../types';
-import { waitForReplicaCommit } from '../persistence';
+import { enqueuePersistentOperation, waitForReplicaCommit } from '../persistence';
 import { hostHiddenKey, hostIllustrationKey, hostMessageHidden, messageExtra, patchHelperMessage, validateMessageRefresh, type HostIllustration } from '../../compatibility/chat-message-codec';
 import { globalRegexes } from '../global-regex-store';
 import { workspaceStore } from './state';
 import { getActivePreset, getActiveCharacter } from './library';
 import { schedulePreview } from './prompt';
-import { persistWorkspace, persistWorkspaceNow } from './storage';
+import { commitWorkspaceMutation, persistWorkspace, persistWorkspaceNow } from './storage';
 import { setStatusBanner } from './notice';
 import { getActiveChatMessages, getEffectiveMvuSettings } from './queries';
 import { initialChatVariables, mvuChatProjection } from './story-initialization';
@@ -62,7 +62,8 @@ export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<st
     for (const message of rows) {
         const node = path.get(message.id);
         const visible = node && routeContent(node, state.chatMetadata);
-        if (!node || message.swipe !== node.activeSwipeIndex || message.content !== visible) throw new Error('插件保存的消息已改变，请重试');
+        if (!node || message.swipe !== node.activeSwipeIndex) throw new Error('插件保存的消息已改变，请重试');
+        if (message.mes !== undefined && message.mes !== visible && message.content !== visible) throw new Error('插件保存的消息已改变，请重试');
         if (message.mes !== undefined && node.extra?.tipsy_generation_incomplete) throw new Error('不能保存尚在生成的消息正文');
         const key = routeMessageKey(node);
         const prior = routeMessages(state.chatMetadata)?.[key];
@@ -435,35 +436,40 @@ export function attachReplyIllustration(expected: { chatId: string; branchEpoch?
 }
 
 export async function deleteChatMessage(messageId: string, internal = false): Promise<void> {
-    if (isNativeStorySaving() || workspaceStore.getState().isGenerating) return;
+    await waitForReplicaCommit();
     await settleRouteChange(internal);
     const before = workspaceStore.getState();
-    const deletedFloor = getActiveChatMessages().find(m => m.id === messageId)?.floor;
-    workspaceStore.setState(draft => {
-        const target = draft.messages.find(node => node.id === messageId);
+    let deletedFloor: number | undefined;
+    await enqueuePersistentOperation(() => commitWorkspaceMutation(() => {
+        const state = workspaceStore.getState();
+        if (state.activeChatId !== before.activeChatId || state.branchEpoch !== before.branchEpoch || state.isGenerating || isNativeStorySaving()) {
+            throw new Error('剧情状态已变化，请重新操作');
+        }
+        const target = getActiveChatMessages(state).find(node => node.id === messageId);
         if (!target) return;
-        for (const child of draft.messages) if (child.parentId === messageId) { child.parentId = target.parentId; child.parentSwipeId = target.parentSwipeId; }
-        draft.messages = draft.messages.filter(node => node.id !== messageId);
-        if (!draft.deletedMessageIds?.includes(messageId)) (draft.deletedMessageIds ??= []).push(messageId);
-        if (draft.activeLeafId === messageId) draft.activeLeafId = target.parentId ?? draft.messages.at(-1)?.id ?? null;
-        for (const node of draft.messages) node.floor = activePath(draft.messages, node.id).length - 1;
-    });
-    if (workspaceStore.getState().sessionKind === 'free') { persistWorkspace(); return; }
-    const leaf = workspaceStore.getState().activeLeafId;
-    if (leaf) restoreMessageSnapshot(leaf);
-    else {
-        workspaceStore.setState({ chatMetadata: undefined, nativePluginRoute: undefined });
-        replaceScopedVariables(initialChatVariables(), 'chat', { chatId: workspaceStore.getState().activeChatId });
-    }
-    if (leaf) workspaceStore.setState({ chatMetadata: remapRouteMessageData(before.chatMetadata, new Map(getActiveChatMessages().map(node => [node.id, node.id])), undefined, false) });
-    if (leaf) captureMessageSnapshot(leaf);
-    persistWorkspace();
+        deletedFloor = target.floor;
+        const messages = removeChatTreeNode(state.messages, target);
+        const leaf = state.activeLeafId === messageId ? target.parentId ?? messages.at(-1)?.id ?? null : state.activeLeafId;
+        workspaceStore.setState({ messages, activeLeafId: leaf, deletedMessageIds: [...new Set([...(state.deletedMessageIds ?? []), messageId])] });
+        if (state.sessionKind === 'free') return;
+        if (leaf) {
+            restoreMessageSnapshot(leaf);
+            workspaceStore.setState({ chatMetadata: remapRouteMessageData(state.chatMetadata, new Map(getActiveChatMessages().map(node => [node.id, node.id])), undefined, false) });
+            captureMessageSnapshot(leaf);
+        } else {
+            workspaceStore.setState({ chatMetadata: undefined, nativePluginRoute: undefined });
+            replaceScopedVariables(initialChatVariables(), 'chat', { chatId: state.activeChatId });
+        }
+    }));
+    if (deletedFloor === undefined || before.sessionKind === 'free') return;
     void tavernEventBus.emit('message_deleted', { messageId });
     if (!internal) {
         try { await commandCompatibilityRuntime('event', ['message_deleted', deletedFloor]); }
         catch (error) { setStatusBanner(String(error)); }
     }
-    workspaceStore.setState(draft => { draft.branchEpoch = (draft.branchEpoch ?? 0) + 1; });
+    const current = workspaceStore.getState();
+    if (current.activeChatId !== before.activeChatId || current.branchEpoch !== before.branchEpoch) return;
+    workspaceStore.setState({ branchEpoch: (current.branchEpoch ?? 0) + 1 });
     persistWorkspace();
     if (!internal) resetCompatibilityBranch();
     schedulePreview();

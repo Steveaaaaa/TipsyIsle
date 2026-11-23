@@ -1,6 +1,19 @@
 import type { AssembledPromptMessage, NormalizedPreset } from '../types';
 import { DEFAULT_RESPONSE_TOKENS } from './generation-defaults';
 
+export function presetSchemaValues(preset: NormalizedPreset): Record<string, unknown> {
+    const values: Record<string, unknown> = {
+        temperature: preset.temperature, top_p: preset.topP, top_k: preset.topK,
+        min_p: preset.minP, frequency_penalty: preset.frequencyPenalty,
+        presence_penalty: preset.presencePenalty, max_tokens: preset.maxResponseTokens,
+        context_max_tokens: preset.maxContextTokens,
+    };
+    const settings = Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined).map(([key, value]) => [`sampler.${key}`, value]));
+    if (preset.rawData?.stream_openai !== undefined) settings['api.stream'] = preset.rawData.stream_openai;
+    if (preset.rawData?.reasoning_effort !== undefined) settings['sampler.reasoning_effort'] = preset.rawData.reasoning_effort;
+    return settings;
+}
+
 /** Shared by ordinary chat generation and Helper's return-only requests. */
 export function presetSamplingParameters(preset: NormalizedPreset, live?: Record<string, unknown>): Record<string, unknown> {
     const raw = preset.rawData ?? {};

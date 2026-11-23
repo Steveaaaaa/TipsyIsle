@@ -296,8 +296,8 @@ export function AdaptiveWorkspaceApp() {
     const mvuPrimaryName = getCharacterWorldbooks(activeCharacter, state).primary;
     const mvuPrimaryBook = getAvailableWorldbooks(state).find(book => book.name === mvuPrimaryName);
     const activePreset = getActivePreset(state);
-    const activeLorebooks = useMemo(() => getActiveLorebooks(state), [state.characters, state.activeCharacterId, state.lorebooks,
-        state.activeLorebookIds, state.characterWorldbookBindings, state.chatWorldbookBindings, state.activeChatId, state.personas, state.activePersonaId]);
+    const activeLorebooks = useMemo(() => getActiveLorebooks(state), [state.sessionKind, state.characters, state.activeCharacterId, state.lorebooks,
+        state.activeLorebookIds, state.characterWorldbookBindings, state.storyCharacterBinding, state.storyWorldbooks, state.chatWorldbookBindings, state.activeChatId, state.personas, state.activePersonaId]);
     const activeMessages = useMemo(() => getActiveChatMessages(state), [state.messages, state.activeLeafId]);
     const illustrationNode = illustrationId ? activeMessages.find(message => message.id === illustrationId) : undefined;
     const illustrations = illustrationNode ? (illustrationNode.extra?.[hostIllustrationKey] as Record<string, HostIllustration[]> | undefined)?.[swipeId(illustrationNode)] ?? [] : [];

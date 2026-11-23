@@ -26,6 +26,7 @@ export interface WorkspaceState {
     lorebooks: NormalizedLorebook[];
     activeLorebookIds: string[];
     characterWorldbookBindings: Record<string, { primary: string | null; additional: string[] }>;
+    characterPresetBindings: Record<string, string>;
     chatWorldbookBindings: Record<string, string | null>;
     presets: NormalizedPreset[];
     activePresetId: string;
@@ -61,6 +62,7 @@ export function initialWorkspace(): WorkspaceState {
         lorebooks: [],
         activeLorebookIds: [],
         characterWorldbookBindings: {},
+        characterPresetBindings: {},
         chatWorldbookBindings: {},
         presets: [],
         inUsePreset: undefined,

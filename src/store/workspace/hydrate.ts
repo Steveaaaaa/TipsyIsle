@@ -54,6 +54,7 @@ export async function hydrateWorkspaceFromPlatform(preview = true): Promise<void
             if (Array.isArray(saved.lorebooks)) draft.lorebooks = saved.lorebooks;
             if (Array.isArray(saved.activeLorebookIds)) draft.activeLorebookIds = saved.activeLorebookIds;
             if (saved.characterWorldbookBindings) draft.characterWorldbookBindings = saved.characterWorldbookBindings;
+            if (saved.characterPresetBindings) draft.characterPresetBindings = saved.characterPresetBindings;
             if (saved.chatWorldbookBindings) draft.chatWorldbookBindings = saved.chatWorldbookBindings;
             if (Array.isArray(saved.presets)) draft.presets = saved.presets;
             if (saved.activePresetId) draft.activePresetId = saved.activePresetId;
@@ -74,7 +75,11 @@ export async function hydrateWorkspaceFromPlatform(preview = true): Promise<void
         draft.presets = draft.presets.filter(preset => !isRetiredPreset(preset));
         if (draft.inUsePreset && isRetiredPreset(draft.inUsePreset)) { draft.activePresetId = ''; draft.inUsePreset = undefined; }
         else if (!draft.inUsePreset && presets.some(preset => preset.id === draft.activePresetId)) draft.activePresetId = '';
-        for (const guide of guides) { delete draft.characterWorldbookBindings[guide.id]; delete draft.streamDisplayModes[guide.id]; }
+        for (const guide of guides) { delete draft.characterWorldbookBindings[guide.id]; delete draft.characterPresetBindings[guide.id]; delete draft.streamDisplayModes[guide.id]; }
+        const retiredPresetIds = new Set(presets.map(preset => preset.id));
+        for (const [charId, presetId] of Object.entries(draft.characterPresetBindings)) {
+            if (presetId && retiredPresetIds.has(presetId)) delete draft.characterPresetBindings[charId];
+        }
         if (draft.sessionKind !== 'free' && (guides.some(card => card.id === draft.activeCharacterId) || !draft.activeCharacterId)) Object.assign(draft, emptyStory());
     });
     if (!saved?.storyWorldbooks) ensureInitialVariables();

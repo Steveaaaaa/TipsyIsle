@@ -64,6 +64,7 @@ export interface StreamCompletionRequest {
     includeBody?: Record<string, unknown>;
     excludeBody?: string[];
     includeHeaders?: Record<string, string>;
+    useSystemPrompt?: boolean;
     stream?: boolean;
     provider?: { provider: string; api?: string; authType?: 'api_key' | 'oauth'; thinkingLevel?: string; contextWindow?: number };
     signal?: AbortSignal;
@@ -168,6 +169,7 @@ async function requestChatCompletion(req: StreamCompletionRequest, gateway: bool
                   model: req.model,
                   messages,
                   parameters: req.parameters,
+                  ...(req.useSystemPrompt !== undefined ? { useSystemPrompt: req.useSystemPrompt } : {}),
                   stream: req.stream ?? true,
                   includeBody: req.includeBody, excludeBody: req.excludeBody, includeHeaders: req.includeHeaders,
               }

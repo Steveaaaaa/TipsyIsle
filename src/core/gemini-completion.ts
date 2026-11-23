@@ -1,6 +1,7 @@
 import { geminiEndpoint, geminiHeaders } from './gemini-endpoint';
 import { platformFetch } from './native-runtime';
 import type { CompletionToolCall, StreamCompletionRequest } from './platform-bridge';
+import { GEMINI_SAFETY_SETTINGS, PROMPT_PLACEHOLDER } from './prompt-post-process';
 import { excludeRequestFields } from './request-fields';
 
 type JsonObject = Record<string, unknown>;
@@ -37,6 +38,9 @@ async function imagePart(url: string, signal?: AbortSignal): Promise<Part> {
 }
 
 async function conversation(req: StreamCompletionRequest) {
+    const model = req.model.trim().replace(/^models\//, '');
+    const useSysPrompt = req.useSystemPrompt !== false && !/^gemma-?3/i.test(model);
+    const noPrefillModel = /gemini-3\.[67]-flash|gemini-3\.5-flash-lite/i.test(model);
     const system: string[] = [];
     const contents: { role: 'user' | 'model'; parts: Part[] }[] = [];
     const addParts = (role: 'user' | 'model', parts: Part[]) => {
@@ -45,13 +49,21 @@ async function conversation(req: StreamCompletionRequest) {
         if (previous?.role === role) previous.parts.push(...parts);
         else contents.push({ role, parts });
     };
-    const toolIds = Number(/^gemini-(\d+)/i.exec(req.model.trim().replace(/^models\//, ''))?.[1]) >= 3;
-    for (const message of req.messages) {
+    const toolIds = Number(/^gemini-(\d+)/i.exec(model)?.[1]) >= 3;
+    let startIndex = 0;
+    if (useSysPrompt) {
+        while (startIndex < req.messages.length - 1 && req.messages[startIndex].role === 'system') {
+            const message = req.messages[startIndex];
+            const named = 'name' in message && message.name ? `${message.name}: ${message.content}` : message.content;
+            if (named) system.push(named);
+            startIndex++;
+        }
+    }
+    for (let index = startIndex; index < req.messages.length; index++) {
+        const message = req.messages[index];
         req.signal?.throwIfAborted();
         const named = 'name' in message && message.name ? `${message.name}: ${message.content}` : message.content;
-        if (message.role === 'system') {
-            if (named) system.push(named);
-        } else if (message.role === 'tool') {
+        if (message.role === 'tool') {
             addParts('user', [{ functionResponse: { name: message.name,
                 response: parseObject(message.content, { result: message.content }), ...(toolIds ? { id: message.tool_call_id } : {}) } }]);
         } else {
@@ -64,9 +76,13 @@ async function conversation(req: StreamCompletionRequest) {
                 parts.push({ functionCall: { name: call.function.name, args: parseObject(call.function.arguments, {}), ...(toolIds ? { id: call.id } : {}) },
                     ...(call.thought_signature ? { thoughtSignature: call.thought_signature } : {}) });
             }
-            addParts(message.role === 'assistant' ? 'model' : 'user', parts);
+            const role = message.role === 'assistant'
+                ? (noPrefillModel && index === req.messages.length - 1 ? 'user' : 'model')
+                : 'user';
+            addParts(role, parts);
         }
     }
+    if (!contents.length) contents.push({ role: 'user', parts: [{ text: PROMPT_PLACEHOLDER }] });
     return { contents, ...(system.length ? { systemInstruction: { parts: [{ text: system.join('\n\n') }] } } : {}) };
 }
 
@@ -123,7 +139,7 @@ export async function requestGeminiCompletion(req: StreamCompletionRequest): Pro
     const choice = parameters.tool_choice;
     const allowedName = object(object(choice).function).name;
     const mode = typeof allowedName === 'string' || choice === 'required' ? 'ANY' : choice === 'none' ? 'NONE' : choice === 'auto' ? 'AUTO' : undefined;
-    const body = structuredClone({ ...await conversation(req), generationConfig,
+    const body = structuredClone({ ...await conversation(req), generationConfig, safetySettings: GEMINI_SAFETY_SETTINGS,
         ...(declarations.length ? { tools: [{ functionDeclarations: declarations }] } : {}),
         ...(mode ? { toolConfig: { functionCallingConfig: { mode, ...(allowedName ? { allowedFunctionNames: [allowedName] } : {}) } } } : {}),
         ...overrides });

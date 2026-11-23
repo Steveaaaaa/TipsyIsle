@@ -8,7 +8,7 @@ import { registerWorkspaceSnapshots } from './workspace/storage';
 
 export { saveSettingsEdits } from './workspace/settings';
 export { commitNativeWorkspace, commitNativeAssetEdit, applyNativeChatEdit, openNativePluginRoute } from './workspace/runtime';
-export { worldbooksChanged, selectPersona, savePlayerPersona, clearCharacterPersona, setGlobalWorldbookEnabled, updateLorebookEntry, updateCharacterDocument, replaceActiveWorldbookEntries, selectPreset, applyPresetSettings, updatePresetPrompt, removeWorldbookFromWorkspace, deleteWorkspaceWorldbook, getCharacterDeletionBooks, deleteWorkspaceCharacter, deleteWorkspaceCharacters, deleteWorkspacePreset, clearImportedWorkspace, importStoryCharacter, importAssetFile, exportActiveCharacterAsPng, exportCharacterAsPng, saveWorkspaceRegexRules } from './workspace/library-actions';
+export { worldbooksChanged, selectPersona, savePlayerPersona, clearCharacterPersona, setGlobalWorldbookEnabled, setCharacterWorldbookBinding, updateLorebookEntry, updateCharacterDocument, replaceActiveWorldbookEntries, selectPreset, applyPresetSettings, updatePresetPrompt, removeWorldbookFromWorkspace, deleteWorkspaceWorldbook, getCharacterDeletionBooks, deleteWorkspaceCharacter, deleteWorkspaceCharacters, deleteWorkspacePreset, clearImportedWorkspace, importStoryCharacter, importAssetFile, exportActiveCharacterAsPng, exportCharacterAsPng, saveWorkspaceRegexRules } from './workspace/library-actions';
 export {
     setHelperCharacterAvatar, addHelperCharacter, importHelperCharacter, replaceHelperCharacterRegexes,
     writeHelperPreset, removeHelperPreset, renameHelperPreset, replaceHelperPresetRegexes,

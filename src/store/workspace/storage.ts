@@ -70,6 +70,7 @@ export function registerWorkspaceSnapshots() {
             activeCharacterId: s.activeCharacterId,
             activeLorebookIds: s.activeLorebookIds,
             characterWorldbookBindings: s.characterWorldbookBindings,
+            characterPresetBindings: s.characterPresetBindings,
             chatWorldbookBindings: s.chatWorldbookBindings,
             activePresetId: s.activePresetId,
             inUsePreset: s.inUsePreset,

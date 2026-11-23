@@ -8,6 +8,7 @@ import { embedCharacterCardIntoPng } from '../../core/png-chunk-codec';
 import { importCharacterFile } from '../../core/character-import';
 import { platformStorage } from '../../core/platform-bridge';
 import { setSchemaValues, schemaRegistryStore } from '../../registry/schema-registry';
+import { presetSchemaValues } from '../../core/generation-settings';
 import { scopedVariableStore, replaceExtensionVariables } from '../scoped-variable-store';
 import { workspaceGlobalRegexes } from '../global-regex-store';
 import { normalizeScriptTrees } from '../../compatibility/script-trees';
@@ -108,6 +109,29 @@ export function setGlobalWorldbookEnabled(id: string, enabled: boolean): void {
 export function replaceHelperGlobalWorldbookBindings(resolveIds: () => string[]): void {
     // Resolve names when the write is applied, including during held-write replay.
     workspaceStore.setState(draft => { draft.activeLorebookIds = resolveIds(); });
+}
+
+export function setCharacterWorldbookBinding(cardId: string, primary: string | null, additional: string[]): void {
+    const state = workspaceStore.getState();
+    if (state.isGenerating || state.helperGenerationCount) throw new Error('请等待生成结束后修改世界书绑定');
+    if (!cardId || !state.characters.some(card => card.id === cardId)) throw new Error('找不到目标角色卡');
+    const normalizedPrimary = primary?.trim() || null;
+    const normalizedAdditional = [...new Set(additional.map(name => name.trim()).filter(name => name && name !== normalizedPrimary))];
+    workspaceStore.setState(draft => {
+        const next = { primary: normalizedPrimary, additional: normalizedAdditional };
+        draft.characterWorldbookBindings[cardId] = next;
+        if (draft.storyCharacter && cardId === draft.activeCharacterId) {
+            draft.storyCharacterBinding = structuredClone(next);
+        }
+        draft.characters = draft.characters.map(item => item.id === cardId ? {
+            ...item,
+            primaryWorldbook: normalizedPrimary,
+            additionalWorldbooks: normalizedAdditional,
+            extensions: { ...item.extensions, world: normalizedPrimary ?? '', extra_worlds: normalizedAdditional },
+        } : item);
+    });
+    persistWorkspace();
+    schedulePreview();
 }
 
 export function bindHelperCharacterWorldbooks(cardId: string, primary: string | null, additional: string[]): void {
@@ -270,12 +294,33 @@ export function replaceActiveWorldbookEntries(entries: unknown[]): boolean {
 }
 
 export function selectPreset(presetId: string): void {
-    if (workspaceStore.getState().activePresetId === presetId) return;
-    if (!presetId) { workspaceStore.setState({ activePresetId: '', inUsePreset: undefined }); persistWorkspace(); schedulePreview(); return; }
-    const preset = workspaceStore.getState().presets.find(item => item.id === presetId);
+    const state = workspaceStore.getState();
+    const rememberFor = state.sessionKind === 'character' && state.activeCharacterId ? state.activeCharacterId : '';
+    if (state.activePresetId === presetId) {
+        if (rememberFor && state.characterPresetBindings[rememberFor] !== presetId) {
+            workspaceStore.setState(draft => { draft.characterPresetBindings[rememberFor] = presetId; });
+            persistWorkspace();
+        }
+        return;
+    }
+    if (!presetId) {
+        workspaceStore.setState(draft => {
+            draft.activePresetId = '';
+            draft.inUsePreset = undefined;
+            if (rememberFor) draft.characterPresetBindings[rememberFor] = '';
+        });
+        persistWorkspace();
+        schedulePreview();
+        return;
+    }
+    const preset = state.presets.find(item => item.id === presetId);
     if (!preset) return;
     batchReactiveUpdates(() => {
-        workspaceStore.setState(draft => { draft.activePresetId = presetId; draft.inUsePreset = structuredClone(preset); });
+        workspaceStore.setState(draft => {
+            draft.activePresetId = presetId;
+            draft.inUsePreset = structuredClone(preset);
+            if (rememberFor) draft.characterPresetBindings[rememberFor] = presetId;
+        });
         applyPresetSettings(preset);
     });
     persistWorkspace();
@@ -283,16 +328,7 @@ export function selectPreset(presetId: string): void {
 }
 
 export function applyPresetSettings(preset: NormalizedPreset): void {
-    const values: Record<string, unknown> = {
-        temperature: preset.temperature, top_p: preset.topP, top_k: preset.topK,
-        min_p: preset.minP, frequency_penalty: preset.frequencyPenalty,
-        presence_penalty: preset.presencePenalty, max_tokens: preset.maxResponseTokens,
-        context_max_tokens: preset.maxContextTokens,
-    };
-    const settings = Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined).map(([key, value]) => [`sampler.${key}`, value]));
-    if (preset.rawData?.stream_openai !== undefined) settings['api.stream'] = preset.rawData.stream_openai;
-    if (preset.rawData?.reasoning_effort !== undefined) settings['sampler.reasoning_effort'] = preset.rawData.reasoning_effort;
-    setSchemaValues(settings);
+    setSchemaValues(presetSchemaValues(preset));
 }
 
 export function writeHelperPreset(preset: NormalizedPreset, previousId?: string, inUse = false): void {
@@ -464,7 +500,7 @@ export async function deleteWorkspaceCharacters(ids: readonly string[], deleteCh
         // Keep embedded books as independent resources unless explicitly selected for deletion.
         for (const card of cards) {
             for (const book of [card.characterBook, card.embeddedLorebook]) if (book && !draft.lorebooks.some(item => item.id === book.id)) draft.lorebooks.push(book);
-            delete draft.characterWorldbookBindings[card.id]; delete draft.streamDisplayModes[card.id];
+            delete draft.characterWorldbookBindings[card.id]; delete draft.characterPresetBindings[card.id]; delete draft.streamDisplayModes[card.id];
         }
         draft.characters = draft.characters.filter(item => !selected.has(item.id));
         const removedLinks = new Set([...selected].flatMap(id => [id, `${id}.png`]));
@@ -507,6 +543,9 @@ export async function deleteWorkspacePreset(id: string): Promise<void> {
     const active = state.activePresetId === id || state.inUsePreset?.id === id;
     workspaceStore.setState(draft => {
         draft.presets = draft.presets.filter(preset => preset.id !== id);
+        for (const [charId, boundPresetId] of Object.entries(draft.characterPresetBindings)) {
+            if (boundPresetId === id) delete draft.characterPresetBindings[charId];
+        }
     });
     if (active) { workspaceStore.setState({ activePresetId: '', inUsePreset: undefined }); schedulePreview(); }
     await persistWorkspaceNow();

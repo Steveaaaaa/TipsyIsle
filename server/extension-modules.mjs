@@ -40,6 +40,12 @@ export const saveMetadataDebounced=()=>context().saveMetadataDebounced();
     if (pathname === '/scripts/world-info.js') return `
 const context=()=>globalThis.__tipsyHostContext();
 export const METADATA_KEY='world_info';
+export const worldInfoCache=context().worldInfoCache;
+export const originalWIDataKeyMap=context().originalWIDataKeyMap;
+export const createWorldInfoEntry=(name,data)=>context().createWorldInfoEntry(name,data);
+export const setWIOriginalDataValue=(data,uid,key,value)=>context().setWIOriginalDataValue(data,uid,key,value);
+export const deleteWIOriginalDataValue=(data,uid)=>context().deleteWIOriginalDataValue(data,uid);
+export const updateWorldInfoList=()=>context().updateWorldInfoList();
 export const checkWorldInfo=(...args)=>context().checkWorldInfo(...args);
 export const getWorldInfoPrompt=(...args)=>context().getWorldInfoPrompt(...args);
 export const loadWorldInfo=(name)=>context().loadWorldInfo(name);
@@ -50,6 +56,12 @@ export const world_info_logic={AND_ANY:0,NOT_ALL:1,NOT_ANY:2,AND_ALL:3};
 export const world_info_insertion_strategy={evenly:0,character_first:1,global_first:2};
 export let world_names=context().worldInfoNames, selected_world_info=context().selectedWorldInfo;
 window.addEventListener('tipsy-host-worldbooks',()=>{world_names=context().worldInfoNames;selected_world_info=context().selectedWorldInfo;});
+`;
+    if (pathname === '/scripts/openai.js') return `
+const context=()=>globalThis.__tipsyHostContext();
+export let oai_settings=context().chatCompletionSettings;
+window.addEventListener('tipsy-host-context',()=>{oai_settings=context().chatCompletionSettings;});
+export const getChatCompletionModel=(settings)=>settings?.openai_model ?? context().getChatCompletionModel();
 `;
     if (pathname === '/scripts/user.js') return 'export const isAdmin=()=>globalThis.isAdmin();';
     if (pathname === '/scripts/slash-commands.js') return `const c=globalThis.__tipsyHostContext(); export const executeSlashCommands=c.executeSlashCommands; export const executeSlashCommandsWithOptions=c.executeSlashCommandsWithOptions; export const registerSlashCommand=c.registerSlashCommand;`;

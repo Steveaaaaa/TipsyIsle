@@ -179,9 +179,13 @@ export function mountAuthorLoading(frame: HTMLIFrameElement, targets: Array<{ ke
         wrapper.style.overflow = '';
         frame.style.position = ''; frame.style.inset = ''; frame.inert = false;
     };
-    const ready = () => requestAnimationFrame(() => requestAnimationFrame(() => {
-        const restore = preserveReadingAnchor(wrapper); dispose(); restore();
-    }));
-    frame.addEventListener('load', ready, { once: true });
+    const ready = () => {
+        if (!frame.getAttribute('srcdoc') && !frame.getAttribute('src')) return;
+        frame.removeEventListener('load', ready);
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            const restore = preserveReadingAnchor(wrapper); dispose(); restore();
+        }));
+    };
+    frame.addEventListener('load', ready);
     return { wrapper, dispose };
 }

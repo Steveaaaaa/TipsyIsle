@@ -69,6 +69,28 @@ function replaceObject(target: Record<string, any>, source: Record<string, any> 
 }
 
 /** Transaction data plus resident author definitions. Previews construct a disposable instance. */
+let cachedWindowView: Window | undefined;
+function sameOriginWindowView(): Window | undefined {
+    if (typeof window === 'undefined') return undefined;
+    try {
+        if (window.parent === window) return undefined;
+        void window.parent.location.href;
+        return undefined;
+    } catch {
+        return cachedWindowView ??= new Proxy(window, {
+            get(target, key) {
+                if (key === 'parent' || key === 'top' || key === 'window' || key === 'self') return cachedWindowView;
+                if (key === 'frameElement') return null;
+                const value = Reflect.get(target, key, target);
+                return typeof value === 'function' && !('prototype' in value) ? value.bind(target) : value;
+            },
+            set(target, key, value) {
+                return Reflect.set(target, key, value, target);
+            },
+        });
+    }
+}
+
 export class TemplateRuntime {
     countTokens = estimateTokenCount;
     readonly variables: Record<string, any> = {};
@@ -1198,6 +1220,13 @@ export class TemplateRuntime {
                 execute: this.executeCommand,
                 substitute: (text: string) => evaluateMacros(text, { userName: this.input.userName, charName: this.input.character.name, variables: this.variables, globalVariables: this.globals, variableScopes: this.variableScopes() }),
             };
+            const hostWin = sameOriginWindowView();
+            if (hostWin) {
+                locals.window = hostWin;
+                locals.parent = hostWin;
+                locals.top = hostWin;
+                locals.self = hostWin;
+            }
             for (const [suffix, scope] of [['Local', 'local'], ['Global', 'global'], ['Message', 'message']] as const) {
                 locals[`inc${suffix}Var`] = (key: string, value = 1, options: Record<string, unknown> = {}) => this.incvar(key, value, { ...options, outscope: scope });
                 locals[`dec${suffix}Var`] = (key: string, value = 1, options: Record<string, unknown> = {}) => this.incvar(key, -value, { ...options, outscope: scope });
@@ -1247,8 +1276,8 @@ export class TemplateRuntime {
                     escape: invocation.environment.runType === 'render' ? markdownOutput : rawOutput,
                     ...(this.features.with_context_disabled ? { _with: false, destructuredLocals: Object.keys(locals).filter(key => /^[A-Za-z_$][\w$]*$/.test(key)) } : {}),
                     ...options, cache: false };
-                fn = this.features.compile_workers || sandbox ? await compileAuthorTemplate(source, { options: compileOptions,
-                    escaper: options.escape ?? compileOptions.escape, includer: options.includer }, undefined, this.features.compile_workers) : ejs.compile(source, compileOptions);
+                fn = await compileAuthorTemplate(source, { options: compileOptions,
+                    escaper: options.escape ?? compileOptions.escape, includer: options.includer }, undefined, this.features.compile_workers);
                 if (cacheable) {
                     while (cache.size >= this.features.cache_size) cache.delete(cache.keys().next().value!);
                     cache.set(cacheKey, fn);

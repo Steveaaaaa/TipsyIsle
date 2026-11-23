@@ -11,6 +11,7 @@ import type { TemplateFeatures } from './template-features';
 import { formatTemplateMarkdown } from './template-formatting';
 import { defaultWorldinfoSettings, type WorldinfoSettings } from './worldinfo-settings';
 import { formatPresetMessages } from '../core/generation-settings';
+import { postProcessPromptMessages, resolvePromptPostProcessing, type PromptPostProcessingMode } from '../core/prompt-post-process';
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_RESPONSE_TOKENS } from '../core/generation-defaults';
 import type { PromptInjection, HelperGenerationConfig, InterceptedHistoryMessage } from '../compatibility/contracts';
 import { promptLiterals, type NativePromptInput, type NativeScanHook } from './native-prompt-input';
@@ -35,6 +36,7 @@ export interface AssemblePromptInput {
     tokenizer?: TokenizerSelection;
     vectorActivations?: string[];
     generationSettings?: { model: string; stream: boolean; source: string; parameters: Record<string, unknown> };
+    promptPostProcessing?: PromptPostProcessingMode;
     messageImages?: Record<string, string[]>;
     preset: NormalizedPreset;
     lorebooks: NormalizedLorebook[];
@@ -612,6 +614,15 @@ async function assemble(input: AssemblePromptInput, templates: TemplateRuntime, 
     for (const message of finalMessages) {
         if (literals) message.content = literals.reveal(message.content);
         message.tokens = message.estimatedTokens = tokenizer(message.content);
+    }
+    if (!input.mvuExtraAnalysis) {
+        const postProcessMode = input.promptPostProcessing ?? resolvePromptPostProcessing(preset);
+        if (postProcessMode) {
+            finalMessages = postProcessPromptMessages(finalMessages, postProcessMode, { charName: character.name, userName });
+            for (const message of finalMessages) {
+                message.tokens = message.estimatedTokens = tokenizer(message.content);
+            }
+        }
     }
     templates.injections.advance();
     templates.regex.deactivate({ generate: true, basic: true });

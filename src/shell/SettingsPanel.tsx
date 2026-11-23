@@ -17,6 +17,7 @@ import { NativePluginManager } from '../plugins/native/PluginManager';
 import { nativeAppUpdates } from '../core/native-runtime';
 import { checkAppUpdate, showCurrentReleaseNotes } from '../core/app-update';
 import { DiagnosticLogPanel } from './DiagnosticLogPanel';
+import { StoryModelProfilesBar } from './StoryModelProfilesBar';
 import app from '../../package.json';
 
 type SettingsPanelProps = {
@@ -56,8 +57,8 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
     const categoryLabel = settingsCategories.find(item => item.id === category)!;
     const ids = Object.keys(fields);
     const renderFields = (fieldIds: string[]) => <SchemaFormRenderer fieldIds={fieldIds} fieldOverrides={settingsFieldLabels} ungrouped showDescriptions />;
-    // Dedicated editors now own identity and theme; hide their legacy raw keys.
-    const searchable = Object.values(fields).filter(field => !field.id.startsWith('ui.') && field.id !== 'mvu.profile');
+    // Dedicated editors now own identity, theme and saved connection profiles; hide their raw keys.
+    const searchable = Object.values(fields).filter(field => !field.id.startsWith('ui.') && !['mvu.profile', 'api.connection_profiles', 'api.active_profile'].includes(field.id));
     const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     const results = words.length ? searchable.filter(field => {
         const shown = { ...field, ...settingsFieldLabels[field.id] };
@@ -100,7 +101,8 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
         </div> : <div className="ttm-settings-category" key={category} data-guide={category === 'plugins' ? undefined : category} data-direction={direction}>
             <header className="ttm-settings-category-heading"><h3>{categoryLabel.label}</h3><p>{categoryLabel.description}</p>{category !== 'plugins' && <small>修改后点击底部保存。关闭面板会保留本次草稿；刷新页面前请先保存。</small>}</header>
             {category === 'connection' && <>
-                <SettingsSection title="剧情模型" description="先填写接口、地址、密钥和模型名称。使用第三方中转时，按服务商提供的信息填写。">
+                <SettingsSection title="剧情模型" description="可保存多个不同中转或官方渠道并一键切换；未单独调整的参数自动沿用默认合理配置。">
+                    <StoryModelProfilesBar />
                     {renderFields(['api.chat_completion_source', 'api.custom_url', 'api.key', 'api.model'])}
                 </SettingsSection>
                 <SettingsSection title="回复与上下文" description="按模型能力设置生成参数；选用导入的预设时，可能带入该预设的参数。">

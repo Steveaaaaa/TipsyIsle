@@ -4,6 +4,7 @@ import { NO_PRESET } from '../../core/empty-workspace';
 import { streamLlmCompletion, type CompletionResult } from '../../core/platform-bridge';
 import { StorySummaryChannel, summaryContentHash } from '../../pipeline/story-summary';
 import { presetSamplingParameters } from '../../core/generation-settings';
+import { resolveUseSystemPrompt } from '../../core/prompt-post-process';
 import { runPromptPipelineAsync } from '../../pipeline/pipeline-worker-client';
 import { applyRegexScripts, evaluateMacros, orderedRegexScripts } from '../../pipeline/macro-regex-engine';
 import { analyzeMvuReply } from '../../compatibility/mvu-extra-analysis';
@@ -616,6 +617,7 @@ async function streamStoryReply(controller: AbortController, state: ReturnType<t
         model: assembled.generationSettings?.model ?? model,
         messages: await applyNativeContributions(assembled, assemblyInput, nativeContributions, summaryChannel.messages(assembled.messages), controller.signal),
         parameters: assembled.generationSettings?.parameters ?? presetSamplingParameters(getActivePreset(state), schemaVals),
+        useSystemPrompt: resolveUseSystemPrompt(getActivePreset(state), schemaVals),
         stream: assembled.generationSettings?.stream ?? schemaVals['api.stream'] !== false,
         signal: controller.signal,
         onToken: (deltaContent, deltaReasoning) => {

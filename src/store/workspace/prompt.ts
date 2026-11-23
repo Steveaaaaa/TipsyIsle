@@ -1,5 +1,6 @@
 import { freeChatName } from '../chat-archives';
 import { presetSamplingParameters } from '../../core/generation-settings';
+import { resolvePromptPostProcessing } from '../../core/prompt-post-process';
 import { runPromptPipelineAsync } from '../../pipeline/pipeline-worker-client';
 import { templatePreparationKey } from '../../pipeline/template-lifecycle';
 import { getSchemaValues, schemaRegistryStore } from '../../registry/schema-registry';
@@ -115,6 +116,7 @@ export function createPromptAssemblyInput(injections: PromptInjection[] = [], cl
         tokenizer: (schemaValues['sampler.tokenizer'] ?? 'auto') as AssemblePromptInput['tokenizer'],
         generationSettings: { model: String(schemaValues['api.model'] ?? ''), stream: schemaValues['api.stream'] !== false,
             source: String(schemaValues['api.chat_completion_source'] ?? 'openai'), parameters: presetSamplingParameters(preset, schemaValues) },
+        promptPostProcessing: resolvePromptPostProcessing(preset, schemaValues),
         preset,
         lorebooks,
         lorebookCatalog: catalog,

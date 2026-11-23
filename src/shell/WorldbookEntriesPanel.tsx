@@ -26,11 +26,12 @@ export function WorldbookEntriesPanel({ books, disabled, onToggle, activeBookIds
     }))), [books]);
     const rowById = useMemo(() => new Map(rows.map(row => [row.id, row])), [rows]);
     const selectedBook = books.find(book => book.id === bookId);
-    const enabled = selectedBook ? activeBookIds.includes(selectedBook.id) : false;
-    const bound = enabled && !!selectedBook && !globalBookIds.includes(selectedBook.id);
+    const isGlobal = selectedBook ? globalBookIds.includes(selectedBook.id) : false;
+    const isActive = selectedBook ? activeBookIds.includes(selectedBook.id) : false;
+    const boundOnly = isActive && !isGlobal;
     return <EntryBrowser entries={rows} label="世界书词条" storageKey="tipsy-entry-favorites:worldbooks" scope={selectedBook?.id ?? ''}
         filters={<div className="ttm-book-filter"><label>所属世界书<select className="ttm-select-input" aria-label="所属世界书" value={selectedBook?.id ?? ''} onChange={event => setBookId(event.target.value)}><option value="">全部世界书</option>{books.map(book => <option key={book.id} value={book.id}>{book.name}（{book.entries.length} 项）</option>)}</select></label>
-            {selectedBook && <label className="ttm-detail-enabled"><input type="checkbox" checked={enabled} disabled={disabled || bound} onChange={event => onToggleBook(selectedBook.id, event.target.checked)} />{bound ? '随当前角色或会话启用' : '全局启用此书'}</label>}
+            {selectedBook && <label className="ttm-detail-enabled"><input type="checkbox" checked={isGlobal} disabled={disabled} onChange={event => onToggleBook(selectedBook.id, event.target.checked)} />通用启用{boundOnly ? '（当前角色已绑定）' : ''}</label>}
             {selectedBook && onMoreBook && <AssetMoreButton label="世界书更多操作" expanded={menuBookId === selectedBook.id} onOpen={anchor => onMoreBook(selectedBook, anchor)} />}
         </div>}
         renderDetail={item => {

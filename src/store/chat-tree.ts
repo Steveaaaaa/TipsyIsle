@@ -43,6 +43,25 @@ export function activePath(nodes: ChatMessageNode[], leafId: string | null): Cha
     return path.reverse().map((node, floor) => node.floor === floor ? node : { ...node, floor });
 }
 
+export function removeChatTreeNode(nodes: ChatMessageNode[], target: ChatMessageNode): ChatMessageNode[] {
+    const children = new Map<string, ChatMessageNode[]>();
+    for (const node of nodes) {
+        if (!node.parentId) continue;
+        const siblings = children.get(node.parentId);
+        if (siblings) siblings.push(node);
+        else children.set(node.parentId, [node]);
+    }
+    const changed = new Map<string, ChatMessageNode>();
+    const descendants: ChatMessageNode[] = (children.get(target.id) ?? []).map(node => ({ ...node, floor: target.floor,
+        parentId: target.parentId, parentSwipeId: target.parentSwipeId }));
+    for (let index = 0; index < descendants.length; index++) {
+        const node = descendants[index];
+        changed.set(node.id, node);
+        for (const child of children.get(node.id) ?? []) descendants.push({ ...child, floor: node.floor + 1 });
+    }
+    return nodes.filter(node => node.id !== target.id).map(node => changed.get(node.id) ?? node);
+}
+
 export function branchOptions(nodes: ChatMessageNode[]): Array<{ id: string; label: string; depth: number }> {
     return storyRoutes(nodes).map((route, index) => ({ id: route.key, label: `路线 ${index + 1} · ${route.label}`, depth: route.depth }));
 }

@@ -45,6 +45,127 @@ async function resolveModel(payload) {
     maxTokens: known?.maxTokens || Number(payload.parameters?.max_tokens) || 16384 };
 }
 
+const PROMPT_PLACEHOLDER = "Let's get started.";
+export const GEMINI_SAFETY_SETTINGS = [
+  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'OFF' },
+  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'OFF' },
+  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'OFF' },
+  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'OFF' },
+  { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'OFF' },
+];
+export const VERTEX_SAFETY_SETTINGS = [
+  { category: 'HARM_CATEGORY_IMAGE_HATE', threshold: 'OFF' },
+  { category: 'HARM_CATEGORY_IMAGE_DANGEROUS_CONTENT', threshold: 'OFF' },
+  { category: 'HARM_CATEGORY_IMAGE_HARASSMENT', threshold: 'OFF' },
+  { category: 'HARM_CATEGORY_IMAGE_SEXUALLY_EXPLICIT', threshold: 'OFF' },
+  { category: 'HARM_CATEGORY_JAILBREAK', threshold: 'OFF' },
+];
+
+export function defaultGoogleSafetySettings(api) {
+  return api === 'google-vertex'
+    ? [...GEMINI_SAFETY_SETTINGS, ...VERTEX_SAFETY_SETTINGS]
+    : [...GEMINI_SAFETY_SETTINGS];
+}
+
+function formatNamedMessage(message) {
+  if (!message.name) return message.content ?? '';
+  if (typeof message.content === 'string') {
+    return message.content.startsWith(`${message.name}: `) ? message.content : `${message.name}: ${message.content}`;
+  }
+  if (Array.isArray(message.content)) {
+    return message.content.map((part, index) => index === 0 && part?.type === 'text'
+      ? { ...part, text: String(part.text ?? '').startsWith(`${message.name}: `) ? part.text : `${message.name}: ${part.text ?? ''}` }
+      : part);
+  }
+  return message.content ?? '';
+}
+
+function contentParts(content) {
+  if (typeof content === 'string') return content ? [{ type: 'text', text: content }] : [];
+  return Array.isArray(content) ? content.map(part => ({ ...part })) : [];
+}
+
+function appendContent(target, incoming) {
+  if (typeof target === 'string' && typeof incoming === 'string') {
+    if (!incoming) return target;
+    return target ? `${target}\n\n${incoming}` : incoming;
+  }
+  const merged = contentParts(target);
+  for (const part of contentParts(incoming)) {
+    const previous = merged.at(-1);
+    if (part.type === 'text' && previous?.type === 'text') {
+      previous.text = previous.text && part.text ? `${previous.text}\n\n${part.text}` : (previous.text || part.text);
+    } else {
+      merged.push(part);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Aligns message layout with SillyTavern's `convertGooglePrompt` / `convertClaudeMessages`
+ * before handing off to pi-ai (which otherwise collapses mid-chat `system` into top-level system).
+ */
+export function prepareNativeMessages(rawMessages, model, useSystemPrompt = true) {
+  const google = model.api.startsWith('google-');
+  const anthropic = model.api === 'anthropic-messages';
+  if (!google && !anthropic) return rawMessages;
+
+  const allowSysPrompt = useSystemPrompt !== false && !(google && /^gemma-?3/i.test(model.id ?? ''));
+  const noPrefillModel = google && /gemini-3\.[67]-flash|gemini-3\.5-flash-lite/i.test(model.id ?? '');
+  const rest = rawMessages.map(message => ({ ...message }));
+  const leadingSystem = [];
+
+  if (allowSysPrompt) {
+    const minRemaining = google ? 1 : 0;
+    while (rest.length > minRemaining && rest[0].role === 'system') {
+      const next = rest.shift();
+      const text = typeof next.content === 'string'
+        ? formatNamedMessage(next)
+        : contentParts(formatNamedMessage(next)).filter(part => part.type === 'text').map(part => part.text).join('\n\n');
+      if (text) leadingSystem.push(text);
+    }
+  }
+
+  const normalized = [];
+  for (let index = 0; index < rest.length; index++) {
+    const message = rest[index];
+    if (message.role === 'tool') {
+      normalized.push(message);
+      continue;
+    }
+    const isPlainAssistant = message.role === 'assistant' && !message.tool_calls?.length && !message.reasoning_signature && !message.reasoning_content;
+    let role = message.role;
+    if (role === 'system') role = 'user';
+    else if (role === 'assistant' && noPrefillModel && index === rest.length - 1 && !message.tool_calls?.length) role = 'user';
+
+    const content = formatNamedMessage(message);
+    const next = { ...message, role, content };
+    delete next.name;
+
+    const previous = normalized.at(-1);
+    const previousPlainAssistant = previous?.role === 'assistant' && !previous.tool_calls?.length && !previous.reasoning_signature && !previous.reasoning_content;
+    const canMergeUser = previous?.role === 'user' && role === 'user';
+    const canMergeAssistant = anthropic && previousPlainAssistant && isPlainAssistant && role === 'assistant';
+    if (canMergeUser || canMergeAssistant) {
+      previous.content = appendContent(previous.content, next.content);
+    } else {
+      normalized.push(next);
+    }
+  }
+
+  if (anthropic && (normalized.length === 0 || normalized[0].role !== 'user')) {
+    normalized.unshift({ role: 'user', content: PROMPT_PLACEHOLDER });
+  } else if (google && normalized.length === 0) {
+    normalized.push({ role: 'user', content: PROMPT_PLACEHOLDER });
+  }
+
+  if (leadingSystem.length > 0) {
+    normalized.unshift({ role: 'system', content: leadingSystem.join('\n\n') });
+  }
+  return normalized;
+}
+
 const emptyUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } });
 async function imageContent(url, signal) {
@@ -58,7 +179,8 @@ async function imageContent(url, signal) {
 }
 async function contextFor(payload, model, signal) {
   const { normalizeContext } = await import('@earendil-works/pi-ai/utils/transcript');
-  const messages = await Promise.all(payload.messages.map(async (message, index) => {
+  const preparedMessages = prepareNativeMessages(payload.messages, model, payload.useSystemPrompt);
+  const messages = await Promise.all(preparedMessages.map(async (message, index) => {
     const parts = typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content ?? [];
     const content = await Promise.all(parts.map(part => part.type === 'image_url' ? imageContent(part.image_url.url, signal)
       : { type: 'text', text: String(part.text ?? '') }));
@@ -112,8 +234,9 @@ function requestOptions(payload, model, signal) {
           mode: parameters.tool_choice === 'required' || typeof parameters.tool_choice === 'object' ? 'ANY' : parameters.tool_choice.toUpperCase(),
           ...(parameters.tool_choice?.function?.name ? { allowedFunctionNames: [parameters.tool_choice.function.name] } : {}) } };
         if (['none', 'off'].includes(level)) body.config.thinkingConfig = { thinkingBudget: 0 };
-        const { generationConfig, ...overrides } = includeBody;
+        const { generationConfig, safetySettings, ...overrides } = includeBody;
         Object.assign(body.config, generationConfig);
+        body.config.safetySettings = safetySettings ?? body.config.safetySettings ?? defaultGoogleSafetySettings(model.api);
         Object.assign(body, overrides);
         if (overrideThinking && overrideThinking.type !== 'disabled') body.config.thinkingConfig = overrideThinking;
       } else if (model.api === 'anthropic-messages') {
