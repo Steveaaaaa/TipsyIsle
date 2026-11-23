@@ -22,6 +22,7 @@ export function serializeRegexRule(rule: RegexScriptRule): Record<string, unknow
 
 export function serializeEntry(entry: LorebookEntry): Record<string, unknown> {
     const raw = structuredClone(entry.rawData ?? {});
+    if (entry.rawData && !('content' in raw)) raw.content = entry.content;
     const baseline = entry.rawData ? normalizeLorebook({ entries: [raw] }).entries[0]! : undefined;
     const changed = (key: keyof LorebookEntry) => !baseline || !same(entry[key], baseline[key]);
     const fields = { uid: 'id', comment: 'comment', content: 'content', keys: 'keys', secondaryKeys: 'secondary_keys',

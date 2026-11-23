@@ -57,6 +57,7 @@ import { authorBrowserRuntime } from './author-browser-runtime';
 import { authorDocument } from './author-document';
 import { observeFrameHeight, setFrameHeight } from './frame-sizing';
 import { installHostFetch, tavernCompletionResponse } from './host-fetch';
+import { isBlockingExtensionOverlay } from './extension-overlay';
 import { createWorldInfoCache, createWorldInfoEntry, deleteWIOriginalDataValue, originalWIDataKeyMap, setWIOriginalDataValue } from './world-info-helpers';
 import { installBaibaiFrameStorage } from './baibai-frame-storage';
 import { baibaiBody, baibaiHash } from './baibai-route';
@@ -923,11 +924,18 @@ async function getWorldInfoPrompt(...args: Parameters<typeof checkWorldInfo>) {
     return { worldInfoString: worldInfoBefore + worldInfoAfter, worldInfoBefore, worldInfoAfter, worldInfoDepth: WIDepthEntries,
         anBefore: ANBeforeEntries, anAfter: ANAfterEntries, worldInfoExamples: EMEntries, outletEntries };
 }
+function displayedSource(text: string, floor: number, role: 'assistant' | 'user' | 'system'): string {
+    const depth = Math.max(0, chat.length - floor - 1);
+    const regexed = role === 'system' ? helper.substitudeMacros(text) : helper.formatAsTavernRegexedString(text, role === 'user' ? 'user_input' : 'ai_output', 'display', { depth });
+    return role === 'system' ? regexed : applyMacroLikes(regexed, { message_id: floor, role });
+}
 const context = () => {
     const session = snapshot.session;
     const ensureSession = () => { if (snapshot.session !== session) throw new Error('操作所属聊天已切换'); };
     return { ...hostPopupApi, chat, chatId: session, name1: snapshot.userName, name2: snapshot.character.name,
     ChatCompletionService: chatCompletionService,
+    messageFormatting: (text: string, _name: string, isSystem: boolean, isUser: boolean, floor = chat.length - 1) =>
+        formatTemplateMarkdown(displayedSource(text, floor, isUser ? 'user' : isSystem ? 'system' : 'assistant')),
     setExtensionPrompt,
     extension_prompt_types: { NONE: -1, IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT: 2 },
     extension_prompt_roles: { SYSTEM: 0, USER: 1, ASSISTANT: 2 },
@@ -1201,7 +1209,8 @@ const helper: Record<string, any> = {
             const article = document.createElement('article'); article.className = `mes is-${message.is_user ? 'user' : 'assistant'}`; article.setAttribute('mesid', String(floor));
             const heading = document.createElement('header'); heading.textContent = String(message.name ?? ''); article.append(heading);
             const body = document.createElement('div'); body.className = 'mes_text';
-            for (const block of extractHtmlSandboxBlocks(String(message.mes ?? ''))) {
+            const source = displayedSource(String(message.extra?.display_text ?? message.mes ?? ''), floor, message.is_user ? 'user' : message.is_system ? 'system' : 'assistant');
+            for (const block of extractHtmlSandboxBlocks(source)) {
                 if (block.type === 'markdown') { const prose = document.createElement('div'); prose.className = 'compat-prose message-markdown'; prose.innerHTML = renderMessageMarkdown(block.content); body.append(prose); }
                 else body.append(createChild(block.type === 'mixed' ? renderMixedMessage(block.content) : block.content, floor));
             }
@@ -1290,8 +1299,7 @@ const helper: Record<string, any> = {
         const lastRole = (role: string) => { for (let index = chat.length - 1; index >= 0; index--) if (chat[index].role === role) return index; return -1; };
         const floor = target === 'last' ? chat.length - 1 : target === 'last_user' ? lastRole('user') : target === 'last_char' ? lastRole('assistant') : Number(target);
         if (!Number.isInteger(floor) || !chat[floor]) throw new Error('消息楼层不存在');
-        return formatTemplateMarkdown(applyMacroLikes(helper.formatAsTavernRegexedString(text, chat[floor].role === 'user' ? 'user_input' : 'ai_output', 'display', { depth: chat.length - floor - 1 }),
-            { message_id: floor, role: chat[floor].role }));
+        return formatTemplateMarkdown(displayedSource(text, floor, chat[floor].role));
     },
     refreshOneMessage: async (floor: number, target?: ReturnType<typeof $>) => {
         const node = snapshot.messages[floor];
@@ -2400,7 +2408,7 @@ function renderMessages(previous?: CompatSnapshot) {
             if ((event.target as HTMLElement).closest('input, textarea, a, button')) return;
             event.preventDefault(); menu.open = true; toggle.focus();
         });
-        const body = document.createElement('div'); body.className = 'mes_text';
+        const body = document.createElement('div'); body.className = node.streamPreview ? 'compat-stream-body' : 'mes_text';
         const extracted = node.streamStatus ? [] : extractHtmlSandboxBlocks(content);
         if (node.floor > 0 && !incomplete && !node.streamStatus && extracted.every(block => block.type === 'markdown')) {
             body.classList.add('compat-defer-paint');
@@ -2583,6 +2591,9 @@ async function switchCompatibilitySession(next: CompatSnapshot, scripts: CardScr
     pendingVariableWrites.clear(); externalWorldInfo.clear(); deferredDeltas.length = 0; writeFailure = undefined;
     helperWorldbookCache.clear();
     worldInfoCache.clear();
+    extensionOverlayVisible = false;
+    lastPublishedOverlay = false;
+    document.documentElement.toggleAttribute('data-compat-popup', nativePopupVisible);
     for (const row of rows.values()) disposeRow(row.element); rows.clear();
     const retained = new Set(scriptsFromTrees(next.scriptTrees.global).filter(script => script.enabled).map(script => script.id));
     if (snapshot.assetCatalog.loadedPresetName === next.assetCatalog.loadedPresetName) {
@@ -2622,20 +2633,35 @@ let nativePopupVisible = false;
 let extensionOverlayVisible = false;
 let lastPublishedOverlay = false;
 function publishOverlayVisibility() {
+    document.documentElement.toggleAttribute('data-compat-popup', nativePopupVisible);
     const visible = nativePopupVisible || extensionOverlayVisible;
+    if (!snapshot?.session) return;
     if (visible === lastPublishedOverlay) return;
     lastPublishedOverlay = visible;
-    document.documentElement.toggleAttribute('data-compat-popup', visible);
-    outer.postMessage({ kind: 'compat:popup', session: snapshot?.session, visible }, '*');
+    outer.postMessage({ kind: 'compat:popup', session: snapshot.session, visible }, '*');
 }
 function checkExtensionOverlay() {
-    const minW = window.innerWidth * 0.7, minH = window.innerHeight * 0.6;
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
     extensionOverlayVisible = [...document.body.children].some(el => {
-        if (hostBodyContainers.has(el) || !(el instanceof HTMLElement) || el.hidden || el.tagName === 'IFRAME' || el.tagName === 'DIALOG') return false;
+        if (hostBodyContainers.has(el) || !(el instanceof HTMLElement)) return false;
         const style = window.getComputedStyle(el);
-        if (style.position !== 'fixed' || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-        const rect = el.getBoundingClientRect();
-        return rect.width >= minW && rect.height >= minH;
+        if (el.checkVisibility && !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) return false;
+        return isBlockingExtensionOverlay(
+            { tagName: el.tagName, hidden: el.hidden, role: el.getAttribute('role'), ariaModal: el.getAttribute('aria-modal') },
+            {
+                position: style.position,
+                display: style.display,
+                visibility: style.visibility,
+                opacity: style.opacity,
+                pointerEvents: style.pointerEvents,
+                zIndex: style.zIndex,
+                backgroundColor: style.backgroundColor,
+                backgroundImage: style.backgroundImage,
+                backdropFilter: style.backdropFilter,
+            },
+            el.getBoundingClientRect(),
+            viewport,
+        );
     });
     publishOverlayVisibility();
 }
@@ -2650,6 +2676,7 @@ const observeExtensionChildren = () => {
     checkExtensionOverlay();
 };
 new MutationObserver(observeExtensionChildren).observe(document.body, { childList: true });
+window.addEventListener('resize', checkExtensionOverlay);
 onPopupVisibility(visible => {
     nativePopupVisible = visible;
     publishOverlayVisibility();
@@ -2700,6 +2727,7 @@ window.addEventListener('message', event => {
             prepareReadingBookmark(data.readingBookmark);
             renderMessages();
         }
+        checkExtensionOverlay();
         return;
     }
     if (data.kind === 'compat:ping') { outer.postMessage({ kind: 'compat:hello', documentId }, '*'); return; }

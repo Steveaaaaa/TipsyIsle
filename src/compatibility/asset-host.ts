@@ -31,7 +31,15 @@ function presetData(preset: NormalizedPreset) {
 function rawCharacter(card: NormalizedCharacterCard) {
     let value = rawCharacters.get(card);
     if (!value) {
-        const raw = serializeCharacterCard(card); const data = raw.data ?? raw;
+        const slimCard: NormalizedCharacterCard = {
+            ...card,
+            embeddedLorebook: null,
+            characterBook: null,
+            extensions: card.extensions ? Object.fromEntries(Object.entries(card.extensions).filter(([k]) => k !== 'tavern_helper')) : undefined,
+        };
+        const raw = serializeCharacterCard(slimCard); const data = raw.data ?? raw;
+        if (data && typeof data === 'object') delete (data as Record<string, unknown>).character_book;
+        delete raw.character_book;
         value = { ...raw, ...data as object, name: card.name, avatar: characterAvatarId(card), data, creatorcomment: card.creatorNotes };
         rawCharacters.set(card, value);
     }

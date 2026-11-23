@@ -324,32 +324,115 @@ export function regexRuleApplies(rule: RegexScriptRule, opts: ApplyRegexOptions)
         return true;
 }
 
+const EMPTY_SLOT_ELEMENT = /<(div|section|span)\b(?![^>]*(?:\bstyle\s*=|\son[a-z]+\s*=|<%|\{\{|\[RENDER:|(?:javascript|data:text\/html)\s*:))[^>]*>(?:\s|<!--[\s\S]*?-->)*<\/\1\s*>/gi;
+
+function stripEmptySlotPlaceholders(html: string): string {
+    let current = html;
+    for (let next = current.replace(EMPTY_SLOT_ELEMENT, ''); next !== current; next = current.replace(EMPTY_SLOT_ELEMENT, '')) {
+        current = next;
+    }
+    return current;
+}
+
+export function isEmptySlotPlaceholder(html: string): boolean {
+    if (!/<[a-z][\w-]*\b/i.test(html) || /<!doctype\s+html\b|<html\b|<body\b/i.test(html)) return false;
+    return stripEmptySlotPlaceholders(html).replace(/<!--[\s\S]*?-->/g, '').trim() === '';
+}
+
+const VOID_HTML_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+const ANCHORED_EMPTY_SLOT = /^(?:<(div|section|span)\b(?![^>]*(?:\bstyle\s*=|\son[a-z]+\s*=|<%|\{\{|\[RENDER:|(?:javascript|data:text\/html)\s*:))[^>]*>(?:\s|<!--[\s\S]*?-->)*<\/\1\s*>)/i;
+const AUTHORED_TAG = /<(?:script\b|style\b|div\b|section\b|details\b|iframe\b)/i;
+
+function keepEmptySlotWithScripts(slotHtml: string, hasScript: boolean, scriptBodies: string): boolean {
+    if (!hasScript) return false;
+    const openTag = /^<[^\s>]+\b([^>]*)>/.exec(slotHtml)?.[1] ?? '';
+    if (/\bid\s*=/i.test(openTag)) return true;
+    const dataAttrs = [...openTag.matchAll(/\b(data-[\w-]+)\b/gi)].map(match => match[1]);
+    if (!dataAttrs.length) return true;
+    return dataAttrs.some(attr => scriptBodies.includes(attr));
+}
+
+function splitTopLevelEmptySlots(content: string): Array<{ type: 'markdown' | 'mixed'; content: string }> {
+    const segments: Array<{ type: 'markdown' | 'mixed'; content: string }> = [];
+    const hasScript = /<script\b/i.test(content);
+    const scriptBodies = hasScript
+        ? [...content.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)].map(match => match[1]).join('\n')
+        : '';
+    const pushSegment = (text: string, forced?: 'markdown') => {
+        if (!text.trim()) {
+            const last = segments.at(-1);
+            if (last) last.content += text;
+            return;
+        }
+        const type = forced ?? (AUTHORED_TAG.test(stripEmptySlotPlaceholders(text)) ? 'mixed' : 'markdown');
+        const last = segments.at(-1);
+        if (last && last.type === type) last.content += text;
+        else segments.push({ type, content: text });
+    };
+    const tokens = /<!--[\s\S]*?-->|<script\b[\s\S]*?<\/script\s*>|<style\b[\s\S]*?<\/style\s*>|<(\/?)([a-zA-Z][\w-]*)\b[^>]*>/gi;
+    let depth = 0;
+    let chunkStart = 0;
+    for (let match: RegExpExecArray | null; (match = tokens.exec(content));) {
+        const index = match.index;
+        const full = match[0];
+        if (full.startsWith('<!--') || /^<(?:script|style)\b/i.test(full)) continue;
+        if (depth === 0 && !match[1]) {
+            const slot = ANCHORED_EMPTY_SLOT.exec(content.slice(index));
+            if (slot && !keepEmptySlotWithScripts(slot[0], hasScript, scriptBodies)) {
+                if (index > chunkStart) pushSegment(content.slice(chunkStart, index));
+                pushSegment(slot[0], 'markdown');
+                chunkStart = index + slot[0].length;
+                tokens.lastIndex = chunkStart;
+                continue;
+            }
+        }
+        if (match[1]) depth = Math.max(0, depth - 1);
+        else if (!/\/>$/.test(full) && !VOID_HTML_TAGS.has(match[2].toLowerCase())) depth++;
+    }
+    if (chunkStart < content.length) pushSegment(content.slice(chunkStart));
+    return segments.map(segment => ({ ...segment, content: segment.content.trim() })).filter(segment => segment.content.length > 0);
+}
+
 export function extractHtmlSandboxBlocks(markdown: string): Array<{ type: 'markdown' | 'html' | 'mixed'; content: string }> {
     const blocks: Array<{ type: 'markdown' | 'html' | 'mixed'; content: string }> = [];
     const appendText = (source: string) => {
         const content = source.trim();
         if (!content) return;
         const document = /^(?:<!doctype\s+html\b|<html\b)/i.test(content);
-        const authored = /<(?:script\b|style\b|div\b|section\b|details\b|iframe\b)/i.test(content);
-        blocks.push({ type: document ? 'html' : authored ? 'mixed' : 'markdown', content });
+        const authored = AUTHORED_TAG.test(stripEmptySlotPlaceholders(content));
+        if (document || !authored) {
+            blocks.push({ type: document ? 'html' : 'markdown', content });
+            return;
+        }
+        const split = splitTopLevelEmptySlots(content);
+        blocks.push(...(split.length ? split : [{ type: 'mixed' as const, content }]));
     };
     const appendFormattedText = (source: string) => {
         // Prompt Template has already converted fences to HTML wrappers. Extract
         // complete author documents before a DOM parser discards their html/body
         // boundaries and lets their page-level CSS change surrounding prose.
-        const documents = /<div class="tipsy-template-html">\s*((?:<!doctype\s+html\b[^>]*>\s*)?<html\b[\s\S]*?<\/html\s*>)\s*<\/div>/gi;
+        const documents = /<div class="tipsy-template-html">\s*((?:<!doctype\s+html\b[^>]*>\s*)?<html\b[\s\S]*?<\/html\s*>)\s*<\/div>|((?:<!doctype\s+html\b[^>]*>\s*)?<html\b[\s\S]*?<\/html\s*>)/gi;
         const wrapper = /^\s*(<div class=["']tipsy-template-message["'](?:\s[^>]*)?>)([\s\S]*)<\/div>\s*$/i.exec(source);
         const content = wrapper ? wrapper[2] : source;
+        const appendFragment = (fragment: string) => {
+            if (!fragment.trim()) return;
+            if (!wrapper) { appendText(fragment); return; }
+            const parts = splitTopLevelEmptySlots(fragment);
+            if (!parts.some(part => part.type === 'markdown' && stripEmptySlotPlaceholders(part.content) !== part.content)) {
+                appendText(`${wrapper[1]}${fragment}</div>`);
+                return;
+            }
+            for (const part of parts) {
+                blocks.push(part.type === 'mixed' ? { ...part, content: `${wrapper[1]}${part.content}</div>` } : part);
+            }
+        };
         let offset = 0;
         for (const match of content.matchAll(documents)) {
-            const before = content.slice(offset, match.index);
-            if (before.trim()) appendText(wrapper ? `${wrapper[1]}${before}</div>` : before);
-            blocks.push({ type: 'html', content: match[1] });
+            appendFragment(content.slice(offset, match.index));
+            blocks.push({ type: 'html', content: match[1] ?? match[2] });
             offset = match.index! + match[0].length;
         }
-        if (!offset) { appendText(source); return; }
-        const after = content.slice(offset);
-        if (after.trim()) appendText(wrapper ? `${wrapper[1]}${after}</div>` : after);
+        appendFragment(content.slice(offset));
     };
     let offset = 0;
     for (const block of messageCodeBlocks(markdown)) {

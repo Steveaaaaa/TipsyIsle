@@ -13,24 +13,29 @@ impl KvState {
     }
 }
 #[tauri::command]
-pub async fn tipsy_kv_get(key: Option<String>, keys: Option<Vec<String>>, state: State<'_, KvState>) -> Result<Value, String> {
+pub async fn tipsy_kv_get(key: Option<String>, keys: Option<Vec<String>>, state: State<'_, KvState>) -> Result<tauri::ipc::Response, String> {
     let connection = state.0.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let connection = connection.lock().map_err(|e| e.to_string())?;
         if let Some(keys) = keys {
             let mut statement = connection.prepare_cached("SELECT value FROM kv_store WHERE key=?1").map_err(|e| e.to_string())?;
-            let mut values = serde_json::Map::new();
-            for key in keys {
-                let value: Option<String> = statement.query_row([&key], |row| row.get(0)).optional().map_err(|e| e.to_string())?;
-                values.insert(key, value.map(|v| serde_json::from_str(&v).map_err(|e| e.to_string())).transpose()?.unwrap_or(Value::Null));
+            let mut out = String::with_capacity(keys.len().saturating_mul(64).max(2));
+            out.push('{');
+            for (index, key) in keys.iter().enumerate() {
+                if index > 0 { out.push(','); }
+                out.push_str(&serde_json::to_string(key).map_err(|e| e.to_string())?);
+                out.push(':');
+                let value: Option<String> = statement.query_row([key], |row| row.get(0)).optional().map_err(|e| e.to_string())?;
+                out.push_str(value.as_deref().unwrap_or("null"));
             }
-            return Ok(Value::Object(values));
+            out.push('}');
+            return Ok(tauri::ipc::Response::new(out));
         }
         let key = key.ok_or("缺少读取键")?;
         let value: Option<String> = connection.query_row(
             "SELECT value FROM kv_store WHERE key=?1", [key], |row| row.get(0),
         ).optional().map_err(|e| e.to_string())?;
-        value.map(|v| serde_json::from_str(&v).map_err(|e| e.to_string())).unwrap_or(Ok(Value::Null))
+        Ok(tauri::ipc::Response::new(value.unwrap_or_else(|| "null".to_string())))
     }).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]

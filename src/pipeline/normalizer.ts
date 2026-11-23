@@ -139,6 +139,99 @@ function mapRole(rawRole: unknown): 'system' | 'user' | 'assistant' {
     return 'system';
 }
 
+function compactLorebookEntryRaw(rawData: Record<string, unknown> | undefined): { value: Record<string, unknown> | undefined; changed: boolean } {
+    if (!rawData || typeof rawData.content !== 'string') return { value: rawData, changed: false };
+    const copy = { ...rawData };
+    delete copy.content;
+    return { value: copy, changed: true };
+}
+
+function compactLorebookEntriesContainer(entries: unknown): { value: unknown; changed: boolean } {
+    if (Array.isArray(entries)) {
+        return entries.length ? { value: [], changed: true } : { value: entries, changed: false };
+    }
+    if (entries && typeof entries === 'object') {
+        const record = entries as Record<string, unknown>;
+        let bloated = false;
+        const slim: Record<string, Record<string, unknown>> = {};
+        for (const [key, item] of Object.entries(record)) {
+            const entry = item && typeof item === 'object' ? item as Record<string, unknown> : undefined;
+            const stub: Record<string, unknown> = {};
+            if (entry && entry.uid !== undefined) stub.uid = entry.uid;
+            else if (entry && entry.id !== undefined) stub.id = entry.id;
+            if (!entry || Object.keys(entry).some(k => k !== 'uid' && k !== 'id')) bloated = true;
+            slim[key] = stub;
+        }
+        return bloated ? { value: slim, changed: true } : { value: entries, changed: false };
+    }
+    return { value: entries, changed: false };
+}
+
+function compactLorebookRaw(rawData: Record<string, unknown> | undefined): { value: Record<string, unknown> | undefined; changed: boolean } {
+    if (!rawData || rawData.entries === undefined) return { value: rawData, changed: false };
+    const { value: compactedEntries, changed } = compactLorebookEntriesContainer(rawData.entries);
+    if (!changed) return { value: rawData, changed: false };
+    return { value: { ...rawData, entries: compactedEntries }, changed: true };
+}
+
+function compactCardRaw(rawData: Record<string, unknown> | undefined): { value: Record<string, unknown> | undefined; changed: boolean } {
+    if (!rawData) return { value: rawData, changed: false };
+    let changed = false;
+    const stripExtensions = (ext: unknown): unknown => {
+        if (!ext || typeof ext !== 'object' || !('tavern_helper' in ext)) return ext;
+        changed = true;
+        const copy = { ...(ext as Record<string, unknown>) };
+        delete copy.tavern_helper;
+        return copy;
+    };
+    const top = { ...rawData };
+    for (const key of ['character_book', 'characterBook', 'embeddedLorebook']) {
+        if (key in top) { delete top[key]; changed = true; }
+    }
+    if ('extensions' in top) top.extensions = stripExtensions(top.extensions);
+    if (top.data && typeof top.data === 'object' && !Array.isArray(top.data)) {
+        const dataCopy = { ...(top.data as Record<string, unknown>) };
+        for (const key of ['character_book', 'characterBook', 'embeddedLorebook']) {
+            if (key in dataCopy) { delete dataCopy[key]; changed = true; }
+        }
+        if ('extensions' in dataCopy) dataCopy.extensions = stripExtensions(dataCopy.extensions);
+        top.data = dataCopy;
+    }
+    return { value: changed ? top : rawData, changed };
+}
+
+export function compactLorebook(book: NormalizedLorebook): { value: NormalizedLorebook; changed: boolean } {
+    let changed = false;
+    const rawResult = compactLorebookRaw(book.rawData);
+    if (rawResult.changed) changed = true;
+    const entries = book.entries.map(entry => {
+        const compacted = compactLorebookEntryRaw(entry.rawData);
+        if (!compacted.changed) return entry;
+        changed = true;
+        return { ...entry, rawData: compacted.value };
+    });
+    if (!changed) return { value: book, changed: false };
+    return { value: { ...book, rawData: rawResult.value, entries }, changed: true };
+}
+
+export function compactCharacterCard(card: NormalizedCharacterCard): { value: NormalizedCharacterCard; changed: boolean } {
+    let changed = false;
+    const rawResult = compactCardRaw(card.rawData);
+    if (rawResult.changed) changed = true;
+    let embeddedLorebook = card.embeddedLorebook;
+    if (embeddedLorebook) {
+        const compacted = compactLorebook(embeddedLorebook);
+        if (compacted.changed) { embeddedLorebook = compacted.value; changed = true; }
+    }
+    let characterBook = card.characterBook;
+    if (characterBook) {
+        const compacted = compactLorebook(characterBook);
+        if (compacted.changed) { characterBook = compacted.value; changed = true; }
+    }
+    if (!changed) return { value: card, changed: false };
+    return { value: { ...card, rawData: rawResult.value, embeddedLorebook, characterBook }, changed: true };
+}
+
 export function normalizeLorebook(rawBook: unknown, fallbackName = 'WorldBook'): NormalizedLorebook {
     const root = asRecord(rawBook);
     const name = asString(root.name, fallbackName);
@@ -153,7 +246,7 @@ export function normalizeLorebook(rawBook: unknown, fallbackName = 'WorldBook'):
         const e = asRecord(raw);
         const ext = asRecord(e.extensions);
         return {
-            rawData: structuredClone(e),
+            rawData: structuredClone(compactLorebookEntryRaw(e).value),
             uid: (e.uid ?? e.id ?? idx) as number | string,
             world: name,
             comment: asString(e.comment ?? e.name, `Entry #${idx}`),
@@ -204,7 +297,7 @@ export function normalizeLorebook(rawBook: unknown, fallbackName = 'WorldBook'):
     const settings = asRecord(root.extensions);
     const id = asString(root.id, uniqueId('wb'));
     return {
-        rawData: structuredClone(root),
+        rawData: structuredClone(compactLorebookRaw(root).value),
         id, name, entries,
         scanDepth: optionalNumber(root.scanDepth ?? root.scan_depth ?? settings.scan_depth),
         tokenBudget: optionalNumber(root.tokenBudget ?? root.token_budget ?? settings.token_budget),
@@ -231,7 +324,7 @@ export function normalizeCharacterCard(rawCard: unknown): NormalizedCharacterCar
 
     return {
         id: asString(top.id) || uniqueId('char'),
-        rawData: structuredClone(top),
+        rawData: structuredClone(compactCardRaw(top).value),
         specVersion: asString(top.spec_version),
         creator: asString(merged.creator),
         avatar,

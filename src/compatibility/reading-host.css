@@ -17,8 +17,8 @@ html { scrollbar-color: var(--reader-muted) transparent; scrollbar-width: thin; 
 ::selection { background: var(--reader-selection); }
 #chat { padding: 32px 36px; }
 .mes { margin: 0 auto 24px; max-width: var(--reader-width); min-width: 0; }
-.mes_text { border: 1px solid var(--reader-border); border-radius: var(--reader-radius); background: var(--reader-surface); overflow: hidden; min-width: 0; }
-.mes.is-user > .mes_text { background: var(--reader-selection); }
+.mes_text, .compat-stream-body { border: 1px solid var(--reader-border); border-radius: var(--reader-radius); background: var(--reader-surface); overflow: hidden; min-width: 0; }
+.mes.is-user > .mes_text, .mes.is-user > .compat-stream-body { background: var(--reader-selection); }
 .mes > header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 13px; }
 .compat-message-identity { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .compat-message-identity > strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; }
@@ -40,6 +40,9 @@ button:focus-visible { outline: 2px solid var(--reader-accent); outline-offset: 
 .compat-message-actions button:hover:not(:disabled) { background: var(--reader-selection); }
 .compat-prose { padding: 24px 28px; overflow-wrap: anywhere; font-family: var(--reader-font); font-size: var(--reader-size); line-height: var(--reader-leading); }
 .compat-prose p { text-indent: var(--reader-indent, 0); }
+:where(.mes_text) { font-family: var(--reader-font); font-size: var(--reader-size); line-height: var(--reader-leading); overflow-wrap: anywhere; }
+:where(.mes_text > div:not(.compat-prose):has(> p)) { padding: 24px 28px; }
+:where(.mes_text > div:not(.compat-prose):has(> p) > p) { text-indent: var(--reader-indent, 0); }
 #chat > .mes:not(:nth-last-child(-n+4)):not(:focus-within) > .compat-defer-paint {
     content-visibility: auto;
     contain-intrinsic-block-size: auto var(--compat-row-estimate, 120px);
@@ -51,9 +54,10 @@ button:focus-visible { outline: 2px solid var(--reader-accent); outline-offset: 
 .compat-script { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: transparent; z-index: 30; clip-path: var(--tipsy-script-clip, inset(50%)); }
 .compat-script[data-tipsy-floating-zoom]:not(:fullscreen) { transform-origin: top left; scale: var(--tipsy-floating-scale, 1); translate: var(--tipsy-floating-translate, none); }
 .compat-script:fullscreen { clip-path: none !important; scale: none !important; transform: none !important; }
-:root[data-layout=novel-reader] .mes_text { border: 0; border-bottom: 1px solid var(--reader-border); background: transparent; }
+:root[data-layout=novel-reader] .mes_text, :root[data-layout=novel-reader] .compat-stream-body { border: 0; border-bottom: 1px solid var(--reader-border); background: transparent; }
 :root[data-layout=novel-reader] .compat-prose { padding: 24px 12px; }
-:root[data-layout=adv-galgame] .mes_text { border-color: var(--reader-accent); }
+:where(:root[data-layout=novel-reader] .mes_text > div:not(.compat-prose):has(> p)) { padding: 24px 12px; }
+:root[data-layout=adv-galgame] .mes_text, :root[data-layout=adv-galgame] .compat-stream-body { border-color: var(--reader-accent); }
 :root[data-layout=im-messenger] .mes { max-width: min(82%, var(--reader-width)); }
 :root[data-layout=im-messenger] .mes.is-user { margin-right: 0; }
 :root[data-layout=im-messenger] .mes.is-assistant { margin-left: 0; }
@@ -61,6 +65,7 @@ button:focus-visible { outline: 2px solid var(--reader-accent); outline-offset: 
     #chat { padding: 20px 16px; }
     .mes > header { gap: 8px; }
     .compat-prose { padding: 18px 16px; }
+    :where(.mes_text > div:not(.compat-prose):has(> p)) { padding: 18px 16px; }
     .compat-stream-status { padding-inline: 16px; }
     .compat-message-toolbar, .compat-message-swipes { gap: 0; }
     .compat-message-swipes button { min-width: 40px; min-height: 44px; }

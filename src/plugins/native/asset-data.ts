@@ -112,7 +112,7 @@ export async function planAssets(state: WorkspaceState, input: AssetRequest, per
             if (asset.kind === 'character') {
                 const card = next as NormalizedCharacterCard;
                 const prior = asset.value.characterBook ?? asset.value.embeddedLorebook;
-                if (_.isEqual(cardData(source).character_book, card.embeddedLorebook?.rawData)) {
+                if (_.isEqual(cardData(source).character_book, card.embeddedLorebook ? serializeLorebook(card.embeddedLorebook) : undefined)) {
                     card.characterBook = asset.value.characterBook;
                     card.embeddedLorebook = asset.value.embeddedLorebook;
                 } else if (card.embeddedLorebook) card.embeddedLorebook.id = prior?.id ?? `${id}:embedded`;

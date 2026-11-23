@@ -55,7 +55,7 @@ export function ConversationReading({
     return (
         <>
             <div ref={illustrationAnchor} className={`ttm-reading-viewport${hasWallpaper && hasStory ? ' ttm-skin-story-surface' : ''}`} data-ti-protected={hasStory ? '' : undefined}>
-            {workspaceReady && hasStory && <CompatibilityChat session={state.activeChatId} revision={state} visible={compatibilityView} extensionPanel={extensionPanel} closeExtensionPanel={closeExtensionPanel}
+            {workspaceReady && hasStory && <CompatibilityChat key={state.activeCharacterId} session={state.activeChatId} revision={state} visible={compatibilityView} extensionPanel={extensionPanel} closeExtensionPanel={closeExtensionPanel}
                 replyId={replyId} jumpRequest={jumpRequest} onReadingActivity={onReadingActivity} onReplyPosition={reportReplyPosition} />}
             {isFree && !activeMessages.length && <section className="ttm-start-page" aria-label={freeChatName}>
                 <h2>想聊点什么？</h2>

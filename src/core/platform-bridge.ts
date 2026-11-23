@@ -129,7 +129,7 @@ export async function streamLlmCompletion(req: StreamCompletionRequest): Promise
         return result;
     } catch (error) {
         report(req.signal?.aborted ? '取消' : '失败', { stage, httpStatus, detail,
-            code: httpStatus && httpStatus >= 400 ? 'HTTP_ERROR' : error instanceof EmptyReplyError ? 'EMPTY_REPLY' : diagnosticErrorKind(error) });
+            code: httpStatus && httpStatus >= 400 ? 'HTTP_ERROR' : error instanceof EmptyReplyError ? 'EMPTY_REPLY' : req.signal?.aborted ? 'AbortError' : diagnosticErrorKind(error) });
         throw error;
     }
 }

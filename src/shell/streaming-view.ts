@@ -109,6 +109,7 @@ export class StreamingView {
         const terminal = view.phase === 'error' || view.phase === 'stopped';
         const live = new Set(parts.map(part => part.id));
         for (const [id, old] of this.nodes) if (!live.has(id)) { old.dispose?.(); this.observer.unobserve(old.element); old.element.remove(); this.nodes.delete(id); }
+        if (this.status.parentNode !== this.root) this.root.append(this.status);
         let cursor = this.root.firstElementChild;
         for (const part of parts) {
             let node = this.nodes.get(part.id);
@@ -134,7 +135,10 @@ export class StreamingView {
                 node.signature = signature;
             }
             if (element === cursor) cursor = cursor.nextElementSibling;
-            else this.root.insertBefore(element, cursor ?? this.status);
+            else {
+                const anchor = cursor && cursor.parentNode === this.root ? cursor : this.status;
+                this.root.insertBefore(element, anchor);
+            }
         }
         if (this.status.dataset.phase !== view.phase) {
             const presentation = generationPresentation[view.phase];

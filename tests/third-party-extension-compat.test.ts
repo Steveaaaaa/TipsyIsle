@@ -7,6 +7,7 @@ import {
     setWIOriginalDataValue,
 } from '../src/compatibility/world-info-helpers';
 import { installHostFetch } from '../src/compatibility/host-fetch';
+import { isBlockingExtensionOverlay } from '../src/compatibility/extension-overlay';
 import { requestWorldbook } from '../src/compatibility/worldbook-host';
 import { workspaceStore } from '../src/store/workspace-store';
 import { extensionModule } from '../server/extension-modules.mjs';
@@ -142,5 +143,50 @@ describe('third-party SillyTavern extension compatibility (RUBY / world-info / o
         expect(entry.disabled).toBe(true);
         expect(entry.position).toBe('at_depth');
         expect(entry.depth).toBe(2);
+    });
+
+    it('detects only real full-screen blocking extension modals and ignores hidden 0x0 iframes, pointer-events:none HUDs, canvases, and wallpapers', () => {
+        const baseStyle = {
+            position: 'fixed',
+            display: 'block',
+            visibility: 'visible',
+            opacity: '1',
+            pointerEvents: 'auto',
+            zIndex: '9999',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            backgroundImage: 'none',
+            backdropFilter: 'none',
+        };
+        const mobileViewport = { width: 390, height: 844 };
+
+        // Real RUBY-style blocking modal -> true
+        expect(isBlockingExtensionOverlay({ tagName: 'DIV' }, baseStyle, { width: 390, height: 844 }, mobileViewport)).toBe(true);
+
+        // Dialog role modal with transparent background and auto z-index -> true
+        expect(isBlockingExtensionOverlay(
+            { tagName: 'DIV', role: 'dialog' },
+            { ...baseStyle, zIndex: 'auto', backgroundColor: 'transparent' },
+            { width: 390, height: 844 },
+            mobileViewport,
+        )).toBe(true);
+
+        // Hidden 0x0 iframe on import (0x0 floating button/div on 0x0 viewport) -> false
+        expect(isBlockingExtensionOverlay({ tagName: 'BUTTON' }, baseStyle, { width: 0, height: 0 }, { width: 0, height: 0 })).toBe(false);
+        expect(isBlockingExtensionOverlay({ tagName: 'DIV' }, baseStyle, { width: 0, height: 0 }, { width: 0, height: 0 })).toBe(false);
+
+        // Full-screen pointer-events:none HUD / floating-button container -> false
+        expect(isBlockingExtensionOverlay({ tagName: 'DIV' }, { ...baseStyle, pointerEvents: 'none' }, { width: 390, height: 844 }, mobileViewport)).toBe(false);
+
+        // Full-screen ambient effect canvas -> false
+        expect(isBlockingExtensionOverlay({ tagName: 'CANVAS' }, baseStyle, { width: 390, height: 844 }, mobileViewport)).toBe(false);
+
+        // Full-screen transparent wrapper without backdrop-filter -> false
+        expect(isBlockingExtensionOverlay({ tagName: 'DIV' }, { ...baseStyle, backgroundColor: 'rgba(0, 0, 0, 0)' }, { width: 390, height: 844 }, mobileViewport)).toBe(false);
+        expect(isBlockingExtensionOverlay({ tagName: 'DIV' }, { ...baseStyle, backgroundColor: 'rgb(0 0 0 / 0%)' }, { width: 390, height: 844 }, mobileViewport)).toBe(false);
+
+        // Low/negative/auto z-index wallpapers -> false
+        expect(isBlockingExtensionOverlay({ tagName: 'DIV' }, { ...baseStyle, zIndex: '0' }, { width: 390, height: 844 }, mobileViewport)).toBe(false);
+        expect(isBlockingExtensionOverlay({ tagName: 'DIV' }, { ...baseStyle, zIndex: '-1' }, { width: 390, height: 844 }, mobileViewport)).toBe(false);
+        expect(isBlockingExtensionOverlay({ tagName: 'DIV' }, { ...baseStyle, zIndex: 'auto' }, { width: 390, height: 844 }, mobileViewport)).toBe(false);
     });
 });

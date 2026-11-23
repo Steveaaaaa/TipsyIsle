@@ -12,12 +12,15 @@ async function yieldEncoding() {
     encodeSliceStarted = performance.now();
 }
 async function hash(text: string): Promise<string> {
-    let result = hashes.get(text);
+    const cacheable = text.length <= 4096;
+    let result = cacheable ? hashes.get(text) : undefined;
     if (!result) {
         result = crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(buffer =>
             [...new Uint8Array(buffer)].map(byte => byte.toString(16).padStart(2, '0')).join(''));
-        if (hashes.size >= 64) hashes.delete(hashes.keys().next().value!);
-        hashes.set(text, result);
+        if (cacheable) {
+            if (hashes.size >= 64) hashes.delete(hashes.keys().next().value!);
+            hashes.set(text, result);
+        }
     }
     return result;
 }
@@ -93,6 +96,8 @@ async function pack(value: any, writes: Record<string, any>, wire = false): Prom
                     } else continuation[field] = await pool(part);
                 }
                 result[key] = continuation;
+            } else if ((key === 'embeddedLorebook' || key === 'characterBook' || key === 'storyCharacter' || key === 'storyWorldbooks' || key === 'inUsePreset') && entry && typeof entry === 'object') {
+                result[key] = await pool(entry);
             } else result[key] = await walk(entry);
         }
         return result;
@@ -216,9 +221,13 @@ export async function decodeSnapshot(value: any, read: (key: string) => Promise<
         const missing = new Set<string>();
         for (const root of roots) visitSnapshot(root, item => { const key = reference(item); if (key && !loaded.has(key)) missing.add(key); });
         roots = [];
-        const keys = [...missing];
-        for (let offset = 0; offset < keys.length; offset += 64) {
-            const group = keys.slice(offset, offset + 64);
+        const assetKeys = [...missing].filter(key => key.startsWith('snapshot-record:assets:'));
+        const otherKeys = [...missing].filter(key => !key.startsWith('snapshot-record:assets:'));
+        const batches: string[][] = assetKeys.map(key => [key]);
+        for (let offset = 0; offset < otherKeys.length; offset += 16) {
+            batches.push(otherKeys.slice(offset, offset + 16));
+        }
+        for (const group of batches) {
             const values = readMany ? await readMany(group) : Object.fromEntries(await Promise.all(group.map(async key => [key, await read(key)])));
             const batch = group.map(key => {
                 const raw = values[key];
@@ -234,7 +243,9 @@ export async function decodeSnapshot(value: any, read: (key: string) => Promise<
         const key = reference(item);
         if (key) {
             if (!expanded.has(key)) {
-                const decoded = mapSnapshot(loaded.get(key), expand);
+                const raw = loaded.get(key);
+                loaded.delete(key);
+                const decoded = mapSnapshot(raw, expand);
                 expanded.set(key, decoded);
                 if (decoded && typeof decoded === 'object') {
                     if (key.startsWith('snapshot-branch:')) pooledRecords.set(decoded, key);

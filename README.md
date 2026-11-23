@@ -12,13 +12,13 @@ We want this to become the place every AIRP player can eventually call home. Som
 
 **A beautiful interface draws you in. Stories, freedom, and a community with room to grow give you reasons to stay.**
 
-**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.4](docs/releases/1.1.4.en.md) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
+**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.5](docs/releases/1.1.5.en.md) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
 
-## New in 1.1.4
+## New in 1.1.5
 
-- **Delete story messages reliably.** Fixed the blank reading area and messages reappearing after reopening a conversation.
-- **Switch models without re-entering settings.** Save multiple story model connections, bind more than one worldbook to a character, and pick up each character's last-used narrative preset.
-- **More control over reading and better SillyTavern compatibility.** Adjust reading typography and use more imported cards, worldbook tools, and prompt presets as intended.
+- **Large character cards load smoothly without mobile freezes or crashes.** Eliminated redundant storage copies, switched native SQLite reads to zero-AST raw JSON pass-through, and accurately distinguish real modals from transparent HUD/canvas layers so large cards open reliably without touch lockouts.
+- **Live streaming and floor scripts work seamlessly with placeholder slots.** Cards that swap `<content>` into empty `data-*` slots stream prose word-by-word and render directly into `.mes_text` even alongside HTML/script headers.
+- **Reliable deletion, multi-model profiles, and flexible bindings.** Delete story messages reliably, switch between saved model connections with per-profile settings, bind multiple worldbooks, and adjust reading typography.
 
 ## Why make the move?
 

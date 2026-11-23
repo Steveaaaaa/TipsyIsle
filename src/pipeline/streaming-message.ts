@@ -1,4 +1,4 @@
-import { applyRegexScripts, type ApplyRegexOptions } from './macro-regex-engine';
+import { applyRegexScripts, isEmptySlotPlaceholder, type ApplyRegexOptions } from './macro-regex-engine';
 import { messageCodeBlocks } from './message-code-blocks';
 import { generationPresentation, type GenerationPhase } from '../theme/generation-presentation';
 import type { RegexScriptRule } from '../types';
@@ -49,6 +49,7 @@ export function createStreamPlan(rules: RegexScriptRule[], scope: string, user: 
         const capturesMessage = (pattern.includes('[\\s\\S]') || pattern.includes('.*')) && (!tag || page && pattern.startsWith('^'));
         if (mode === 'auto' && capturesMessage && (document || /<(?:main|article|section|div)\b/i.test(replacement))) whole = true;
         if (!tag || !html && !dataTags.has(tag) && replacement !== '') continue;
+        if (narrativeTags.has(tag) && isEmptySlotPlaceholder(replacement) && !/\$(?:[0-9&'`]|<[^>]+>)|\{\{match\}\}/i.test(replacement)) continue;
         tags.set(tag, { key: `${scope}:${rule.id}`, label: rule.scriptName || '互动内容', document,
             dynamic: !staticStreamMarkup(replacement) || /\{\{|<%/.test(rule.findRegex), ...componentShape(replacement) });
     }

@@ -5,6 +5,7 @@ import { isRetiredGuide, isRetiredPreset } from '../../core/retired-starter-cont
 import { platformStorage } from '../../core/platform-bridge';
 import { scopedVariableStore, replaceExtensionVariables } from '../scoped-variable-store';
 import { normalizeTemplateFeatures, legacyTemplateFeatures } from '../../pipeline/template-features';
+import { compactCharacterCard, compactLorebook } from '../../pipeline/normalizer';
 import { workspaceStore, type WorkspaceState } from './state';
 import { refreshPromptInspectorPreview } from './prompt';
 import { persistWorkspace } from './storage';
@@ -13,12 +14,38 @@ import { captureChatContinuation } from './sessions';
 import { restoreMessageSnapshot } from './branches';
 
 export async function hydrateWorkspaceFromPlatform(preview = true): Promise<void> {
-    const [chat, assets] = await Promise.all([
-        platformStorage.loadSnapshot<(Partial<WorkspaceState> & { snapshotVersion?: number }) | null>('workspace_snapshot', null),
-        platformStorage.loadSnapshot<Pick<WorkspaceState, 'characters' | 'lorebooks' | 'presets'> | null>('workspace_assets', null),
-    ]);
+    const chat = await platformStorage.loadSnapshot<(Partial<WorkspaceState> & { snapshotVersion?: number }) | null>('workspace_snapshot', null);
+    const assets = await platformStorage.loadSnapshot<Pick<WorkspaceState, 'characters' | 'lorebooks' | 'presets'> | null>('workspace_assets', null);
     const loaded = chat || assets ? { ...chat, ...assets } : null;
     const saved = loaded ? removeRetiredBuiltinWorldbooks(loaded) : null;
+    let compacted = false;
+    if (saved && typeof saved === 'object') {
+        if (Array.isArray(saved.characters)) {
+            saved.characters = saved.characters.map(card => {
+                const next = compactCharacterCard(card);
+                if (next.changed) compacted = true;
+                return next.value;
+            });
+        }
+        if (Array.isArray(saved.lorebooks)) {
+            saved.lorebooks = saved.lorebooks.map(book => {
+                const next = compactLorebook(book);
+                if (next.changed) compacted = true;
+                return next.value;
+            });
+        }
+        if (saved.storyCharacter) {
+            const next = compactCharacterCard(saved.storyCharacter);
+            if (next.changed) { compacted = true; saved.storyCharacter = next.value; }
+        }
+        if (Array.isArray(saved.storyWorldbooks)) {
+            saved.storyWorldbooks = saved.storyWorldbooks.map(book => {
+                const next = compactLorebook(book);
+                if (next.changed) compacted = true;
+                return next.value;
+            });
+        }
+    }
     const retiredGuides = (saved?.characters ?? []).filter(isRetiredGuide);
     // Preserve actual conversations with the old guide as recoverable archives.
     if (saved?.messages?.length && retiredGuides.some(card => card.id === saved.activeCharacterId)
@@ -94,6 +121,6 @@ export async function hydrateWorkspaceFromPlatform(preview = true): Promise<void
     if (!Object.hasOwn(scopedVariableStore.getState().extension, 'EjsTemplate')) {
         replaceExtensionVariables('EjsTemplate', saved ? { ...legacyTemplateFeatures, tipsy_migrated_legacy_features: true } : { ...normalizeTemplateFeatures() });
     }
-    if (retired || saved !== loaded || messages && messages !== saved?.messages) persistWorkspace();
+    if (retired || compacted || saved !== loaded || messages && messages !== saved?.messages) persistWorkspace();
     if (preview && workspaceStore.getState().sessionKind !== 'free') await refreshPromptInspectorPreview();
 }
