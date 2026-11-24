@@ -23,6 +23,17 @@ export async function pickNativeAsset(): Promise<File | undefined> {
     return new File([new Uint8Array(bytes).buffer], name, { type: png ? 'image/png' : 'application/json' });
 }
 
+export async function pickNativeWorldbook(): Promise<File | undefined> {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const path = await open({ multiple: false, directory: false, pickerMode: 'document', filters: [{ name: '世界书 JSON', extensions: ['json'] }] });
+    if (!path) return;
+    const { readFile } = await import('@tauri-apps/plugin-fs');
+    const bytes = await readFile(path);
+    const { basename } = await import('@tauri-apps/api/path');
+    const name = await basename(path);
+    return new File([new Uint8Array(bytes).buffer], name, { type: 'application/json' });
+}
+
 export async function pickNativePlugin(): Promise<File | undefined> {
     const { open } = await import('@tauri-apps/plugin-dialog');
     const path = await open({ multiple: false, directory: false, pickerMode: 'document',

@@ -8,16 +8,38 @@ import { finishPromptTemplateTask, runPromptPipelineAsync } from '../pipeline/pi
 import { createPromptAssemblyInput, commitPromptTask, workspaceStore, getActivePreset, setStatusBanner, ensureTemplatePreload, updateHelperGenerationCount } from '../store/workspace-store';
 import { placeholderPromptDefaultOrder, type HelperGenerationConfig, type HelperRolePrompt, type HelperPlaceholder, type PromptInjection } from './contracts';
 import { normalizePromptInjection } from './prompt-injections';
+import { findProxyPreset, resolveProxyPresets, type ExtraProxyConnection } from './proxy-presets';
+import { connectionStore } from '../plugins/native/connections';
 import type { PresetPromptSlot } from '../types';
 import type { AssemblePromptInput } from '../pipeline/prompt-assembler';
 
 const tasks = new Map<string, { controller: AbortController; session: string; silent: boolean }>();
 const own = (value: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(value, key);
-export function proxyPresetNames(): string[] {
-    return ((getSchemaValues()['api.proxy_presets'] as Array<{ name: string }> | undefined) ?? []).map(item => item.name);
+function extraProxyConnections(): ExtraProxyConnection[] {
+    return connectionStore.getState().items.map(item => ({
+        name: item.label,
+        baseUrl: item.baseUrl,
+        apiKey: item.apiKey,
+        source: item.source,
+        model: item.model,
+        kinds: item.kinds,
+    }));
 }
-export async function helperModelList(api: { apiurl: string; key?: string; source?: string }): Promise<string[]> {
-    return (await fetchModelCatalog({ baseUrl: api.apiurl, apiKey: api.key, source: api.source })).map(model => model.id);
+export function proxyPresetSummaries() {
+    return resolveProxyPresets(getSchemaValues(), extraProxyConnections()).map(({ name, model }) => ({ name, model: model ?? '' }));
+}
+export async function helperModelList(api: { apiurl?: string; key?: string; source?: string; proxy_preset?: string }): Promise<string[]> {
+    let baseUrl = String(api.apiurl ?? '').trim();
+    let apiKey = api.key;
+    let source = api.source;
+    if (api.proxy_preset && !baseUrl) {
+        const proxy = findProxyPreset(getSchemaValues(), api.proxy_preset, extraProxyConnections());
+        if (!proxy) throw new Error(`找不到代理预设：${api.proxy_preset}`);
+        baseUrl = proxy.url;
+        apiKey = apiKey ?? proxy.password;
+        source = source ?? proxy.source;
+    }
+    return (await fetchModelCatalog({ baseUrl, apiKey, source })).map(model => model.id);
 }
 function object(value: unknown, name: string): asserts value is Record<string, any> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${name} 必须是对象`);
@@ -106,9 +128,15 @@ export async function generateForHelper(config: HelperGenerationConfig, raw: boo
     const settings = getSchemaValues();
     const api = { ...config.custom_api };
     if (api.proxy_preset) {
-        const proxy = (settings['api.proxy_presets'] as Array<{ name: string; url: string; password?: string }> | undefined)?.find(item => item.name === api.proxy_preset);
-        if (proxy) { api.apiurl = proxy.url; api.key = proxy.password ?? ''; }
-        else setStatusBanner(`找不到代理预设「${api.proxy_preset}」，使用提供的 API 地址或当前连接`);
+        const proxy = findProxyPreset(settings, api.proxy_preset, extraProxyConnections());
+        if (proxy) {
+            api.apiurl = proxy.url;
+            api.key = proxy.password;
+            if (!api.source && proxy.source) api.source = proxy.source;
+            if (!api.model && proxy.model) api.model = proxy.model;
+        } else {
+            setStatusBanner(`找不到代理预设「${api.proxy_preset}」，使用提供的 API 地址或当前连接`);
+        }
     }
     const controller = new AbortController();
     const reportCancel = () => { if (!internal?.signal?.aborted) internal?.onCancel?.(); };

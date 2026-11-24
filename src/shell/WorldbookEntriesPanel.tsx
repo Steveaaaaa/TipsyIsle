@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import type { LorebookInsertPosition, NormalizedLorebook } from '../types';
 import { EntryBrowser } from './EntryBrowser';
 import { EntryStatus } from './EntryStatus';
+import { Icon } from './Icon';
 import { ExplainedValue, messageRoles, depthDescription, depthExplanation } from './EntryExplanations';
 
 export const worldbookPositions: Record<LorebookInsertPosition, string> = {
@@ -12,25 +13,73 @@ export const worldbookPositions: Record<LorebookInsertPosition, string> = {
     at_depth: '插入聊天记录', before_example: '对话示例之前', after_example: '对话示例之后', outlet: '指定输出位置',
 };
 
-export function WorldbookEntriesPanel({ books, disabled, onToggle, activeBookIds, globalBookIds, onToggleBook, onMoreBook, menuBookId }: {
+export function WorldbookEntriesPanel({
+    books, disabled, onToggle, activeBookIds, globalBookIds, onToggleBook, onMoreBook, menuBookId,
+    bookId: controlledBookId, onBookIdChange, onImportWorldbook, importing,
+}: {
     books: NormalizedLorebook[]; disabled: boolean; activeBookIds: string[]; globalBookIds: string[];
     onToggle: (bookId: string, uid: string | number, enabled: boolean) => void;
     onToggleBook: (bookId: string, enabled: boolean) => void;
     onMoreBook?: (book: NormalizedLorebook, anchor: HTMLElement) => void;
     menuBookId?: string;
+    bookId?: string;
+    onBookIdChange?: (bookId: string) => void;
+    onImportWorldbook?: () => Promise<void>;
+    importing?: boolean;
 }) {
-    const [bookId, setBookId] = useState('');
+    const [internalBookId, setInternalBookId] = useState('');
+    const rawBookId = controlledBookId ?? internalBookId;
+    const setBookId = onBookIdChange ?? setInternalBookId;
+    const activeBookSet = useMemo(() => new Set(activeBookIds), [activeBookIds]);
+    const hasActiveFilterOption = activeBookIds.length > 0 && books.length > activeBookIds.length;
+    const effectiveBookId = rawBookId === '__active__'
+        ? (hasActiveFilterOption ? '__active__' : '')
+        : (rawBookId && books.some(book => book.id === rawBookId) ? rawBookId : '');
+
     const rows = useMemo(() => books.flatMap(book => book.entries.map(entry => ({
         id: JSON.stringify([book.id, entry.uid]), name: entry.comment || entry.keys.join('、') || `未命名词条 ${entry.uid}`,
         content: entry.content, enabled: !entry.disabled, group: book.name, groupId: book.id, book, entry,
     }))), [books]);
     const rowById = useMemo(() => new Map(rows.map(row => [row.id, row])), [rows]);
-    const selectedBook = books.find(book => book.id === bookId);
+    const visibleRows = useMemo(() => effectiveBookId === '__active__'
+        ? rows.filter(row => activeBookSet.has(row.groupId))
+        : rows, [effectiveBookId, rows, activeBookSet]);
+
+    const selectedBook = effectiveBookId && effectiveBookId !== '__active__' ? books.find(book => book.id === effectiveBookId) : undefined;
     const isGlobal = selectedBook ? globalBookIds.includes(selectedBook.id) : false;
-    const isActive = selectedBook ? activeBookIds.includes(selectedBook.id) : false;
+    const isActive = selectedBook ? activeBookSet.has(selectedBook.id) : false;
     const boundOnly = isActive && !isGlobal;
-    return <EntryBrowser entries={rows} label="世界书词条" storageKey="tipsy-entry-favorites:worldbooks" scope={selectedBook?.id ?? ''}
-        filters={<div className="ttm-book-filter"><label>所属世界书<select className="ttm-select-input" aria-label="所属世界书" value={selectedBook?.id ?? ''} onChange={event => setBookId(event.target.value)}><option value="">全部世界书</option>{books.map(book => <option key={book.id} value={book.id}>{book.name}（{book.entries.length} 项）</option>)}</select></label>
+    const activeBooks = useMemo(() => books.filter(book => activeBookSet.has(book.id)), [books, activeBookSet]);
+    const inactiveBooks = useMemo(() => books.filter(book => !activeBookSet.has(book.id)), [books, activeBookSet]);
+
+    if (!books.length) {
+        return (
+            <div className="ttm-empty-search">
+                <p>尚未导入任何世界书。可导入独立世界书 JSON，或导入自带内嵌世界书的角色卡。</p>
+                {onImportWorldbook && (
+                    <button type="button" className="ttm-btn-secondary" disabled={disabled || importing} onClick={() => void onImportWorldbook()}>
+                        <Icon name="upload" width={16} height={16} />{importing ? '导入中…' : '导入世界书 JSON'}
+                    </button>
+                )}
+            </div>
+        );
+    }
+
+    return <EntryBrowser entries={visibleRows} label="世界书词条" storageKey="tipsy-entry-favorites:worldbooks" scope={selectedBook?.id ?? ''}
+        toggleDisabled={disabled}
+        onToggleEnabled={(entry, enabled) => { const row = rowById.get(entry.id); if (row) onToggle(row.book.id, row.entry.uid, enabled); }}
+        filters={<div className="ttm-book-filter"><label>所属世界书<select className="ttm-select-input" aria-label="所属世界书" value={effectiveBookId} onChange={event => setBookId(event.target.value)}>
+            {hasActiveFilterOption && <option value="__active__">当前生效（{activeBookIds.length} 本）</option>}
+            <option value="">全部世界书（{books.length} 本）</option>
+            {activeBooks.length > 0 && inactiveBooks.length > 0 ? <>
+                <optgroup label="当前生效">
+                    {activeBooks.map(book => <option key={book.id} value={book.id}>{book.name}（{book.entries.length} 项）</option>)}
+                </optgroup>
+                <optgroup label="未启用">
+                    {inactiveBooks.map(book => <option key={book.id} value={book.id}>{book.name}（{book.entries.length} 项）</option>)}
+                </optgroup>
+            </> : books.map(book => <option key={book.id} value={book.id}>{book.name}（{book.entries.length} 项）</option>)}
+        </select></label>
             {selectedBook && <label className="ttm-detail-enabled"><input type="checkbox" checked={isGlobal} disabled={disabled} onChange={event => onToggleBook(selectedBook.id, event.target.checked)} />通用启用{boundOnly ? '（当前角色已绑定）' : ''}</label>}
             {selectedBook && onMoreBook && <AssetMoreButton label="世界书更多操作" expanded={menuBookId === selectedBook.id} onOpen={anchor => onMoreBook(selectedBook, anchor)} />}
         </div>}

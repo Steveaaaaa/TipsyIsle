@@ -53,11 +53,20 @@ import { installHostSlashCommands } from './host-slash-commands';
 import { SlashCommandClosureResult } from '../sandbox/slash-control';
 import { createExtensionApi, findCompatibilityExtension, type CompatibilityExtension } from './extensions';
 import { adaptAuthorHtml, adaptAuthorWindow, explainAuthorScriptFailure, needsAuthorWindowAdapt, unwrapAuthorScript } from './author-window';
+import { adaptAvsProxyPanel, bindAvsProxyPanel } from './avs-proxy-panel';
 import { authorBrowserRuntime } from './author-browser-runtime';
 import { authorDocument } from './author-document';
 import { observeFrameHeight, setFrameHeight } from './frame-sizing';
 import { installHostFetch, tavernCompletionResponse } from './host-fetch';
 import { isBlockingExtensionOverlay } from './extension-overlay';
+import { collectExtensionActionTargets } from './extension-menu';
+import {
+    helperGenerationCommandType,
+    shouldCollectGlobalInjections,
+    shouldEmitGlobalGenerationStopped,
+    shouldEmitMainGenerationAfterCommands,
+    shouldRemoveOnceInjectionsOnIframeGenerationEnded,
+} from './helper-generation-policy';
 import { createWorldInfoCache, createWorldInfoEntry, deleteWIOriginalDataValue, originalWIDataKeyMap, setWIOriginalDataValue } from './world-info-helpers';
 import { installBaibaiFrameStorage } from './baibai-frame-storage';
 import { baibaiBody, baibaiHash } from './baibai-route';
@@ -87,6 +96,9 @@ const hostPopupApi = popupApi();
 const extensionMenu = document.createElement('div');
 extensionMenu.id = 'extensionsMenu'; extensionMenu.hidden = true;
 document.body.append(extensionMenu);
+const extensionMenuButton = document.createElement('div');
+extensionMenuButton.id = 'extensionsMenuButton'; extensionMenuButton.hidden = true;
+document.body.append(extensionMenuButton);
 const extensionTopBar = document.createElement('div');
 extensionTopBar.id = 'top-settings-holder'; extensionTopBar.hidden = true;
 const personaMount = document.createElement('div');
@@ -102,7 +114,7 @@ extensionSettingsMount.id = 'extensions_settings2'; extensionSettingsMount.hidde
 document.body.append(extensionSettingsMount);
 const extensionMenuIds = new WeakMap<Element, string>();
 function extensionActionTargets() {
-    return [...extensionMenu.children, ...extensionTopBar.querySelectorAll('.drawer-toggle'), ...composerMount.querySelectorAll('.qr--button, button')];
+    return collectExtensionActionTargets(extensionMenu, extensionTopBar, composerMount);
 }
 function extensionMenuEntries() {
     return extensionActionTargets().flatMap(element => {
@@ -448,7 +460,7 @@ const iframeEvents = { MESSAGE_IFRAME_RENDER_STARTED: 'message_iframe_render_sta
     STREAM_TOKEN_RECEIVED_FULLY: 'js_stream_token_received_fully', STREAM_TOKEN_RECEIVED_INCREMENTALLY: 'js_stream_token_received_incrementally',
     REASONING_TOKEN_RECEIVED_FULLY: 'js_reasoning_token_received_fully', REASONING_TOKEN_RECEIVED_INCREMENTALLY: 'js_reasoning_token_received_incrementally',
     GENERATION_BEFORE_END: 'js_generation_before_end', GENERATION_ENDED: 'js_generation_ended' };
-const generationTasks = new Map<string, { text: string; reasoning: string; queue: Promise<void>; stopped: boolean }>();
+const generationTasks = new Map<string, { text: string; reasoning: string; queue: Promise<void>; stopped: boolean; silent: boolean }>();
 const helperWorldbookCache = new Map<string, { version: string; entries: any[] }>();
 async function readHelperWorldbook(name: string) {
     const cached = helperWorldbookCache.get(name);
@@ -525,13 +537,15 @@ async function prepareHelperGeneration(options: HelperGenerationConfig = {}, raw
     const id = config.generation_id!;
     if (typeof id !== 'string' || !id.trim()) throw new Error('generation_id 必须是非空字符串');
     if (generationTasks.has(id)) throw new Error(`生成 ID 已在使用：${id}`);
-    const task = { text: '', reasoning: '', queue: Promise.resolve(), stopped: false };
+    const task = { text: '', reasoning: '', queue: Promise.resolve(), stopped: false, silent: config.should_silence === true };
     generationTasks.set(id, task);
     try {
         await initializeNewMvuBindings();
-        await emit(events.GENERATION_AFTER_COMMANDS, 'normal', {}, false);
+        if (shouldEmitMainGenerationAfterCommands(raw)) {
+            await emit(events.GENERATION_AFTER_COMMANDS, helperGenerationCommandType(config), {}, false);
+        }
         await emit(iframeEvents.GENERATION_STARTED, id);
-        const injections = await collectInjections();
+        const injections = shouldCollectGlobalInjections(config, raw) ? await collectInjections() : [];
         if (config.injects !== undefined) {
             if (!Array.isArray(config.injects)) throw new Error('injects 必须是数组');
             config.injects = (await resolvePromptInjections(config.injects, (_item, index) => `${id}:${index}`)).map(({ id: _id, ...prompt }) => prompt);
@@ -569,7 +583,7 @@ async function finishHelperGeneration(id: string, result: string | Partial<impor
 async function cancelHelperGeneration(id: string) {
     const task = generationTasks.get(id);
     generationTasks.delete(id);
-    if (!task?.stopped) await emit(events.GENERATION_STOPPED, id);
+    if (!task?.stopped && shouldEmitGlobalGenerationStopped(Boolean(task?.silent))) await emit(events.GENERATION_STOPPED, id);
 }
 async function generate(options: HelperGenerationConfig = {}, raw = false) {
     const { generationConfig: config, injections } = await prepareHelperGeneration(options, raw);
@@ -599,7 +613,9 @@ function stopGenerationById(id: string): boolean {
     if (!task || task.stopped) return false;
     task.stopped = true;
     void request('generation.stop', { id }).catch(error => diagnostic('停止生成', error));
-    void emit(events.GENERATION_STOPPED, id).catch(error => diagnostic('停止事件', error));
+    if (shouldEmitGlobalGenerationStopped(task.silent)) {
+        void emit(events.GENERATION_STOPPED, id).catch(error => diagnostic('停止事件', error));
+    }
     return true;
 }
 function eventOn(event: string, fn: (...args: any[]) => any, priority = 0) {
@@ -972,7 +988,8 @@ const context = () => {
     mainApi: 'openai', getChatCompletionModel: () => snapshot.modelSettings.model,
     chatCompletionSettings: { ...snapshot.assetCatalog.inUsePreset, chat_completion_source: snapshot.modelSettings.source,
         openai_model: snapshot.modelSettings.model, claude_model: snapshot.modelSettings.model, google_model: snapshot.modelSettings.model,
-        stream_openai: snapshot.modelSettings.stream, openai_max_context: snapshot.modelSettings.maxContext, openai_max_tokens: snapshot.modelSettings.maxResponse },
+        stream_openai: snapshot.modelSettings.stream, openai_max_context: snapshot.modelSettings.maxContext, openai_max_tokens: snapshot.modelSettings.maxResponse,
+        proxies: (snapshot.proxyPresets ?? []).map(({ name, model }) => ({ name, model, url: '', password: '' })) },
     registerMacro: registerHostMacro, unregisterMacro: unregisterHostMacro,
     substituteParams: (text: string) => helper.substitudeMacros(text),
     substituteParamsExtended: (text: string) => helper.substitudeMacros(text),
@@ -1226,8 +1243,11 @@ const helper: Record<string, any> = {
         snapshot.worldinfoSettings = { ...snapshot.worldinfoSettings, ...settings };
         track(request('worldbook.settings', { settings }));
     },
-    getProxyPresetNames: () => [...snapshot.proxyPresetNames],
-    getModelList: (api: { apiurl: string; key?: string }) => request('generation.models', { api }),
+    getProxyPresetNames: () => (snapshot?.proxyPresets ?? []).map(({ name }) => name),
+    __tipsyBindAvsProxyPanel: (panel: Parameters<typeof bindAvsProxyPanel>[0]) => bindAvsProxyPanel(panel,
+        name => snapshot?.proxyPresets?.find(preset => preset.name === name)?.model ?? '',
+        name => request('generation.models', { api: { proxy_preset: name } })),
+    getModelList: (api: { apiurl?: string; key?: string; source?: string; proxy_preset?: string }) => request('generation.models', { api }),
     ...createAudioRuntime(() => readExtensionVariables(snapshot.extensionVariables, 'tipsy_audio'), value => replaceVariables(value, { type: 'extension', extension_id: 'tipsy_audio' }), error => diagnostic('音频', error)),
     getTavernFile: async (filename: string) => {
         if (/^(?:https?:|data:|blob:)/i.test(filename)) return fetch(filename);
@@ -1550,7 +1570,13 @@ const helper: Record<string, any> = {
             for (const unsubscribe of unsubscribes) unsubscribe();
             window.removeEventListener('pagehide', remove);
         };
-        if (options?.once) for (const event of [events.GENERATION_ENDED, events.GENERATION_STOPPED, iframeEvents.GENERATION_ENDED]) unsubscribes.push(eventOn(event, remove));
+        if (options?.once) {
+            for (const event of [events.GENERATION_ENDED, events.GENERATION_STOPPED]) unsubscribes.push(eventOn(event, remove));
+            unsubscribes.push(eventOn(iframeEvents.GENERATION_ENDED, (_text: unknown, generationId?: string) => {
+                const silent = Boolean(generationId && generationTasks.get(generationId)?.silent);
+                if (shouldRemoveOnceInjectionsOnIframeGenerationEnded(silent)) remove();
+            }));
+        }
         window.addEventListener('pagehide', remove, { once: true });
         return Object.assign(remove, { uninject: remove });
     },
@@ -2222,7 +2248,7 @@ async function mountScript(script: CardScript): Promise<{ completion: Promise<vo
     startupStage(`加载作者脚本：${script.name}`);
     scriptButtons.set(script.id, script.buttons.map(button => ({ name: button.name, visible: button.visible !== false })));
     scriptInfo.set(script.id, script.info); renderButtons();
-    const unwrapped = unwrapAuthorScript(script.content);
+    const unwrapped = adaptAvsProxyPanel(unwrapAuthorScript(script.content));
     const frame = createChild('', undefined, { ...script, content: await adaptAuthorWindow(unwrapped) });
     const id = frame.dataset.compatChild!;
     const promise = new Promise<void>((resolve, reject) => {
@@ -2628,7 +2654,7 @@ async function switchCompatibilitySession(next: CompatSnapshot, scripts: CardScr
     await startupEventsTask;
     await finishStartupForSync(bindingToken);
 }
-const hostBodyContainers = new Set<Element>([root, extensionMenu, extensionTopBar, composerMount, extensionSettingsMount]);
+const hostBodyContainers = new Set<Element>([root, extensionMenu, extensionMenuButton, extensionTopBar, composerMount, extensionSettingsMount]);
 let nativePopupVisible = false;
 let extensionOverlayVisible = false;
 let lastPublishedOverlay = false;

@@ -47,6 +47,9 @@
 .ttm-map-fold { position:absolute; bottom:-14px; left:calc(50% - 13px); display:grid; place-items:center; width:26px; height:26px; padding:0; z-index:2; border:1px solid var(--route-line); border-radius:50%; color:var(--ti-accent); background:var(--ti-bg-surface); cursor:pointer; }
 .ttm-map-fold:hover { border-color:var(--ti-accent); }
 .ttm-map-fold svg { transition:transform .2s; }
+.ttm-map-delete { position:absolute; top:-10px; right:-10px; display:grid; place-items:center; width:26px; height:26px; padding:0; z-index:2; border:1px solid var(--route-line); border-radius:50%; color:var(--ti-danger,#af3d46); background:var(--ti-bg-surface); cursor:pointer; opacity:0; pointer-events:none; transition:opacity .15s,border-color .15s; }
+.ttm-map-node:hover .ttm-map-delete,.ttm-map-node:focus-within .ttm-map-delete,.ttm-map-node.is-selected .ttm-map-delete { opacity:1; pointer-events:auto; }
+.ttm-map-delete:hover:not(:disabled) { border-color:var(--ti-danger,#af3d46); background:color-mix(in srgb,var(--ti-danger,#af3d46) 10%,var(--ti-bg-surface)); }
 .ttm-route-map-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-shrink:0; padding:12px 20px 16px; }
 .ttm-route-map-footer>span { color:var(--ti-text-muted); font-size:11px; }
 .ttm-route-zoom { display:flex; align-items:center; border:1px solid var(--route-line); border-radius:8px; background:var(--ti-bg-surface); overflow:hidden; }
@@ -73,6 +76,16 @@
 .ttm-route-destination span { color:var(--ti-text-muted); font-size:11px; }
 .ttm-route-destination p { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; font-size:13px; line-height:1.7; margin:7px 0 12px; }
 .ttm-route-destination button { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:40px; font-size:13px; }
+.ttm-route-destination-actions { display:flex; align-items:center; gap:8px; }
+.ttm-route-destination-actions>button:first-child { flex:1; min-width:0; }
+.ttm-route-destination-actions>.ttm-route-destination-delete { width:auto; flex-shrink:0; min-width:40px; padding-inline:10px; color:var(--ti-danger,#af3d46); }
+.ttm-route-delete { margin-top:18px; padding-top:16px; border-top:1px solid var(--route-line); }
+.ttm-route-delete-trigger { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:40px; font-size:13px; color:var(--ti-danger,#af3d46); }
+.ttm-route-delete-confirm { display:flex; flex-direction:column; gap:12px; padding:12px 14px; border-radius:10px; border:1px solid color-mix(in srgb,var(--ti-danger,#af3d46) 35%,var(--route-line)); background:color-mix(in srgb,var(--ti-danger,#af3d46) 7%,var(--ti-bg-surface)); }
+.ttm-route-delete-confirm p { margin:0; font-size:12px; line-height:1.7; color:var(--ti-text-primary); }
+.ttm-route-delete-confirm-actions { display:flex; gap:8px; }
+.ttm-route-delete-confirm-actions button { flex:1; min-height:38px; font-size:13px; }
+.ttm-route-delete-confirm-btn { background:var(--ti-danger,#af3d46); border-color:var(--ti-danger,#af3d46); color:#fff; }
 .ttm-route-preview-note { border-top:1px solid var(--route-line); padding:12px 24px; font-size:11px; line-height:1.7; color:var(--ti-text-muted); flex-shrink:0; }
 .ttm-route-mobile-tabs { display:none; }
 .ttm-route-error { flex-shrink:0; padding:12px 24px; margin:0; font-size:13px; color:var(--ti-danger,#af3d46); background:var(--ti-bg-surface); border-bottom:1px solid var(--route-line); }
@@ -114,7 +127,8 @@
     .ttm-route-detail-scroll { padding:0 20px 20px; }
     .ttm-route-floor-select select { min-height:40px; }
     .ttm-route-prose p { font-size:15px; }
-    .ttm-route-replay button,.ttm-route-destination button { min-height:44px; }
+    .ttm-route-replay button,.ttm-route-destination button,.ttm-route-delete-trigger,.ttm-route-delete-confirm-actions button { min-height:44px; }
+    .ttm-map-delete { width:32px; height:32px; top:-12px; right:-10px; }
     .ttm-route-entry { min-height:34px; }
 }
 @media(prefers-reduced-motion:reduce) {

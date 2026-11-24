@@ -1,9 +1,9 @@
-import type { ArchivedChat } from '../chat-archives';
+import { updateChatArchive, type ArchivedChat } from '../chat-archives';
 import { batchReactiveUpdates } from '../reactive-store';
 import _ from 'lodash';
 import { getSchemaValues, schemaRegistryStore } from '../../registry/schema-registry';
 import { scopedVariableStore, getScopedVariables, readScopedVariables, replaceScopedVariables } from '../scoped-variable-store';
-import { activePath, swipeId, routeKey, storyRoutes, withSwipe } from '../chat-tree';
+import { activePath, removeStoryBranch, swipeId, routeKey, storyRoutes, withSwipe } from '../chat-tree';
 import { branchMessageVariable, branchMessageVariables, captureVariablePages, createBranchVariableRemapper, type BranchState } from '../branch-state';
 import { compatibilityComposer } from '../../compatibility/composer-bridge';
 import { routeGraph, routeRootId } from '../../plugins/native/route-graph';
@@ -13,7 +13,7 @@ import type { TemplatePromptInjection } from '../../pipeline/template-injections
 import { workspaceStore, type WorkspaceState } from './state';
 import { getActivePreset, getActiveLorebooks, getCharacterWorldbooks, getActiveCharacter, getActivePersona } from './library';
 import { schedulePreview, invalidateTemplateEnvironment } from './prompt';
-import { persistWorkspace } from './storage';
+import { persistWorkspace, persistWorkspaceNow } from './storage';
 import { setStatusBanner } from './notice';
 import { getActiveChatMessages } from './queries';
 import { readWorkspaceInitialVariables, initialChatVariables, mvuChatProjection } from './story-initialization';
@@ -375,4 +375,117 @@ export function getChatBranchStats(messages = workspaceStore.getState().messages
         totalBranches: 1 + extraBranches,
         forkFloors,
     };
+}
+
+export async function deleteStoryBranch(
+    branchRootKey: string,
+    options: { chatId?: string; internal?: boolean } = {},
+): Promise<{ removedNodeIds: string[]; switchedRoute: boolean; updatedArchive?: ArchivedChat }> {
+    if (branchBusy(options.internal)) throw new Error('请等待本轮生成和变量结算结束后删除分支');
+    const currentState = workspaceStore.getState();
+
+    if (options.chatId && options.chatId !== currentState.activeChatId) {
+        const result = await updateChatArchive(options.chatId, current => {
+            if (!current) throw new Error('找不到已保存的会话');
+            const removed = removeStoryBranch(current.messages, branchRootKey, current.activeLeafId);
+            if (!removed.changed) throw new Error('无法删除该分支（开场不能作为分支删除）');
+
+            let messages = removed.nodes;
+            let continuation = current.continuation;
+            let timedStates = current.timedStates;
+            let templateInjections = current.templateInjections;
+            let templateActivations = current.templateActivations;
+
+            if (removed.affectedActive && removed.fallbackRoute) {
+                const selected = new Map(removed.fallbackRoute.path.map(node => [node.id, node.activeSwipeIndex]));
+                messages = messages.map(node => selected.has(node.id) ? withSwipe(node, selected.get(node.id)!) : node);
+                const leaf = messages.find(node => node.id === removed.fallbackRoute!.nodeId);
+                const point = leaf?.branchStates?.[swipeId(leaf)];
+                if (point) {
+                    const variables = Object.fromEntries(removed.fallbackRoute.path.map(node => [
+                        node.id,
+                        (node.extra?.swipeVariables as Record<number, unknown> | undefined)?.[node.activeSwipeIndex] ?? {},
+                    ]));
+                    continuation = {
+                        ...point.continuation,
+                        variables: {
+                            ...point.continuation.variables,
+                            message: { ...variables, ...branchMessageVariables(point) } as Record<string, Record<string, unknown>>,
+                        },
+                    };
+                    timedStates = point.timedStates;
+                    templateInjections = point.templateInjections;
+                    templateActivations = point.templateActivations;
+                }
+            }
+
+            const updatedChat: ArchivedChat = {
+                ...current,
+                messages,
+                activeLeafId: removed.fallbackLeafId,
+                deletedMessageIds: [...new Set([...(current.deletedMessageIds ?? []), ...removed.removedNodeIds])],
+                timedStates,
+                templateInjections,
+                templateActivations,
+                continuation,
+            };
+            return {
+                chat: updatedChat,
+                extras: {},
+                result: {
+                    removedNodeIds: removed.removedNodeIds,
+                    switchedRoute: removed.affectedActive,
+                    updatedArchive: updatedChat,
+                },
+            };
+        });
+        if (!result) throw new Error('找不到已保存的会话');
+        return result;
+    }
+
+    const preview = removeStoryBranch(currentState.messages, branchRootKey, currentState.activeLeafId);
+    if (!preview.changed) throw new Error('无法删除该分支（开场不能作为分支删除）');
+
+    if (preview.affectedActive) {
+        await settleRouteChange(options.internal);
+        const state = workspaceStore.getState();
+        const result = removeStoryBranch(state.messages, branchRootKey, state.activeLeafId);
+        if (!result.changed) throw new Error('路线状态已变化，请重新操作');
+        invalidateTemplateEnvironment();
+        batchReactiveUpdates(() => {
+            workspaceStore.setState(draft => {
+                draft.messages = result.nodes;
+                draft.deletedMessageIds = [...new Set([...(draft.deletedMessageIds ?? []), ...result.removedNodeIds])];
+            });
+            scopedVariableStore.setState(draft => {
+                for (const id of result.removedNodeIds) delete draft.message[id];
+            });
+            if (result.fallbackRoute) {
+                activateBranch(result.fallbackRoute.nodeId, result.fallbackRoute.swipe);
+            } else {
+                workspaceStore.setState({ activeLeafId: result.fallbackLeafId });
+                if (result.fallbackLeafId) {
+                    restoreMessageSnapshot(result.fallbackLeafId);
+                } else {
+                    replaceScopedVariables(initialChatVariables(), 'chat', { chatId: state.activeChatId });
+                    workspaceStore.setState({ timedStates: {}, chatMetadata: undefined, nativePluginRoute: undefined, templateInjections: [], templateActivations: [] });
+                }
+            }
+        });
+        publishBranchChange(!options.internal);
+        return { removedNodeIds: result.removedNodeIds, switchedRoute: true };
+    }
+
+    batchReactiveUpdates(() => {
+        workspaceStore.setState(draft => {
+            draft.messages = preview.nodes;
+            draft.deletedMessageIds = [...new Set([...(draft.deletedMessageIds ?? []), ...preview.removedNodeIds])];
+        });
+        scopedVariableStore.setState(draft => {
+            for (const id of preview.removedNodeIds) delete draft.message[id];
+        });
+    });
+    await persistWorkspaceNow();
+    schedulePreview();
+    return { removedNodeIds: preview.removedNodeIds, switchedRoute: false };
 }

@@ -327,8 +327,8 @@ export function selectPreset(presetId: string): void {
     schedulePreview();
 }
 
-export function applyPresetSettings(preset: NormalizedPreset): void {
-    setSchemaValues(presetSchemaValues(preset));
+export function applyPresetSettings(preset: NormalizedPreset, explicitStream?: boolean): void {
+    setSchemaValues({ ...presetSchemaValues(preset), ...(typeof explicitStream === 'boolean' ? { 'api.stream': explicitStream } : {}) });
 }
 
 export function writeHelperPreset(preset: NormalizedPreset, previousId?: string, inUse = false): void {
@@ -364,13 +364,17 @@ export function replaceHelperPresetRegexes(preset: NormalizedPreset, rules: NonN
 
 export function updatePresetPrompt(presetId: string, identifier: string, patch: Partial<PresetPromptSlot>): void {
     workspaceStore.setState(draft => {
-        const preset = presetId === draft.activePresetId && draft.inUsePreset ? draft.inUsePreset : draft.presets.find(item => item.id === presetId);
-        if (!preset) return;
-        const slots = preset.promptSlots ?? preset.prompts ?? [];
-        const slot = slots.find(item => item.identifier === identifier);
-        if (slot) Object.assign(slot, patch, { identifier });
-        preset.promptSlots = slots;
-        preset.prompts = slots;
+        const saved = draft.presets.find(item => item.id === presetId);
+        const active = presetId === draft.activePresetId ? draft.inUsePreset : undefined;
+        for (const preset of [saved, active]) {
+            if (!preset) continue;
+            const slots = preset.promptSlots ?? preset.prompts ?? [];
+            const slot = slots.find(item => item.identifier === identifier);
+            if (!slot) continue;
+            Object.assign(slot, patch, { identifier });
+            preset.promptSlots = slots;
+            preset.prompts = slots;
+        }
     });
     persistWorkspace();
     schedulePreview();

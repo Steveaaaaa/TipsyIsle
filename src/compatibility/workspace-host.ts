@@ -1,5 +1,6 @@
 import { routesAt, swipeId } from '../store/chat-tree';
 import { activePlugins, nativePluginStore } from '../plugins/native/catalog';
+import { connectionStore } from '../plugins/native/connections';
 import { openMessagePluginPicker } from '../plugins/native/PluginCommands';
 import { readNativeAfterScan } from '../plugins/native/generation-stages';
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_RESPONSE_TOKENS } from '../core/generation-defaults';
@@ -9,7 +10,7 @@ import { analyzeMvuReply } from './mvu-extra-analysis';
 import { prepareTokenCounter, type TokenizerSelection } from '../pipeline/token-counter';
 import { extensionCatalog, extensionCatalogStore, requestExtension } from './extension-host';
 import { writeExtensionVariables, validateExtensionVariableId } from './extension-variables';
-import { generateForHelper, stopHelperGeneration, helperModelList, proxyPresetNames } from './helper-generation';
+import { generateForHelper, stopHelperGeneration, helperModelList, proxyPresetSummaries } from './helper-generation';
 import { worldbookBindings, requestWorldbook, worldinfoSettings } from './worldbook-host';
 import { type CompatSnapshot } from './contracts';
 import { baibaiBody, baibaiBundleIds, baibaiBundles, baibaiHash, baibaiLeaf, pruneBaibaiSummaries } from './baibai-route';
@@ -84,7 +85,7 @@ function snapshot(): CompatSnapshot {
         state.presets, state.activePresetId, state.inUsePreset, state.lorebooks, state.activeLorebookIds,
         state.characterWorldbookBindings, state.chatWorldbookBindings, state.userName, state.personas, state.activePersonaId, state.storyPersona, state.storyCharacter, state.storyWorldbooks, state.storyCharacterBinding,
         state.isGenerating, state.helperGenerationCount, state.mvuExtraAnalysisActive, state.lastAssembledPrompt, state.templateRenderRevision, !!state.streamingReasoning, state.nativeToolPreview,
-        scopedVariableStore.getState(), schemaRegistryStore.getState().values, extensionCatalogStore.getState(), nativeMenu];
+        scopedVariableStore.getState(), schemaRegistryStore.getState().values, extensionCatalogStore.getState(), connectionStore.getState().items, nativeMenu];
     if (cachedSnapshot && sources.every((value, index) => value === snapshotSources[index])) return cachedSnapshot;
     snapshotSources = sources;
     const ctx = context();
@@ -170,7 +171,7 @@ function snapshot(): CompatSnapshot {
         assetCatalog: assetCatalog(),
         personas: cachedPersonas,
         activePersonaId: persona?.avatar_id ?? state.activePersonaId,
-        proxyPresetNames: proxyPresetNames(),
+        proxyPresets: proxyPresetSummaries(),
     };
 }
 export function installWorkspaceCompatibility(): void {
@@ -443,6 +444,7 @@ export function installWorkspaceCompatibility(): void {
         notify('settings_updated');
     });
     extensionCatalogStore.subscribe(schedule);
+    connectionStore.subscribe(schedule);
     nativePluginStore.subscribe((state, previous) => {
         if (state.catalog === previous.catalog && state.maintenance === previous.maintenance) return;
         const rules = activePlugins().flatMap(plugin => plugin.manifest.commands?.filter(item => item.location === 'message').map(item => ({ role: item.role, latestOnly: item.latestOnly })) ?? []);

@@ -95,7 +95,7 @@ function deltaSnapshot(forceVariables = false): CompatSnapshotDelta {
         } }),
         ...(previous?.scriptTrees === next.scriptTrees ? {} : { scriptTrees: next.scriptTrees }),
         activePersonaId: next.activePersonaId,
-        proxyPresetNames: next.proxyPresetNames,
+        proxyPresets: next.proxyPresets,
         ...(previous?.personas === next.personas ? {} : { personas: next.personas }),
         ...(previous?.worldbooks === next.worldbooks ? {} : { worldbooks: next.worldbooks }) };
 }

@@ -62,6 +62,146 @@ export function removeChatTreeNode(nodes: ChatMessageNode[], target: ChatMessage
     return nodes.filter(node => node.id !== target.id).map(node => changed.get(node.id) ?? node);
 }
 
+export interface RemoveStoryBranchResult {
+    nodes: ChatMessageNode[];
+    removedNodeIds: string[];
+    changed: boolean;
+    affectedActive: boolean;
+    fallbackRoute?: StoryRoute;
+    fallbackLeafId: string | null;
+}
+
+const SWIPE_NUMERIC_EXTRA_KEYS = [
+    'swipeVariables', 'swipeChatVariables', 'swipeTimedStates', 'swipeTemplateStates',
+    'swipeHostMetadata', 'helperSwipeInfo', 'tipsy_template_source', 'tipsy_template_render',
+    'tipsy_template_variables_initialized',
+] as const;
+
+export function removeStoryBranch(nodes: ChatMessageNode[], branchRootKey: string, currentLeafId: string | null): RemoveStoryBranchResult {
+    let targetNode: ChatMessageNode | undefined;
+    let targetSwipeIndex = -1;
+    for (const node of nodes) {
+        const index = node.swipes.findIndex((_, i) => routeKey(node, i) === branchRootKey);
+        if (index >= 0) {
+            targetNode = node;
+            targetSwipeIndex = index;
+            break;
+        }
+    }
+    if (!targetNode || targetNode.floor === 0) {
+        return { nodes, removedNodeIds: [], changed: false, affectedActive: false, fallbackLeafId: currentLeafId };
+    }
+
+    const targetSwipeId = swipeId(targetNode, targetSwipeIndex);
+    const oldPath = activePath(nodes, currentLeafId);
+    const affectedActive = oldPath.some(item => item.id === targetNode!.id && swipeId(item) === targetSwipeId);
+
+    const removedSet = new Set<string>();
+    for (const node of nodes) {
+        if (node.parentId === targetNode.id && (node.parentSwipeId ?? swipeId(targetNode)) === targetSwipeId) {
+            removedSet.add(node.id);
+        }
+    }
+    for (let grew = true; grew;) {
+        grew = false;
+        for (const node of nodes) {
+            if (node.parentId && removedSet.has(node.parentId) && !removedSet.has(node.id)) {
+                removedSet.add(node.id);
+                grew = true;
+            }
+        }
+    }
+
+    let nextNodes: ChatMessageNode[];
+    if (targetNode.swipes.length <= 1) {
+        removedSet.add(targetNode.id);
+        nextNodes = nodes.filter(node => !removedSet.has(node.id));
+    } else {
+        const oldSwipeIds = targetNode.swipes.map((_, index) => swipeId(targetNode!, index));
+        const nextSwipes = targetNode.swipes.filter((_, index) => index !== targetSwipeIndex);
+        const nextSwipeIds = oldSwipeIds.filter((_, index) => index !== targetSwipeIndex);
+        const omitKey = <T,>(record: Record<string, T> | undefined): Record<string, T> | undefined => {
+            if (!record || !(targetSwipeId in record)) return record;
+            const copy = { ...record };
+            delete copy[targetSwipeId];
+            return Object.keys(copy).length ? copy : undefined;
+        };
+
+        let nextExtra = targetNode.extra ? { ...targetNode.extra } : undefined;
+        if (nextExtra) {
+            for (const tableKey of SWIPE_NUMERIC_EXTRA_KEYS) {
+                const table = nextExtra[tableKey];
+                if (!table || typeof table !== 'object' || Array.isArray(table)) continue;
+                const shifted: Record<string, unknown> = {};
+                for (const [key, value] of Object.entries(table as Record<string, unknown>)) {
+                    const num = Number(key);
+                    if (Number.isInteger(num) && num >= 0 && String(num) === key) {
+                        if (num === targetSwipeIndex) continue;
+                        shifted[String(num > targetSwipeIndex ? num - 1 : num)] = value;
+                    } else {
+                        shifted[key] = value;
+                    }
+                }
+                nextExtra[tableKey] = shifted;
+            }
+            const illustrations = nextExtra.tipsy_host_illustrations;
+            if (illustrations && typeof illustrations === 'object' && !Array.isArray(illustrations) && targetSwipeId in illustrations) {
+                const copy = { ...(illustrations as Record<string, unknown>) };
+                delete copy[targetSwipeId];
+                nextExtra.tipsy_host_illustrations = copy;
+            }
+        }
+
+        const nextActiveIndex = targetNode.activeSwipeIndex === targetSwipeIndex
+            ? Math.max(0, targetSwipeIndex - 1)
+            : targetNode.activeSwipeIndex > targetSwipeIndex
+                ? targetNode.activeSwipeIndex - 1
+                : targetNode.activeSwipeIndex;
+        const selectedSwipe = nextSwipes[nextActiveIndex];
+        const updatedTarget: ChatMessageNode = {
+            ...targetNode,
+            swipes: nextSwipes,
+            swipeIds: nextSwipeIds,
+            activeSwipeIndex: nextActiveIndex,
+            content: typeof selectedSwipe === 'string' ? selectedSwipe : selectedSwipe?.content ?? '',
+            reasoning: typeof selectedSwipe === 'string' ? '' : selectedSwipe?.reasoning ?? '',
+            branchStates: omitKey(targetNode.branchStates),
+            branchBases: omitKey(targetNode.branchBases),
+            storySummaries: omitKey(targetNode.storySummaries),
+            nativePluginReplies: omitKey(targetNode.nativePluginReplies),
+            nativeRouteAnchors: omitKey(targetNode.nativeRouteAnchors),
+            extra: nextExtra,
+        };
+        nextNodes = nodes
+            .filter(node => !removedSet.has(node.id))
+            .map(node => node.id === targetNode!.id ? updatedTarget : node);
+    }
+
+    let fallbackRoute: StoryRoute | undefined;
+    let fallbackLeafId: string | null = currentLeafId;
+    if (affectedActive) {
+        const remainingRoutes = storyRoutes(nextNodes);
+        fallbackRoute = remainingRoutes.find(route => route.path.some(item => item.id === targetNode!.id))
+            ?? remainingRoutes.find(route => route.path.some(item => item.id === targetNode!.parentId))
+            ?? remainingRoutes[0];
+        fallbackLeafId = fallbackRoute
+            ? fallbackRoute.nodeId
+            : nextNodes.find(node => node.id === targetNode!.parentId)?.id
+                ?? nextNodes.find(node => node.floor === 0)?.id
+                ?? nextNodes[0]?.id
+                ?? null;
+    }
+
+    return {
+        nodes: nextNodes,
+        removedNodeIds: [...removedSet],
+        changed: true,
+        affectedActive,
+        fallbackRoute,
+        fallbackLeafId,
+    };
+}
+
 export function branchOptions(nodes: ChatMessageNode[]): Array<{ id: string; label: string; depth: number }> {
     return storyRoutes(nodes).map((route, index) => ({ id: route.key, label: `路线 ${index + 1} · ${route.label}`, depth: route.depth }));
 }

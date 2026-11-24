@@ -9,7 +9,6 @@ export function presetSchemaValues(preset: NormalizedPreset): Record<string, unk
         context_max_tokens: preset.maxContextTokens,
     };
     const settings = Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined).map(([key, value]) => [`sampler.${key}`, value]));
-    if (preset.rawData?.stream_openai !== undefined) settings['api.stream'] = preset.rawData.stream_openai;
     if (preset.rawData?.reasoning_effort !== undefined) settings['sampler.reasoning_effort'] = preset.rawData.reasoning_effort;
     return settings;
 }

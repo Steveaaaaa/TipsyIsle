@@ -29,7 +29,7 @@ import { schemaRegistryStore } from '../registry/schema-registry';
 import { ModelNameInput } from '../registry/ModelNameInput';
 import { compatibilityOrigin, isNativeRuntime } from '../core/native-runtime';
 import { checkAppUpdate } from '../core/app-update';
-import { pickNativeAsset } from '../core/platform-files';
+import { pickNativeAsset, pickNativeWorldbook } from '../core/platform-files';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { cardNeedsAuthorHost, messageNeedsAuthorHost, regexesNeedAuthorHost } from '../compatibility/message-host-requirements';
 import { globalRegexes } from '../store/global-regex-store';
@@ -239,6 +239,8 @@ export function AdaptiveWorkspaceApp() {
     const [savingFreeEdit, setSavingFreeEdit] = useState(false);
     const [storySave, setStorySave] = useState<{ anchor: HTMLElement; mode: 'import' | 'export' }>();
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const worldbookFileInputRef = useRef<HTMLInputElement | null>(null);
+    const stayAfterImportRef = useRef(false);
     const [importing, setImporting] = useState(false);
     const [clearing, setClearing] = useState(false);
     const [switchingCharacter, setSwitchingCharacter] = useState<string | null>(null);
@@ -361,22 +363,43 @@ export function AdaptiveWorkspaceApp() {
         return () => { cancelled = true; };
         }, [workspaceReady, state.activeChatId, syncArchiveRevision, archiveRefresh]);
 
-    const importPickedFile = async (file: File) => {
+    const importPickedFile = async (file: File, options?: { stayInPlace?: boolean }) => {
         setImporting(true);
-        try { setStatusBanner(await importAssetFile(file)); showLibrary(); }
+        try {
+            setStatusBanner(await importAssetFile(file));
+            if (!options?.stayInPlace) showLibrary();
+        }
         catch (err) { reportActionError('导入', err); }
         finally { setImporting(false); }
     };
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         e.target.value = '';
-        if (file) await importPickedFile(file);
+        const stayInPlace = stayAfterImportRef.current;
+        stayAfterImportRef.current = false;
+        if (file) await importPickedFile(file, { stayInPlace });
     };
-    const chooseAssetFile = async () => {
-        if (!isNativeRuntime()) { fileInputRef.current?.click(); return; }
+    const handleWorldbookFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (file) await importPickedFile(file, { stayInPlace: true });
+    };
+    const chooseAssetFile = async (stayInPlace = false) => {
+        if (!isNativeRuntime()) {
+            stayAfterImportRef.current = stayInPlace;
+            fileInputRef.current?.click();
+            return;
+        }
         setImporting(true);
-        try { const file = await pickNativeAsset(); if (file) await importPickedFile(file); }
+        try { const file = await pickNativeAsset(); if (file) await importPickedFile(file, { stayInPlace }); }
         catch (error) { reportActionError('选择文件', error); }
+        finally { setImporting(false); }
+    };
+    const chooseWorldbookFile = async () => {
+        if (!isNativeRuntime()) { worldbookFileInputRef.current?.click(); return; }
+        setImporting(true);
+        try { const file = await pickNativeWorldbook(); if (file) await importPickedFile(file, { stayInPlace: true }); }
+        catch (error) { reportActionError('选择世界书', error); }
         finally { setImporting(false); }
     };
 
@@ -558,6 +581,13 @@ export function AdaptiveWorkspaceApp() {
                         hidden
                         onChange={handleFileUpload}
                     />
+                    <input
+                        ref={worldbookFileInputRef}
+                        type="file"
+                        accept=".json"
+                        hidden
+                        onChange={handleWorldbookFileUpload}
+                    />
                     {shellParts('top')}
                     <button type="button" className="ttm-btn-ghost ttm-home-link" data-guide="home" aria-label="首页" title="返回首页" aria-current={showingHome && !showNightShelf && (!compactLayout || mobileTab === 'chat') ? 'page' : undefined} onClick={showHome}>
                         <Icon name="home" width={18} height={18} /><span>首页</span>
@@ -586,7 +616,7 @@ export function AdaptiveWorkspaceApp() {
                     isFree={isFree} hasStory={hasStory} importing={importing} clearing={clearing} switchingCharacter={switchingCharacter}
                     filters={libraryFilters} deleteSelection={deleteSelection} selectedCards={selectedCards}
                     deletionBlocked={deletionBlocked} assetMenu={assetMenu} openAssetMenu={openAssetMenu} openAsset={openAsset}
-                    onImport={chooseAssetFile} onImportStory={anchor => setStorySave({ anchor, mode: 'import' })} onReplayGuide={replayGuide}
+                    onImport={() => chooseAssetFile(false)} onImportStory={anchor => setStorySave({ anchor, mode: 'import' })} onReplayGuide={replayGuide}
                     onEnterCharacter={enterCharacter} onToggleDeleteSelection={toggleDeleteSelection} onExitDeleteSelection={() => setDeleteSelection(null)}
                     onConfirmDelete={setDeleteAsset} />
                 <NightChatList mobile={compactLayout} visible={showNightShelf} navigation={shelfNavigation}
@@ -615,7 +645,7 @@ export function AdaptiveWorkspaceApp() {
                     {showingNightEmpty ? <div className="ttm-night-blank"><p>{nightChats.length ? '打开一段夜灯会话' : '还没有打开的夜灯会话'}</p></div> : showingHome && <WorkspaceHome skin={skin} hasStory={hasStory} hasCards={state.characters.length > 0}
                         importing={importing} clearing={clearing} generating={generating} onResume={resumeConversation}
                         onShowLibrary={() => { showLibrary(); if (!compactLayout) requestAnimationFrame(() => characterSearchRef.current?.focus()); }}
-                        onImport={chooseAssetFile} onOpenFree={showNightList} onFinishGuide={() => setGuide(null)}
+                        onImport={() => chooseAssetFile(false)} onOpenFree={showNightList} onFinishGuide={() => setGuide(null)}
                         onOpenPersona={setPersonaAnchor} onOpenConnection={() => openSettings('connection')} onReplayGuide={replayGuide} />}
                     <div className="ttm-active-conversation" hidden={showingHome || showingNightEmpty}>
                     <ConversationReading state={state} activeMessages={activeMessages} activeCharacter={activeCharacter} activePreset={activePreset}
@@ -722,8 +752,8 @@ export function AdaptiveWorkspaceApp() {
                 setAssetDialog(null); setLorebookHitsOpen(false);
             }}>
                 {assetDialog.kind === 'presets'
-                    ? <WorkspacePresetPanel state={state} assetMenu={assetMenu} openAssetMenu={openAssetMenu} activePreset={activePreset} importing={importing} onImport={chooseAssetFile} />
-                    : <WorkspaceWorldbookPanel state={state} assetMenu={assetMenu} openAssetMenu={openAssetMenu} activeLorebooks={activeLorebooks} lorebookHitsOpen={lorebookHitsOpen} setLorebookHitsOpen={setLorebookHitsOpen} />}
+                    ? <WorkspacePresetPanel state={state} assetMenu={assetMenu} openAssetMenu={openAssetMenu} activePreset={activePreset} importing={importing} onImport={() => chooseAssetFile(true)} />
+                    : <WorkspaceWorldbookPanel state={state} assetMenu={assetMenu} openAssetMenu={openAssetMenu} activeLorebooks={activeLorebooks} lorebookHitsOpen={lorebookHitsOpen} setLorebookHitsOpen={setLorebookHitsOpen} importing={importing} onImportWorldbook={chooseWorldbookFile} />}
             </AnchoredDialog>}
             {guide === 'tour' && <OnboardingTour hasStory={hasStory} hasCards={state.characters.length > 0} onNavigate={navigateGuide} onFinish={() => setGuide(null)} />}
             <div className="ttm-mobile-nav-shell" aria-hidden={reading && !showingHome && mobileTab === 'chat'} {...(reading && !showingHome && mobileTab === 'chat' ? { inert: '' } : {})}>

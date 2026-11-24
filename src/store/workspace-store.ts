@@ -25,7 +25,7 @@ export { getWorkspaceScriptTrees, getWorkspaceScripts, replaceWorkspaceScriptTre
 export { validateHelperVariableWrite, saveHelperVariables, commitMvuInitialization, commitMvuMessage } from './workspace/story-variables';
 export { commitPromptVariableChanges, commitPromptTask } from './workspace/prompt-commit';
 
-export { captureMessageSnapshot, updateWorldbookTimedEffects, sealBranchPoint, trackBranchExtension, retryStoryFrom, selectChatBranch, getChatBranchStats } from './workspace/branches';
+export { captureMessageSnapshot, updateWorldbookTimedEffects, sealBranchPoint, trackBranchExtension, retryStoryFrom, selectChatBranch, deleteStoryBranch, getChatBranchStats } from './workspace/branches';
 
 export { readNativeChat, listArchivedChats, readHelperChatArchives, importHelperChat, storySaveDuplicate, importStorySave, readStoryForExport, restoreArchivedChat, SYNC_EXTENSIONS, restoreChatExtensions, captureChatContinuation, applyArchivedChat, createChat, selectCharacter, startNewChat, startFreeChat, getFreeChatConnection, updateFreeChat, renameStoryChat, deleteWorkspaceChats } from './workspace/sessions';
 

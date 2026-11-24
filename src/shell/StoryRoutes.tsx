@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnchoredDialog } from './AnchoredDialog';
 import { Icon } from './Icon';
-import { workspaceStore, selectChatBranch, retryStoryFrom, setStatusBanner, restoreArchivedChat } from '../store/workspace-store';
+import { workspaceStore, selectChatBranch, retryStoryFrom, deleteStoryBranch, deleteWorkspaceChats, setStatusBanner, restoreArchivedChat } from '../store/workspace-store';
 import { listChatArchives, loadChatArchive, type ChatArchiveSummary, type ArchivedChat } from '../store/chat-archives';
 import { activePath, branchExcerpt, routesAt, storyRoutes, storyTree, routeKey, swipeId, type StoryRoute, type StoryTreeBranch } from '../store/chat-tree';
 import type { ChatMessageNode } from '../types';
@@ -16,7 +16,15 @@ const latestReply = (path: ChatMessageNode[]) => [...path].reverse().find(node =
 const canReplay = (node: ChatMessageNode) => node.floor > 0 && !!node.branchBases?.[swipeId(node)]?.reply;
 const branchSummary = (branch: StoryTreeBranch) => branch.messages.filter(node => node.role === 'assistant')
     .map(node => messageStorySummary(node)?.text).filter(Boolean).join('；');
+const deletableMessages = (branch: StoryTreeBranch) => branch.messages.filter(node => node.floor > 0);
+const branchDeleteRoot = (branch: StoryTreeBranch) => {
+    const first = deletableMessages(branch)[0];
+    return first ? routeKey(first) : undefined;
+};
 type RouteOwner = { chatId: string; label: string; originalKey?: string };
+type PendingRouteDelete =
+    | { kind: 'branch'; chatId: string; rootKey: string; title: string; floorsText: string; routeCount: number; isCurrent: boolean }
+    | { kind: 'session'; chatId: string; label: string };
 const NODE_WIDTH = 236, NODE_HEIGHT = 154, COLUMN_GAP = 28, LEVEL_GAP = 68, MAP_PADDING = 28;
 function layoutTree(tree: StoryTreeBranch[], collapsed: Set<string>) {
     type Positioned = { branch: StoryTreeBranch; x: number; y: number };
@@ -57,8 +65,9 @@ export function StoryRoutes() {
     const [zoom, setZoom] = useState(1);
     const [mobileView, setMobileView] = useState<'map' | 'detail'>('map');
     const [locate, setLocate] = useState(0);
+    const [pendingDelete, setPendingDelete] = useState<PendingRouteDelete | null>(null);
     const mapRef = useRef<HTMLDivElement>(null);
-    const resetView = () => { setSelectedKey(undefined); setPreviewKey(undefined); setCollapsed(new Set()); setZoom(1); setError(''); setMobileView('map'); };
+    const resetView = () => { setSelectedKey(undefined); setPreviewKey(undefined); setCollapsed(new Set()); setZoom(1); setError(''); setMobileView('map'); setPendingDelete(null); };
     useEffect(() => {
         const open = (event: Event) => {
             const detail = (event as CustomEvent).detail ?? {};
@@ -156,7 +165,64 @@ export function StoryRoutes() {
             setOverviewChats(loaded.filter((chat): chat is ArchivedChat => !!chat)); setArchive(undefined); setOverview(true);
         } catch (error) { setError(String(error)); } finally { setLoading(false); }
     };
-    const select = (key: string) => { setSelectedKey(key); setPreviewKey(undefined); setError(''); setMobileView('detail'); };
+    const select = (key: string) => { setSelectedKey(key); setPreviewKey(undefined); setError(''); setPendingDelete(null); setMobileView('detail'); };
+    const requestBranchDelete = (branch: StoryTreeBranch) => {
+        const rootKey = branchDeleteRoot(branch);
+        const owner = owners.get(branch.routes[0]?.key);
+        const msgs = deletableMessages(branch);
+        if (!rootKey || !owner || !msgs.length) return;
+        const isCurrent = !archive && branch.routes.some(route => route.key === current);
+        setSelectedKey(branch.key);
+        setPreviewKey(undefined);
+        setError('');
+        setPendingDelete({
+            kind: 'branch',
+            chatId: owner.chatId,
+            rootKey,
+            title: branchTitle(branch),
+            floorsText: floors(msgs),
+            routeCount: branch.routes.length,
+            isCurrent,
+        });
+        setMobileView('detail');
+    };
+    const requestSessionDelete = (owner: RouteOwner) => {
+        setError('');
+        setPendingDelete({ kind: 'session', chatId: owner.chatId, label: owner.label });
+        setMobileView('detail');
+    };
+    const confirmPendingDelete = async () => {
+        if (!pendingDelete) return;
+        setLoading(true); setError('');
+        try {
+            if (pendingDelete.kind === 'branch') {
+                const res = await deleteStoryBranch(pendingDelete.rootKey, { chatId: pendingDelete.chatId });
+                if (res.updatedArchive) {
+                    if (archive?.id === pendingDelete.chatId) setArchive(res.updatedArchive);
+                    if (overview) setOverviewChats(previous => previous.map(item => item.id === pendingDelete.chatId ? res.updatedArchive! : item));
+                }
+                const latestArchives = await listChatArchives();
+                setArchives(latestArchives.filter(item => item.characterId === state.activeCharacterId && item.id !== state.activeChatId));
+                setPendingDelete(null);
+                setSelectedKey(undefined);
+                setPreviewKey(undefined);
+                setStatusBanner(res.switchedRoute ? '已删除所选路线，并切换到其他可用路线。' : '已删除所选路线。', { kind: 'success' });
+            } else {
+                await deleteWorkspaceChats([pendingDelete.chatId], 'character');
+                setArchives(previous => previous.filter(item => item.id !== pendingDelete.chatId));
+                setOverviewChats(previous => previous.filter(item => item.id !== pendingDelete.chatId));
+                if (archive?.id === pendingDelete.chatId) setArchive(undefined);
+                setPendingDelete(null);
+                setSelectedKey(undefined);
+                setPreviewKey(undefined);
+                setStatusBanner(`已删除会话「${pendingDelete.label}」。`, { kind: 'success' });
+            }
+        } catch (failure) {
+            setError(failure instanceof Error ? failure.message : String(failure));
+        } finally {
+            setLoading(false);
+        }
+    };
     const locateCurrent = () => {
         const branch = flat.find(item => item.endpoint?.key === current);
         if (branch) { setSelectedKey(branch.key); setPreviewKey(undefined); }
@@ -201,6 +267,7 @@ export function StoryRoutes() {
                                             <strong>{branchTitle(branch)}</strong><span className="ttm-map-node-excerpt" title={excerpt}>{excerpt}</span>
                                             <span className="ttm-map-node-foot">{branch.children.length > 1 ? `${branch.routes.length} 条后续路线` : branch.endpoint ? '故事停在这里' : `${branch.messages.length} 层连续剧情`}<Icon name={branch.children.length > 1 ? 'branch' : 'arrow'} width={15} height={15} /></span>
                                         </button>
+                                        {branchDeleteRoot(branch) && <button type="button" className="ttm-map-delete" disabled={busy} aria-label={`删除 ${branchTitle(branch)}`} title="删除此路线" onClick={event => { event.stopPropagation(); requestBranchDelete(branch); }}><Icon name="trash" width={14} height={14} /></button>}
                                         {!!branch.children.length && <button type="button" className="ttm-map-fold" aria-label={`${collapsed.has(branch.key) ? '展开' : '收起'}${floors(branch.messages)}的后续`} aria-expanded={!collapsed.has(branch.key)} onClick={() => toggle(branch.key)}><Icon name="chevron" width={13} height={13} style={{ transform: collapsed.has(branch.key) ? 'none' : 'rotate(90deg)' }} /></button>}
                                     </div>;
                                 })}
@@ -222,8 +289,42 @@ export function StoryRoutes() {
                             const at = route.path.findIndex(node => routeKey(node) === routeKey(selected.messages.at(-1)!));
                             const summaryNode = route.path.slice(at + 1).find(node => node.role === 'assistant' && messageStorySummary(node)) ?? end;
                             const title = messageStorySummary(summaryNode)?.text || '暂无剧情摘要';
-                            return <div className="ttm-route-destination" key={route.key}><div><span>路线 {routes.findIndex(item => item.key === route.key) + 1}{isCurrent ? ' · 当前路线' : ''} · 已到第 {route.depth - 1} 楼</span><p>{title}</p></div><button type="button" className={isCurrent ? 'ttm-btn-secondary' : 'ttm-btn-primary'} disabled={busy || isCurrent} onClick={() => continueRoute(route)}>{isCurrent ? <><Icon name="check" width={16} height={16} />正在游玩</> : <>继续这条路线<Icon name="arrow" width={16} height={16} /></>}</button></div>;
+                            const leafBranch = flat.find(item => item.endpoint?.key === route.key);
+                            const leafDeletable = leafBranch && branchDeleteRoot(leafBranch) ? leafBranch : undefined;
+                            return <div className="ttm-route-destination" key={route.key}><div><span>路线 {routes.findIndex(item => item.key === route.key) + 1}{isCurrent ? ' · 当前路线' : ''} · 已到第 {route.depth - 1} 楼</span><p>{title}</p></div><div className="ttm-route-destination-actions"><button type="button" className={isCurrent ? 'ttm-btn-secondary' : 'ttm-btn-primary'} disabled={busy || isCurrent} onClick={() => continueRoute(route)}>{isCurrent ? <><Icon name="check" width={16} height={16} />正在游玩</> : <>继续这条路线<Icon name="arrow" width={16} height={16} /></>}</button>{leafDeletable && <button type="button" className="ttm-btn-secondary ttm-route-destination-delete" disabled={busy} aria-label={`删除路线 ${routes.findIndex(item => item.key === route.key) + 1}`} title="删除这条路线" onClick={() => requestBranchDelete(leafDeletable)}><Icon name="trash" width={15} height={15} /></button>}</div></div>;
                         })}</div>
+                        {(pendingDelete || branchDeleteRoot(selected) || (selectedOwner && !selectedIsCurrentChat)) && (
+                            <div className="ttm-route-delete">
+                                {pendingDelete ? (
+                                    <div className="ttm-route-delete-confirm" role="region" aria-label="确认删除">
+                                        {pendingDelete.kind === 'branch' ? (
+                                            <p>
+                                                确定删除「{pendingDelete.title}」（{pendingDelete.floorsText}
+                                                {pendingDelete.routeCount > 1 ? `，含 ${pendingDelete.routeCount} 条后续路线` : ''}）？此操作无法撤销。
+                                                {pendingDelete.isCurrent && ' 删除当前正在游玩的路线后，将自动切换到其他可用路线或回到开场。'}
+                                            </p>
+                                        ) : (
+                                            <p>确定永久删除已保存会话「{pendingDelete.label}」及其全部路线？此操作无法撤销。</p>
+                                        )}
+                                        <div className="ttm-route-delete-confirm-actions">
+                                            <button type="button" className="ttm-btn-secondary" disabled={busy} onClick={() => setPendingDelete(null)}>取消</button>
+                                            <button type="button" className="ttm-btn-primary ttm-route-delete-confirm-btn" disabled={busy} onClick={() => void confirmPendingDelete()}>
+                                                {loading ? '正在删除…' : '确认删除'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : branchDeleteRoot(selected) ? (
+                                    <button type="button" className="ttm-btn-secondary ttm-route-delete-trigger" disabled={busy} onClick={() => requestBranchDelete(selected)}>
+                                        <Icon name="trash" width={15} height={15} />
+                                        {selected.routes.length > 1 ? `删除此分支（含 ${selected.routes.length} 条路线）` : '删除这条路线'}
+                                    </button>
+                                ) : selectedOwner && !selectedIsCurrentChat ? (
+                                    <button type="button" className="ttm-btn-secondary ttm-route-delete-trigger" disabled={busy} onClick={() => requestSessionDelete(selectedOwner)}>
+                                        <Icon name="trash" width={15} height={15} />删除此已保存会话
+                                    </button>
+                                ) : null}
+                            </div>
+                        )}
                     </div>
                     <div className="ttm-route-preview-note">预览不会改变进度，继续或重新选择时才会切换。</div>
                 </aside>}

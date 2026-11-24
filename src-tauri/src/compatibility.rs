@@ -64,10 +64,11 @@ pub fn start<R: Runtime>(app: AppHandle<R>) -> Result<CompatibilityHost, Box<dyn
                 }
                 if let Some(asset) = app.asset_resolver().get(path.to_owned()) {
                     let data = if request.method() == &Method::Head { Vec::new() } else { asset.bytes };
+                    let cache_control = if path == "/compat.html" { "no-store" } else { "no-cache" };
                     let mut response = Response::from_data(data);
                     for (name, value) in [("Content-Type", asset.mime_type.as_str()),
                         ("Content-Security-Policy", CSP), ("X-Content-Type-Options", "nosniff"),
-                        ("Referrer-Policy", "no-referrer"), ("Cache-Control", "no-cache")] {
+                        ("Referrer-Policy", "no-referrer"), ("Cache-Control", cache_control)] {
                         response.add_header(Header::from_bytes(name, value).unwrap());
                     }
                     let _ = request.respond(response);

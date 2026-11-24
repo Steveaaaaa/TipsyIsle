@@ -144,7 +144,7 @@ export async function requestAsset(method: string, params: Record<string, any>):
         const input = params.value ?? defaultHelperPreset;
         const next = fromHelperPreset({ ...input, settings: { ...(name === 'in_use' ? assetCatalog().inUsePreset.settings : previous ? toHelperPreset(previous).settings : {}), ...input.settings } }, previous?.name ?? name, previous);
         writeHelperPreset(next, previous?.id, name === 'in_use');
-        if (name === 'in_use' || !state.inUsePreset && state.activePresetId === next.id) applyPresetSettings(next);
+        if (name === 'in_use' || !state.inUsePreset && state.activePresetId === next.id) applyPresetSettings(next, input.settings?.should_stream);
         await persistWorkspaceNow(); worldbooksChanged();
         return operation === 'replace' ? undefined : !previous;
     }

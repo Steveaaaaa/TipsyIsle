@@ -7,9 +7,11 @@ export interface BrowserEntry {
     group?: string; groupId?: string; keywords?: string; dirty?: boolean;
 }
 
-export function EntryBrowser({ entries, label, storageKey, scope = '', filters, renderDetail }: {
+export function EntryBrowser({ entries, label, storageKey, scope = '', filters, renderDetail, onToggleEnabled, toggleDisabled }: {
     entries: BrowserEntry[]; label: string; storageKey: string; scope?: string;
     filters?: ReactNode; renderDetail: (entry: BrowserEntry) => ReactNode;
+    onToggleEnabled?: (entry: BrowserEntry, enabled: boolean) => void;
+    toggleDisabled?: boolean;
 }) {
     const [search, setSearch] = useState('');
     const [includeContent, setIncludeContent] = useState(false);
@@ -100,6 +102,23 @@ export function EntryBrowser({ entries, label, storageKey, scope = '', filters, 
                                 {offset >= 0 && <span className="ttm-entry-match">…{entry.content.slice(Math.max(0, offset - 12), offset + 42)}…</span>}
                             </button>
                             <button type="button" className="ttm-entry-favorite ttm-icon-btn" aria-label={`${favorites.has(entry.id) ? '取消收藏' : '收藏'} ${entry.name}`} aria-pressed={favorites.has(entry.id)} onClick={() => toggleFavorite(entry)}><Icon name="bookmark" width={16} height={16} fill={favorites.has(entry.id) ? 'currentColor' : 'none'} /></button>
+                            {onToggleEnabled && (
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={entry.enabled}
+                                    disabled={toggleDisabled}
+                                    className={`ttm-switch ttm-entry-toggle ${entry.enabled ? 'is-on' : ''}`}
+                                    aria-label={`${entry.enabled ? '关闭' : '启用'} ${entry.name}`}
+                                    title={entry.enabled ? '点击关闭' : '点击启用'}
+                                    onClick={event => {
+                                        event.stopPropagation();
+                                        onToggleEnabled(entry, !entry.enabled);
+                                    }}
+                                >
+                                    <span className="ttm-switch-thumb" />
+                                </button>
+                            )}
                         </div>;
                     })}
                     {!matches.length && <div className="ttm-entry-empty"><p>{entries.length ? '没有符合条件的选项' : '暂无可查看的选项'}</p>{entries.length > 0 && <button type="button" className="ttm-mini-btn" onClick={() => { setSearch(''); setFilter('all'); }}>清除搜索与状态筛选</button>}</div>}

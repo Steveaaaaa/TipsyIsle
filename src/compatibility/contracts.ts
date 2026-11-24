@@ -38,7 +38,7 @@ export interface CompatSnapshot {
     scriptTrees: import('./script-trees').ScriptTrees;
     personas: import('../types').UserPersona[];
     activePersonaId: string | null;
-    proxyPresetNames: string[];
+    proxyPresets: Array<{ name: string; model: string }>;
 }
 export interface CompatSnapshotDelta {
     branchEpoch?: number;
@@ -70,7 +70,7 @@ export interface CompatSnapshotDelta {
     scriptTrees?: CompatSnapshot['scriptTrees'];
     personas?: CompatSnapshot['personas'];
     activePersonaId: string | null;
-    proxyPresetNames: string[];
+    proxyPresets: CompatSnapshot['proxyPresets'];
 }
 export interface RuntimeDiagnostic { scriptId: string; name: string; message: string; level: 'error' | 'warning' }
 export interface PromptInjection { id: string; role: 'system' | 'user' | 'assistant'; content: string; position?: 'in_chat' | 'none' | 'in_prompt' | 'before_prompt'; depth?: number; should_scan?: boolean }

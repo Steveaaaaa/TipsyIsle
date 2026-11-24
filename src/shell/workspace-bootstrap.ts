@@ -7,6 +7,7 @@ import { hydrateVariablesFromPlatform } from '../store/scoped-variable-store';
 import { hydrateThemeFromPlatform } from '../theme/theme-engine';
 import { hydrateAppearance } from '../theme/appearance-store';
 import { initializeNativePlugins } from '../plugins/native/catalog';
+import { loadConnections } from '../plugins/native/connections';
 import { observeNativeRoutes } from '../plugins/native/host';
 import { initializeStoryChanges } from '../plugins/native/events';
 import { registeredSnapshots, suspendRegisteredPersistence } from '../store/persistence';
@@ -25,6 +26,7 @@ export function initializeWorkspace(): Promise<void> {
         await hydrateThemeFromPlatform();
         await hydrateAppearance();
         await hydrateStorySettings();
+        await loadConnections().catch(() => {});
         const finish = suspendRegisteredPersistence();
         try {
             stage = '恢复会话与变量';

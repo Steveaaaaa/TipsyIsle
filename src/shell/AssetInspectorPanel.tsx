@@ -139,6 +139,8 @@ export function PresetEntriesPanel({ preset, disabled, onUpdatePrompt }: PresetE
     };
     return <EntryBrowser label="预设词条" storageKey={`tipsy-entry-favorites:preset:${preset.id}`}
         entries={prompts.map(prompt => ({ id: prompt.identifier, name: prompt.name || prompt.identifier, content: prompt.content, enabled: prompt.enabled !== false, dirty: drafts.has(prompt.identifier) && drafts.get(prompt.identifier) !== prompt.content }))}
+        toggleDisabled={disabled}
+        onToggleEnabled={(entry, enabled) => { onUpdatePrompt(entry.id, { enabled }); setFeedback(''); }}
         renderDetail={entry => {
             const prompt = prompts.find(item => item.identifier === entry.id)!;
             const content = drafts.get(entry.id) ?? prompt.content;
