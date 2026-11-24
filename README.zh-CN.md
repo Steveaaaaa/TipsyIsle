@@ -12,13 +12,13 @@
 
 **好看的界面是相遇的开始。值得留下的，是故事、自由，以及能一起生长的社区。**
 
-**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.5 更新日志](docs/releases/v1.1.5.md) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
+**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.6 更新日志](docs/releases/v1.1.6.md) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
 
-## 1.1.5 新变化
+## 1.1.6 新变化
 
-- **大型复杂卡流畅启动，告别闪退与触控失灵。** 大幅削减角色卡与世界书冗余内存占用，改为零 AST 透传与逐条加载并在启动时自动瘦身旧库；修复切卡残留及透明浮层/`canvas`/隐藏框架导致的移动端误锁屏。
-- **空占位槽卡片支持实时流式与完整楼层渲染。** 修正 `<content>` 空占位正则吞字、同层 HTML/脚本误吞占位槽与 `.mes_text` 兜底边距缺失问题，并包含 1.1.4 的删楼保存与多模型连接、多世界书绑定及阅读排版调节。
-- **酒馆生态兼容持续加深。** 补齐 `/api/worldinfo/*` 等兼容接口、提示词后处理模式以及 Gemini/Claude 原厂协议转换优化。
+- **AVS 独立 API 可读取模型。** 选择代理预设后自动带出已保存的模型，也能查询该连接的可用模型列表。
+- **切换预设不再重置修改。** 已保存的条目正文、启用状态和流式输出设置都会保留。
+- **世界书和故事路线更好管理。** 可直接打开生效世界书的词条，删除路线、分支或已保存会话前会提示影响范围。
 
 ## 为什么值得换
 
