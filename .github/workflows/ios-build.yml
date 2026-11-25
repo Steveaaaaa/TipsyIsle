@@ -50,6 +50,11 @@ jobs:
         env:
           APPLE_DEVELOPMENT_TEAM: ${{ env.SIGNED == 'true' && vars.APPLE_DEVELOPMENT_TEAM || '' }}
         run: |
+          if [[ "$SIGNED" == true ]]; then
+            : "${APPLE_DEVELOPMENT_TEAM:?Set the APPLE_DEVELOPMENT_TEAM repository variable}"
+          else
+            unset APPLE_DEVELOPMENT_TEAM
+          fi
           npm run tauri -- ios init --ci --skip-targets-install
           cp src-tauri/icons/ios/*.png src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/
 
