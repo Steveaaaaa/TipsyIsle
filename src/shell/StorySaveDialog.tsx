@@ -30,6 +30,7 @@ export function StorySaveDialog({ anchor, mode, onClose, onOpened, onExported, s
     const [characterId, setCharacterId] = useState('');
     const [duplicate, setDuplicate] = useState(false);
     const [exportId, setExportId] = useState(startId);
+    const [includePlugins,setIncludePlugins]=useState(true);
     const [preview, setPreview] = useState<Preview>();
     const [busy, setBusy] = useState<'reading' | 'saving' | 'card' | ''>('');
     const [error, setError] = useState('');
@@ -105,7 +106,7 @@ export function StorySaveDialog({ anchor, mode, onClose, onOpened, onExported, s
         setBusy('saving'); setError('');
         try {
             const latest = await readStoryForExport(exportId);
-            const { blob, name } = await makeStorySave(latest.chat, latest.character);
+            const { blob, name } = await makeStorySave(latest.chat, latest.character,includePlugins);
             if (await saveExport(blob, name)) onExported();
         } catch (failure) { setError(errorText(failure)); }
         finally { setBusy(''); }
@@ -154,6 +155,7 @@ export function StorySaveDialog({ anchor, mode, onClose, onOpened, onExported, s
                 </>}
             </> : <div className="ttm-story-save-target">
                 <label htmlFor="story-save-session">选择会话</label>
+                <label><input type="checkbox" checked={includePlugins} disabled={!!busy} onChange={event=>setIncludePlugins(event.target.checked)}/>包含插件插图与路线手记</label>
                 <select id="story-save-session" className="ttm-select-input" value={exportId} disabled={!!busy} onChange={event => { setError(''); setExportId(event.target.value); }}>
                     <option value="">选择要导出的会话</option>
                     {sessions.map(session => <option key={session.id} value={session.id}>{session.label}</option>)}

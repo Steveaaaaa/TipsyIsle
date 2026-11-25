@@ -1,12 +1,14 @@
 import { satisfies, valid, validRange } from 'semver';
 
 const utf8 = new TextEncoder();
-export const hostApi = '1.1.0';
+export const hostApi = '1.2.0';
 export function supportedHostApi(manifest) {
     const enhanced = (manifest.pipeline?.length || manifest.macros?.length || manifest.tools?.length || manifest.provides?.length || manifest.consumes?.length || manifest.origins?.length
         || manifest.events?.includes('story.changed') || manifest.commands?.some(command => command.surface || command.location === 'workspace')
         || manifest.permissions.some(permission => !['story.read', 'story.events', 'storage.device', 'storage.route', 'storage.reply', 'ui.panel', 'composer.draft', 'generation.contribute', 'resources.read'].includes(permission)));
-    if (!enhanced && satisfies('1.0.0', manifest.hostApi)) return '1.0.0';
+    const director = manifest.permissions.some(permission => ['jobs.run', 'ui.export', 'ui.stage'].includes(permission)) || manifest.events?.includes('story.replyCheckpoint');
+    if (!director && !enhanced && satisfies('1.0.0', manifest.hostApi)) return '1.0.0';
+    if (!director && satisfies('1.1.0', manifest.hostApi)) return '1.1.0';
     return satisfies(hostApi, manifest.hostApi) ? hostApi : null;
 }
 export const guestExports = '__tipsy_plugin_exports__';

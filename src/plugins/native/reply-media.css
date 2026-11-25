@@ -1,0 +1,281 @@
+.ti-darkroom {
+    position: relative;
+    isolation: isolate;
+    margin: 0.65em 0;
+    overflow: hidden;
+    background-color: #25221f;
+    color: #faf6e9;
+    border-radius: var(--ti-radius, 10px);
+    font: 500 0.85rem/1.35 system-ui, sans-serif;
+    box-shadow: 0 8px 26px -12px rgba(0, 0, 0, 0.45);
+}
+
+.ti-darkroom img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0;
+    filter: blur(8px);
+    transform: scale(1.015);
+    transition: opacity 0.42s ease-out, filter 0.42s ease-out, transform 0.42s ease-out;
+}
+
+.ti-darkroom img.is-loaded {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1);
+}
+
+.ti-darkroom-shimmer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+        110deg,
+        transparent 20%,
+        rgba(239, 199, 128, 0.14) 48%,
+        transparent 76%
+    );
+    background-size: 220% 100%;
+    animation: ti-darkroom-shimmer 2.1s ease-in-out infinite;
+}
+
+@keyframes ti-darkroom-shimmer {
+    0% {
+        background-position: 180% 0;
+    }
+    100% {
+        background-position: -80% 0;
+    }
+}
+
+.ti-darkroom figcaption {
+    position: absolute;
+    left: 0.6rem;
+    bottom: 0.55rem;
+    max-width: calc(100% - 1.2rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    background: rgba(28, 24, 20, 0.84);
+    color: #fff9e8;
+    padding: 0.24em 0.6em;
+    border-radius: 0.35em;
+    backdrop-filter: blur(6px);
+    z-index: 1;
+}
+
+.ti-darkroom figcaption.is-developing {
+    border: 1px solid rgba(239, 199, 128, 0.4);
+    color: #f4d69c;
+}
+
+.ti-film-tools {
+    position: absolute;
+    right: 0.5em;
+    top: 0.5em;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.2em;
+    padding: 0.22em 0.3em;
+    background: rgba(24, 21, 18, 0.86);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.55em;
+    backdrop-filter: blur(8px);
+    z-index: 2;
+}
+
+.ti-film-tools button,
+.ti-margin-tab button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    padding: 0 0.45em;
+    min-height: 30px;
+    border-radius: 0.35em;
+    cursor: pointer;
+}
+
+.ti-film-tools button:hover,
+.ti-film-tools button:focus-visible {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.ti-film-tools button:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.ti-film-tools span {
+    font-variant-numeric: tabular-nums;
+    padding: 0 0.25em;
+}
+
+.ti-margin-tab {
+    position: relative;
+    height: 0;
+    z-index: 3;
+    text-align: end;
+}
+
+.ti-margin-tab button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    max-width: 14rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 0.15em 0.6em;
+    min-height: 26px;
+    font-size: 0.78rem;
+    background: linear-gradient(135deg, #f3cf8d, #dda858);
+    color: #35250f;
+    border-radius: 0.4em;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+}
+
+.ti-margin-preview {
+    position: absolute;
+    right: 0;
+    top: 30px;
+    width: 210px;
+    padding: 6px;
+    border-radius: 8px;
+    background: rgba(24, 21, 18, 0.94);
+    color: #faf6e9;
+    border: 1px solid rgba(239, 199, 128, 0.3);
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.48);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    text-align: start;
+}
+
+.ti-margin-preview img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 150px;
+    object-fit: cover;
+    border-radius: 5px;
+}
+
+.ti-margin-preview span {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.74rem;
+    opacity: 0.88;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ti-margin-tab:hover .ti-margin-preview,
+.ti-margin-tab:focus-within .ti-margin-preview {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.ti-margin-fault {
+    display: block;
+    font-size: 0.75rem;
+    color: #ffb4a2;
+}
+
+.ti-polaroid {
+    max-width: 22rem;
+    border: 6px solid #f4eee1;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+
+.ti-stage-sticky {
+    position: sticky;
+    top: 0;
+    height: 0;
+    width: 100%;
+    overflow: visible;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.ti-stage-light {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 100%;
+    pointer-events: none;
+    background-position: center;
+    background-size: cover;
+    z-index: 0;
+    transition: opacity 0.65s ease, background-color 0.65s ease;
+    will-change: opacity;
+}
+
+.ttm-msg-card {
+    position: relative;
+    z-index: 1;
+}
+
+.ti-inline-media-slot:empty {
+    display: none;
+}
+
+.ti-compat-films {
+    position: absolute;
+    overflow: hidden;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.ti-compat-films > div:not(.ti-stage-light) {
+    position: absolute;
+    pointer-events: auto;
+}
+
+.ti-compat-films .ti-darkroom {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+.ti-darkroom[aria-busy="true"]:after {
+    content: '';
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    border: 1.5px solid rgba(239, 199, 128, 0.45);
+    border-radius: inherit;
+}
+
+@media (hover: hover) {
+    .ti-darkroom:not(:hover):not(:focus-within) .ti-film-tools {
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .ti-film-tools {
+        transition: opacity 0.16s ease-out;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ti-darkroom-shimmer {
+        animation: none;
+    }
+    .ti-darkroom img,
+    .ti-stage-light,
+    .ti-margin-preview {
+        transition: none;
+    }
+}

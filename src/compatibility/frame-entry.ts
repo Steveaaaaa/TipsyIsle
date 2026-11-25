@@ -41,6 +41,7 @@ import { normalizeScriptTrees, scriptsFromTrees, type ScriptScope } from './scri
 import type { CompatibilityLoadReport } from './contracts';
 import { formatTemplateMarkdown } from '../pipeline/template-formatting';
 import { renderMessageMarkdown, renderMixedMessage } from '../pipeline/message-markdown';
+import { filmGeometry } from './media-geometry';
 import { normalizeRegexScripts } from '../pipeline/normalizer';
 import { createAudioRuntime } from './audio-runtime';
 import { executeSlashPipeline, type SlashExecutionOptions } from '../sandbox/slash-core';
@@ -304,6 +305,7 @@ function registerVariableSchema(value: z.ZodType<any>, options: { type: string }
     variableSchemas.set(options.type, { schema: value, owner });
 }
 const rows = new Map<string, { element: HTMLElement; content: string; swipe: number; incomplete: boolean; identity: string; avatar?: string }>();
+const films=filmGeometry(id=>rows.get(id)?.element,(rects,visible)=>{if(snapshot)outer.postMessage({kind:'compat:film-position',session:snapshot.session,rects,visible},'*');});
 let showMessages = new URLSearchParams(location.search).get('view') !== 'worker';
 let readingReplyId: string | undefined;
 let readingFrame = 0;
@@ -2190,6 +2192,8 @@ function createChild(html: string, floor?: number, script?: CardScript, componen
     frame.addEventListener('load', () => {
         if (!frame.getAttribute('srcdoc')) return;
         loadedMessageFrames.add(frame);
+        films.sync();
+        requestAnimationFrame(() => films.sync());
         scheduleReadingPosition();
         if (readingPresentation && frame.contentDocument) applyReadingPresentation(readingPresentation, frame.contentDocument);
         if (!script) void emit(iframeEvents.MESSAGE_IFRAME_RENDER_ENDED, frame.id).catch(error => diagnostic('前端界面渲染完成', error));
@@ -2319,6 +2323,7 @@ function publishFrameSize(id: string, height: number) {
         const restore = first.getBoundingClientRect().top < 0 ? preserveReadingAnchor(first) : undefined;
         for (const [item, value] of changed) setFrameHeight(item, value, 80);
         restore?.();
+        films.schedule();
         scheduleReadingPosition();
     });
 }
@@ -2488,6 +2493,7 @@ function renderMessages(previous?: CompatSnapshot) {
         else root.insertBefore(element, cursor);
     }
     restoreAnchors.forEach(restore => restore());
+    films.sync();
     restoreReadingPosition();
     scheduleReadingPosition();
 }
@@ -2711,6 +2717,8 @@ window.addEventListener('message', event => {
     if (event.source !== outer || !event.data) return;
     const data = event.data;
     if (data.kind === 'compat:popup-focus' && data.session === snapshot?.session) { focusPopup(); return; }
+    if(data.kind==='compat:film-spaces' && data.session===snapshot?.session && Array.isArray(data.spaces)){films.sync(data.spaces);return;}
+    if(data.kind==='compat:presentation'&&data.session===snapshot?.session&&'stageTint' in data){if(typeof data.stageTint==='string'&&/^#[0-9a-f]{6}$/i.test(data.stageTint))document.documentElement.style.setProperty('--ti-stage-tint',data.stageTint);else document.documentElement.style.removeProperty('--ti-stage-tint');return;}
     if (data.kind === 'compat:reading-target' && data.session === snapshot?.session) {
         readingReplyId = typeof data.replyId === 'string' ? data.replyId : undefined;
         lastReadingPosition = ''; scheduleReadingPosition(); return;

@@ -7,6 +7,8 @@ import { renderMessageMarkdown, renderMixedMessage } from '../pipeline/message-m
 import { getMessageStreamPreview, getMessageComponentTargets } from '../store/workspace-store';
 import { StreamingMessage } from './StreamingMessage';
 import { SandboxFrame } from '../sandbox/SandboxFrame';
+import { InlineMedia, StageLight } from '../plugins/native/ReplyMediaSlot';
+import { resolveActiveStage } from '../plugins/native/reply-media';
 import { SlotMount } from '../plugins/slot-registry';
 import { PluginButtons } from '../plugins/native/PluginCommands';
 import { Icon } from './Icon';
@@ -306,9 +308,19 @@ export function VirtualChatStream({
                 setScrollTop(el.scrollTop);
             }}
         >
+            {messages.length > 0 && (
+                <div className="ti-stage-sticky" aria-hidden="true">
+                    <StageLight
+                        height={viewportHeight || '100vh'}
+                        slot={resolveActiveStage(
+                            messages,
+                            Math.max(0, (offsets.findIndex((offset) => offset > scrollTop + viewportHeight * 0.35) + 1 || messages.length + 1) - 2),
+                        )}
+                    />
+                </div>
+            )}
             {introduction && <div ref={introductionRef} className="ttm-stream-introduction">{introduction}</div>}
             { topPadding > 0 && <div style={{ height: `${topPadding}px`, flexShrink: 0 }} aria-hidden="true" /> }
-
             {visibleSlice.map((node) => {
                 const speakerName = node.role === 'user' ? userName : node.role === 'assistant' ? storySpeakerName(node.speakerName, characterName) : node.speakerName;
                 const formatted = renderFormattedContent(node);
@@ -354,6 +366,7 @@ export function VirtualChatStream({
                                         key={`${node.id}_${branchEpoch}_sbx_${idx}`}
                                         htmlContent={block.type === 'mixed' ? renderMixedMessage(block.content) : block.content}
                                         componentTargets={getMessageComponentTargets(node)}
+                                        messageNode={node}
                                         messageId={node.id}
                                         floor={node.floor}
                                         characterId={characterId}
@@ -368,6 +381,7 @@ export function VirtualChatStream({
                                         onReadingActivity={handleReadingActivity}
                                     />
                                 ))}
+                                {!freeChat&&<InlineMedia node={node} source={formatted}/>}
                             </div>
 
                         {!freeChat && <footer className="ttm-msg-footer">

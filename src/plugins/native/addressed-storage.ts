@@ -8,14 +8,37 @@ import { routeSchema, refSchema, sliceInt, missing, conflict } from './edits';
 import type { PluginPackage } from './package';
 import { readChat, resolveRoute } from './story-data';
 import { applyPluginPatch } from './storage';
-import { messageRef, sameMessageRef } from './story-port';
+import { liveStory, messageRef, nativeStoryBusy, sameMessageRef, watchStory } from './story-port';
 import { PluginApiError } from './errors';
 import { editStory } from './transactions';
 
 const target = { route: routeSchema, reply: refSchema.optional() };
 const readTarget = z.strictObject(target);
 const patchTarget = z.strictObject({ ...target, expectedVersion: sliceInt, patch: z.unknown() });
-export async function addressedStorage(pkg: PluginPackage, method: 'readAt' | 'patchAt', args: unknown, permit: (p: Permission) => void, check: () => void, signal: AbortSignal) {
+
+function waitForStoryStorage(chatId: string, signal: AbortSignal): Promise<void> {
+    const busy = () => nativeStoryBusy() && liveStory().ref?.chatId === chatId;
+    signal.throwIfAborted();
+    if (!busy()) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        const events = globalThis.window;
+        const cleanup = () => {
+            unwatch();
+            signal.removeEventListener('abort', abort);
+            events?.removeEventListener('tipsy-branch-operations-idle', ready);
+            events?.removeEventListener('tipsy-sync-runtime-ready', ready);
+        };
+        const abort = () => { cleanup(); reject(signal.reason); };
+        const ready = () => { if (!busy()) { cleanup(); resolve(); } };
+        const unwatch = watchStory(ready);
+        signal.addEventListener('abort', abort, { once: true });
+        events?.addEventListener('tipsy-branch-operations-idle', ready);
+        events?.addEventListener('tipsy-sync-runtime-ready', ready);
+        ready();
+    });
+}
+
+export async function addressedStorage(pkg: PluginPackage, method: 'readAt' | 'patchAt', args: unknown, permit: (p: Permission) => void, check: () => void, signal: AbortSignal, waitForIdle = false) {
     const patchInput = method === 'patchAt' ? patchTarget.parse(args) : undefined;
     const input = patchInput ?? readTarget.parse(args);
     const scope = input.reply ? 'reply' : 'route';
@@ -39,7 +62,7 @@ export async function addressedStorage(pkg: PluginPackage, method: 'readAt' | 'p
         return { version: before.version, values: before.values };
     }
     const { expectedVersion, patch } = patchInput;
-    return enqueuePersistentOperation(() => editStory(input.route, { check }, async chat => {
+    const buildPatch = async (chat: ArchivedChat) => {
         const { loaded, node, key, before } = await open(chat);
         const after = await applyPluginPatch(before, patch, crypto.randomUUID());
         if (after === before) return { chat, activate: false, extras: {}, result: { version: before.version, values: before.values }, pluginOnly: true };
@@ -65,5 +88,18 @@ export async function addressedStorage(pkg: PluginPackage, method: 'readAt' | 'p
         }
         return { chat: { ...chat, continuation, messages: chat.messages.map(row => row.id === source.id ? next : row) },
             activate: loaded.active && scope === 'route', extras: {}, result, pluginOnly: true };
-    }));
+    };
+    for (;;) {
+        try {
+            return await enqueuePersistentOperation(() => {
+                signal.throwIfAborted();
+                check();
+                return editStory(input.route, { check }, buildPatch);
+            });
+        }
+        catch (error) {
+            if (!waitForIdle || !(error instanceof PluginApiError) || error.code !== 'STORY_BUSY') throw error;
+            await waitForStoryStorage(input.route.chatId, signal);
+        }
+    }
 }

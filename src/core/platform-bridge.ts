@@ -1,6 +1,7 @@
 import { platformFetch } from './native-runtime';
 import { diagnosticErrorKind, diagnosticOperation, diagnosticTransport } from './diagnostics';
 import { geminiReplyAdapter, requestGeminiCompletion } from './gemini-completion';
+import { claudeReplyAdapter, requestClaudeCompletion } from './claude-completion';
 import { isGeminiSource } from './gemini-endpoint';
 import { encodeSnapshots, decodeSnapshot, usesImmutableStorySnapshot } from './snapshot-codec';
 import { copySyncState, SYNC_KEY, type SyncState } from './sync/protocol';
@@ -115,16 +116,17 @@ export async function streamLlmCompletion(req: StreamCompletionRequest): Promise
         const flavor = await detectRuntimeFlavor();
         detail = diagnosticTransport(flavor, req.baseUrl);
         const nativeGemini = flavor === 'tauri-native' && !req.provider && isGeminiSource(req.source);
-        if (flavor !== 'local-gateway' && !nativeGemini && (req.provider || isGeminiSource(req.source) || ['claude', 'anthropic', 'vertexai', 'openai-responses'].includes(req.source))) {
+        const nativeClaude=flavor==='tauri-native'&&!req.provider&&['claude','anthropic'].includes(req.source);
+        if (flavor !== 'local-gateway' && !nativeGemini && !nativeClaude && (req.provider || isGeminiSource(req.source) || ['claude', 'anthropic', 'vertexai', 'openai-responses'].includes(req.source))) {
             throw new Error(flavor === 'tauri-native'
                 ? '安装版暂不支持此连接方式。请选择 OpenAI 兼容或 Google Gemini (AI Studio)，或在电脑上用 npm start 打开本地网页版。'
                 : '当前网页未连接模型网关。请用 npm start 打开本地网页版，或改用浏览器可直连的 OpenAI 兼容接口。');
         }
         stage = '发送请求';
-        const response = nativeGemini ? await requestGeminiCompletion(req) : await requestChatCompletion(req, flavor === 'local-gateway');
+        const response = nativeClaude ? await requestClaudeCompletion(req) : nativeGemini ? await requestGeminiCompletion(req) : await requestChatCompletion(req, flavor === 'local-gateway');
         httpStatus = response.status;
         stage = !response.ok ? 'HTTP 响应' : req.stream === false ? '读取回复' : '读取回复流';
-        const result = await readCompletionResponse(response, req, nativeGemini ? geminiReplyAdapter() : undefined);
+        const result = await readCompletionResponse(response, req, nativeClaude ? claudeReplyAdapter() : nativeGemini ? geminiReplyAdapter() : undefined);
         report('成功', { stage, httpStatus, detail });
         return result;
     } catch (error) {

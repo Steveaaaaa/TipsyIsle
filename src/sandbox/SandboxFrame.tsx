@@ -13,11 +13,20 @@ import {
     replaceScopedVariables,
     resolveMergedVariables,
 } from '../store/scoped-variable-store';
-import type { SandboxRpcRequest, SandboxRpcResponse, VariableScopeLevel } from '../types';
+import type { MediaAction } from '../../packages/plugin-sdk/index.js';
+import { saveExport } from '../core/platform-files';
+import { nativePluginStore } from '../plugins/native/catalog';
+import { latentFilm } from '../plugins/native/latent-film';
+import { loadMedia, mediaIdentity } from '../plugins/native/media';
+import { dispatchMediaAction, projectMedia, type MediaProjection } from '../plugins/native/reply-media';
+import { clearSandboxMountedMedia, setSandboxMountedMedia } from '../plugins/native/sandbox-media-bridge';
+import type { SandboxMediaPayload } from './sandbox-media-shim';
+import type { ChatMessageNode, SandboxRpcRequest, SandboxRpcResponse, VariableScopeLevel } from '../types';
 
 export interface SandboxFrameProps {
     componentTargets?: Array<{ key: string; selector: string }>;
     htmlContent: string;
+    messageNode?: ChatMessageNode;
     messageId: string;
     floor: number;
     characterId: string;
@@ -37,6 +46,7 @@ let frameCounter = 0;
 export function SandboxFrame({
     componentTargets,
     htmlContent,
+    messageNode,
     messageId,
     floor,
     characterId,
@@ -52,6 +62,10 @@ export function SandboxFrame({
 }: SandboxFrameProps) {
     const iframeRef = useRef<HTMLIFrameElement | null>(null);
     const [frameHeight, setFrameHeight] = useState<number>(180);
+    const latentItems = latentFilm.useStore((state) => state.items);
+    const pluginCatalog = nativePluginStore.useStore((state) => state.catalog);
+    const mediaSlotsRef = useRef<MediaProjection[]>([]);
+    const mediaBlobCacheRef = useRef<Map<string, { blob: Blob; name: string }>>(new Map());
     const presentationVars = () => {
         const tokens = readingThemeTokens();
         return { '--tt-text': tokens.textPrimary, '--tt-bg': tokens.bgSurface, '--tt-accent': tokens.accentColor,
@@ -105,6 +119,73 @@ export function SandboxFrame({
     }, [frameId, floor, messageId, htmlContent, scopeContext, componentTargets]);
     const [loadedDocument, setLoadedDocument] = useState('');
     const loading = loadedDocument !== srcDoc;
+
+    useEffect(() => {
+        return () => clearSandboxMountedMedia(frameId);
+    }, [frameId]);
+
+    useEffect(() => {
+        if (loadedDocument !== srcDoc) return;
+        const targetWin = iframeRef.current?.contentWindow;
+        if (!targetWin) return;
+        let cancelled = false;
+        const slots = messageNode ? projectMedia(messageNode) : [];
+        mediaSlotsRef.current = slots;
+        if (!slots.length) {
+            targetWin.postMessage({ kind: 'tipsy:sandbox-media', slots: [] }, '*');
+            setSandboxMountedMedia(messageId, frameId, []);
+            return;
+        }
+        void (async () => {
+            const payload: SandboxMediaPayload[] = [];
+            for (const slot of slots) {
+                const { item } = slot;
+                const takes = item.takes ?? [];
+                const takeIndex = takes.length ? Math.min(item.activeTake ?? 0, takes.length - 1) : 0;
+                const mediaId = takes[takeIndex]?.id;
+                let blob: Blob | undefined;
+                if (mediaId) {
+                    const cacheKey = `${slot.key}:${mediaId}`;
+                    const cached = mediaBlobCacheRef.current.get(cacheKey);
+                    if (cached) {
+                        blob = cached.blob;
+                    } else {
+                        try {
+                            const loaded = await loadMedia(mediaIdentity(slot.plugin), mediaId);
+                            if (/^image\/(?:png|jpeg|webp)$/.test(loaded.blob.type)) {
+                                blob = loaded.blob;
+                                mediaBlobCacheRef.current.set(cacheKey, { blob: loaded.blob, name: loaded.handle.name });
+                            }
+                        } catch {
+                            // Leave image blank when media blob is unavailable.
+                        }
+                    }
+                }
+                if (cancelled) return;
+                payload.push({
+                    key: slot.key,
+                    slotId: item.slotId,
+                    status: item.status,
+                    label: item.label,
+                    aspectRatio: item.aspectRatio,
+                    palette: item.palette,
+                    presentation: item.presentation,
+                    anchor: item.anchor,
+                    takeIndex,
+                    takeCount: takes.length,
+                    canStage: slot.plugin.grants.includes('ui.stage'),
+                    mediaId,
+                    blob,
+                });
+            }
+            if (!cancelled) {
+                targetWin.postMessage({ kind: 'tipsy:sandbox-media', slots: payload }, '*');
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [loadedDocument, srcDoc, messageNode, messageId, frameId, latentItems, pluginCatalog]);
 
     useEffect(() => {
         const win = iframeRef.current?.contentWindow;
@@ -207,6 +288,38 @@ export function SandboxFrame({
                                 : (data.params?.options as { prompt?: string } | undefined)?.prompt;
                         const out = onRequestGenerate ? await onRequestGenerate(promptOverride) : '';
                         reply(out);
+                        break;
+                    }
+                    case 'sandbox.mediaMounted': {
+                        const keys = Array.isArray(data.params?.keys) ? data.params.keys.map(String) : [];
+                        setSandboxMountedMedia(messageId, frameId, keys);
+                        reply({ ok: true });
+                        break;
+                    }
+                    case 'sandbox.mediaAction': {
+                        const key = String(data.params?.key ?? '');
+                        const action = String(data.params?.action ?? '');
+                        const slot = mediaSlotsRef.current.find((item) => item.key === key);
+                        if (!slot) throw new Error('插图槽位已更新，请重试');
+                        if (action === 'save') {
+                            const takes = slot.item.takes ?? [];
+                            const takeIndex = takes.length ? Math.min(slot.item.activeTake ?? 0, takes.length - 1) : 0;
+                            const mediaId = takes[takeIndex]?.id;
+                            if (!mediaId) throw new Error('当前槽位暂无可保存图片');
+                            let cached = mediaBlobCacheRef.current.get(`${slot.key}:${mediaId}`);
+                            if (!cached) {
+                                const res = await loadMedia(mediaIdentity(slot.plugin), mediaId);
+                                cached = { blob: res.blob, name: res.handle.name };
+                            }
+                            const base = (cached.name || slot.item.label || 'lumina-frame').replace(/[\\/:*?"<>|]/g, '-');
+                            const ext = cached.blob.type.split('/')[1] || 'webp';
+                            await saveExport(cached.blob, /\.\w{1,6}$/.test(base) ? base : `${base}.${ext}`);
+                        } else if (action === 'reroll' || action === 'previous' || action === 'next' || action === 'bookmark' || action === 'stage') {
+                            await dispatchMediaAction(slot, action as MediaAction['action']);
+                        } else {
+                            throw new Error(`不支持的插图操作：${action}`);
+                        }
+                        reply({ ok: true });
                         break;
                     }
                     default:

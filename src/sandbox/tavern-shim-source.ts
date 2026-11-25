@@ -17,6 +17,7 @@ import { observeComponentSizes } from '../shell/stream-layout';
 import { authorBrowserRuntime } from '../compatibility/author-browser-runtime';
 import { authorDocument } from '../compatibility/author-document';
 import { observeReadingActivity } from '../shell/reading-navigation';
+import { findSandboxParagraphAnchor, installSandboxMediaBridge } from './sandbox-media-shim';
 
 export function buildSandboxSrcDoc(
     first: string | SandboxDocContext,
@@ -100,6 +101,7 @@ ${authorBrowserRuntime}
     const data = ev.data;
     if (ev.source !== window.parent || !data) return;
     if (data.kind === 'tipsy:sandbox-theme') { applyTheme(data.themeVars, data.colorScheme); return; }
+    if (data.kind === 'tipsy:sandbox-media') { applySandboxMedia(data.slots || []); return; }
     if ((data.__tt_sandbox_event__ || data.type === '__tt_sandbox_event__') && data.event) {
       const handlers = eventListeners.get(data.event);
       if (handlers) {
@@ -178,6 +180,19 @@ ${authorBrowserRuntime}
       params: { height: h }
     }, '*');
   }
+
+  const applySandboxMedia = (${installSandboxMediaBridge.toString()})(
+    (${findSandboxParagraphAnchor.toString()}),
+    (keys) => window.parent.postMessage({
+      jsonrpc: '2.0',
+      id: 'media_' + Date.now(),
+      frameId: CTX.frameId,
+      method: 'sandbox.mediaMounted',
+      params: { keys }
+    }, '*'),
+    (key, action) => callRpc('sandbox.mediaAction', { key, action }),
+    () => reportHeight(Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0))
+  );
 
   window.addEventListener('DOMContentLoaded', () => {
     if (CTX.componentTargets.length) (${observeComponentSizes.toString()})(CTX.componentTargets, values => window.parent.postMessage({ jsonrpc: '2.0', id: 'sizes', frameId: CTX.frameId, method: 'sandbox.componentSizes', params: { values } }, '*'));

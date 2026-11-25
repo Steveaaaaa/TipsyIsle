@@ -18,7 +18,7 @@ import { setStatusBanner } from './notice';
 import { getActiveChatMessages } from './queries';
 import { readWorkspaceInitialVariables, initialChatVariables, mvuChatProjection } from './story-initialization';
 import { routePluginBucketsAt, routeWorldbooks } from './route-resources';
-import { SYNC_EXTENSIONS, syncStorySetting, restoreChatExtensions } from './sessions';
+import { captureChatExtensions, syncStorySetting, restoreChatExtensions } from './sessions';
 import { branchBusy } from './activity';
 
 /** Capture each swipe's variables, chat projection and lorebook timers as one logical snapshot. */
@@ -106,7 +106,7 @@ export function readBranchState(state: WorkspaceState, node: ChatMessageNode): B
             preset: { [state.activePresetId]: readScopedVariables('preset', { presetId: state.activePresetId }) },
             chat: { [state.activeChatId]: variables.chat[state.activeChatId] ?? {} },
             message: {} },
-        extensions: Object.fromEntries([...new Set([...SYNC_EXTENSIONS, ...state.branchExtensionKeys ?? []])].filter(key => key in variables.extension).map(key => [key, variables.extension[key]])),
+        extensions: captureChatExtensions(variables.extension, state.branchExtensionKeys),
         extensionKeys: state.branchExtensionKeys,
         activePresetId: state.activePresetId, inUsePreset: getActivePreset(state), activeLorebookIds: state.activeLorebookIds,
         userName: state.userName, activePersonaId: state.activePersonaId,

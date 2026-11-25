@@ -6,12 +6,13 @@ import { getSchemaValues } from '../../registry/schema-registry';
 import { enqueuePersistentOperation } from '../../store/persistence';
 import { createReactiveStore } from '../../store/reactive-store';
 import { PluginApiError } from './errors';
+import { workflow } from './image-protocol';
 
 const key = 'native_plugin_model_connections';
-interface Connection extends ModelConnection { baseUrl: string; apiKey: string; source: string; provider?: StreamCompletionRequest['provider']; headers?: Record<string, string> }
+export interface Connection extends ModelConnection { baseUrl: string; apiKey: string; source: string; workflowText?:string; slotOverrides?:Record<string,[string,string]>; preservePng?:boolean; provider?: StreamCompletionRequest['provider']; headers?: Record<string, string> }
 const modelKind = z.enum(['chat', 'image', 'speech', 'embedding']);
 const customSchema = z.strictObject({ label: z.string().trim().min(1).max(80), model: z.string().trim().min(1).max(300),
-    baseUrl: z.url(), apiKey: z.string().max(4000), kind: modelKind });
+    baseUrl: z.url(), apiKey: z.string().max(4000), kind: modelKind, providerKind:z.enum(['openai','moss','gemini','novelai','comfyui','webui']).optional(), preservePng:z.boolean().optional(), workflowText:z.string().max(512000).optional(),slotOverrides:z.partialRecord(z.enum(['prompt','negativePrompt','seed','width','height','charRef','styleRef']),z.tuple([z.string(),z.string()])).optional() });
 export type ConnectionInput = z.infer<typeof customSchema>;
 export const connectionStore = createReactiveStore<{ items: Connection[] }>(() => ({ items: [] }));
 let loading: Promise<void> | undefined;
@@ -24,13 +25,22 @@ export function httpEndpoint(value: string) {
     if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.hash) throw new PluginApiError('INVALID_ARGUMENT', '地址必须是 HTTP(S)，且不能包含登录信息');
     return url;
 }
-export const connectionSummary = ({ id, label, model, kinds }: Connection): ModelConnection => ({ id, label, model, kinds });
+export const connectionSummary = ({ id, label, model, kinds, providerKind, imageCapabilities, workflowProfiles }: Connection): ModelConnection => ({ id, label, model, kinds, providerKind, imageCapabilities, workflowProfiles });
 export function saveConnection(input: ConnectionInput, id?: string) {
     return enqueuePersistentOperation(async () => {
         await loadConnections();
         const { kind, ...config } = customSchema.parse(input);
         httpEndpoint(config.baseUrl);
         const entry: Connection = { ...config, id: id ?? crypto.randomUUID(), kinds: [kind], source: 'openai' };
+        if(kind==='image') {
+            entry.providerKind ??= 'openai';
+            entry.imageCapabilities = entry.providerKind === 'moss'
+                ? ['aspectRatio', 'negativePrompt', 'seed']
+                : ['aspectRatio', 'characterReference', 'styleReference'];
+            if (['novelai', 'webui', 'comfyui'].includes(entry.providerKind)) entry.imageCapabilities.push('negativePrompt', 'seed');
+            if(entry.providerKind==='novelai')entry.imageCapabilities.push('spatialActors');
+            if(entry.providerKind==='comfyui') { const {graph,slots}=workflow(config.workflowText ?? '');for(const [slot,edge] of Object.entries(config.slotOverrides ?? {})){if(!edge || !Object.hasOwn(graph[edge[0]]?.inputs ?? {},edge[1]))throw new Error('无效的工作流槽位');slots[slot]=edge;}entry.workflowProfiles=[{id:'default',label:entry.label,slots:Object.keys(slots)}];entry.imageCapabilities.push('workflowSlots'); }
+        }
         const items = [...connectionStore.getState().items.filter(item => item.id !== entry.id), entry];
         await platformStorage.saveSnapshots({ [key]: items }, false); connectionStore.setState({ items });
     });
@@ -66,7 +76,7 @@ async function availableConnections(): Promise<Connection[]> {
         }
     } catch { /* Incomplete settings do not remove the other connections. */ }
     const flavor = await detectRuntimeFlavor();
-    return items.filter(item => flavor === 'local-gateway' || !item.provider && !['claude', 'anthropic', 'makersuite', 'gemini', 'vertexai', 'openai-responses'].includes(item.source));
+    return items.filter(item => flavor === 'local-gateway' || flavor==='tauri-native' && !item.provider && ['makersuite','gemini','anthropic','claude'].includes(item.source) || !item.provider && !['claude', 'anthropic', 'makersuite', 'gemini', 'vertexai', 'openai-responses'].includes(item.source));
 }
 export async function connectionChoices() { return (await availableConnections()).map(connectionSummary); }
 export async function authorizedConnection(id: string, kind: ModelKind, grants: string[]) {

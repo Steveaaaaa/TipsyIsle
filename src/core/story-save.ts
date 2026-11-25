@@ -26,8 +26,9 @@ function localJob<T>(payload: unknown, signal?: AbortSignal): Promise<T> {
 }
 
 export const readStorySave = (file: File, signal?: AbortSignal) => localJob<StoryImport>({ file }, signal);
-export async function makeStorySave(chat: ArchivedChat, character: NormalizedCharacterCard) {
-    const bytes = await localJob<Uint8Array<ArrayBuffer>>({ chat, character });
+export async function makeStorySave(chat: ArchivedChat, character: NormalizedCharacterCard,plugins=true) {
+    const images=plugins?await (await import('./story-plugin-archive')).archiveImages(chat):undefined;
+    const bytes = await localJob<Uint8Array<ArrayBuffer>>({ chat, character,images });
     return { blob: new Blob([bytes], { type: 'application/zip' }), name: `${(character.name || '故事').replace(/[\\/:*?"<>|]/g, '-').slice(0, 80)}-${new Date().toISOString().slice(0, 10)}${storySaveExtension}` };
 }
 
@@ -185,7 +186,7 @@ export function restoreStoryResources(source: ArchivedChat, sourceCard: Normaliz
             parentId: node.parentId ? ids.get(node.parentId)! : null, parentSwipeId: node.parentSwipeId && swipes.get(node.parentSwipeId),
             swipeIds: node.swipes.map((_, i) => swipes.get(swipeId(node, i))!), branchOrigin: node.branchOrigin && origins.get(node.branchOrigin),
             storySummaries: node.storySummaries && remap(node.storySummaries, swipes), branchStates: points(node.branchStates), branchBases: points(node.branchBases),
-            extra: mapExtra(node.extra), nativePluginReplies: undefined, nativePluginOpeningRoutes: undefined, nativeRouteAnchors: undefined })),
+            extra: mapExtra(node.extra), nativePluginReplies: node.nativePluginReplies&&remap(node.nativePluginReplies,swipes), nativePluginOpeningRoutes: node.nativePluginOpeningRoutes&&remap(node.nativePluginOpeningRoutes,swipes), nativeRouteAnchors: undefined })),
         continuation: transformContinuation(source.continuation!), worldbookName: source.worldbookName ? root.name(source.worldbookName) : null,
         timedStates: root.timed(source.timedStates), templateActivations: root.activations(source.templateActivations) };
     return { chat, added };

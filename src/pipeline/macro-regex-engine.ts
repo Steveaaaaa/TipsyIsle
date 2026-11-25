@@ -393,6 +393,101 @@ function splitTopLevelEmptySlots(content: string): Array<{ type: 'markdown' | 'm
     return segments.map(segment => ({ ...segment, content: segment.content.trim() })).filter(segment => segment.content.length > 0);
 }
 
+const WIDGET_ROOT_TAGS = new Set(['div', 'section', 'details', 'aside', 'figure', 'table', 'article', 'header', 'footer', 'nav', 'iframe']);
+
+function isScopedWidgetHtml(html: string): boolean {
+    for (const m of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)) {
+        const stripped = m[1].replace(/\/\*[\s\S]*?\*\//g, '');
+        if (/(?:^|[},;\s])(?:body|html|p|h[1-6]|\*|:root)\s*\{/i.test(stripped)) return false;
+    }
+    for (const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)) {
+        if (/document\.body\b|document\.documentElement\b|querySelector(?:All)?\(\s*['"](?:p|div)['"]\s*\)/i.test(m[1])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function splitTopLevelWidgetsAndProse(content: string): Array<{ type: 'markdown' | 'mixed'; content: string }> {
+    const pieces: Array<{ kind: 'widget' | 'prose'; text: string }> = [];
+    const tokens = /<!--[\s\S]*?-->|<script\b[\s\S]*?<\/script\s*>|<style\b[\s\S]*?<\/style\s*>|<(\/?)([a-zA-Z_][\w:-]*)\b([^>]*)>/gi;
+    let depth = 0;
+    let blockStart = -1;
+    let cursor = 0;
+
+    const push = (kind: 'widget' | 'prose', text: string) => {
+        if (!text) return;
+        const last = pieces.at(-1);
+        if (last && (last.kind === kind || !text.trim())) last.text += text;
+        else pieces.push({ kind, text });
+    };
+
+    for (let match: RegExpExecArray | null; (match = tokens.exec(content));) {
+        const index = match.index;
+        const full = match[0];
+        if (full.startsWith('<!--')) continue;
+        const isOpaqueWidget = /^<(?:script|style)\b/i.test(full);
+        if (depth === 0) {
+            if (isOpaqueWidget) {
+                push('prose', content.slice(cursor, index));
+                push('widget', full);
+                cursor = tokens.lastIndex;
+                continue;
+            }
+            const tag = match[2].toLowerCase();
+            if (!match[1] && tag === 'span' && /\bhidden\b/i.test(match[3] ?? '')) {
+                const closeSpan = /^<\/span\s*>/i.exec(content.slice(tokens.lastIndex));
+                if (closeSpan && /^\s*<(?:style|script|div|section|details)\b/i.test(content.slice(tokens.lastIndex + closeSpan[0].length))) {
+                    push('prose', content.slice(cursor, index));
+                    push('widget', full + closeSpan[0]);
+                    tokens.lastIndex += closeSpan[0].length;
+                    cursor = tokens.lastIndex;
+                    continue;
+                }
+            }
+            if (!match[1] && !/\/>$/.test(full) && WIDGET_ROOT_TAGS.has(tag)) {
+                push('prose', content.slice(cursor, index));
+                blockStart = index;
+                depth = 1;
+            }
+            continue;
+        }
+        if (isOpaqueWidget) continue;
+        const tag = match[2].toLowerCase();
+        if (match[1]) {
+            depth--;
+            if (depth === 0 && blockStart >= 0) {
+                push('widget', content.slice(blockStart, tokens.lastIndex));
+                cursor = tokens.lastIndex;
+                blockStart = -1;
+            }
+        } else if (!/\/>$/.test(full) && !VOID_HTML_TAGS.has(tag)) {
+            depth++;
+        }
+    }
+    if (depth > 0 && blockStart >= 0) return [{ type: 'mixed', content }];
+    if (cursor < content.length) push('prose', content.slice(cursor));
+
+    const widgetPieces = pieces.filter((p) => p.kind === 'widget');
+    const hasRealProse = pieces.some(
+        (p) => p.kind === 'prose' && p.text.replace(/<\/?[a-zA-Z_][\w:-]*\b[^>]*>/g, '').trim().length >= 12,
+    );
+    if (!widgetPieces.length || !hasRealProse || !widgetPieces.every((w) => isScopedWidgetHtml(w.text))) {
+        return [{ type: 'mixed', content }];
+    }
+
+    const out: Array<{ type: 'markdown' | 'mixed'; content: string }> = [];
+    for (const piece of pieces) {
+        const trimmed = piece.text.trim();
+        if (!trimmed) continue;
+        const type = piece.kind === 'widget' && AUTHORED_TAG.test(stripEmptySlotPlaceholders(trimmed)) ? 'mixed' : 'markdown';
+        const last = out.at(-1);
+        if (last && last.type === type) last.content += `\n${trimmed}`;
+        else out.push({ type, content: trimmed });
+    }
+    return out.length ? out : [{ type: 'mixed', content }];
+}
+
 export function extractHtmlSandboxBlocks(markdown: string): Array<{ type: 'markdown' | 'html' | 'mixed'; content: string }> {
     const blocks: Array<{ type: 'markdown' | 'html' | 'mixed'; content: string }> = [];
     const appendText = (source: string) => {
@@ -405,7 +500,11 @@ export function extractHtmlSandboxBlocks(markdown: string): Array<{ type: 'markd
             return;
         }
         const split = splitTopLevelEmptySlots(content);
-        blocks.push(...(split.length ? split : [{ type: 'mixed' as const, content }]));
+        const segments = split.length ? split : [{ type: 'mixed' as const, content }];
+        for (const seg of segments) {
+            if (seg.type === 'mixed') blocks.push(...splitTopLevelWidgetsAndProse(seg.content));
+            else blocks.push(seg);
+        }
     };
     const appendFormattedText = (source: string) => {
         // Prompt Template has already converted fences to HTML wrappers. Extract

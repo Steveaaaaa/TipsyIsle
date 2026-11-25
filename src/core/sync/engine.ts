@@ -384,8 +384,14 @@ async function applyInbox(repairGuides = false, resolution?: SyncRevision, force
             } else if (missing) {
                 Object.assign(workspace, emptyStory());
             }
-            for (const id of changed) if (id.startsWith('extension:') && !id.includes('~') && !(active && (restore || missing) && active.continuation)) {
-                if (next.records[id].value === null) delete variables.extension[id.slice(10)]; else variables.extension[id.slice(10)] = structuredClone(next.records[id].value);
+            for (const id of changed) if (id.startsWith('extension:') && !id.includes('~')) {
+                const key = id.slice(10), value = next.records[id].value;
+                if (active && (restore || missing) && active.continuation) {
+                    if (key !== 'tavern_helper') continue;
+                    if (Array.isArray(value?.scripts)) (variables.extension[key] ??= {}).scripts = structuredClone(value.scripts);
+                    else if (variables.extension[key]) delete variables.extension[key].scripts;
+                } else if (value === null) delete variables.extension[key];
+                else variables.extension[key] = structuredClone(value);
             }
         });
         if (pluginOnly) preserveAuthorMessageRevision(before.workspace.messages, after.workspace.messages);

@@ -1,6 +1,6 @@
 {
   "name": "@tipsy-isle/plugin-sdk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "license": "Apache-2.0",
   "bin": { "tipsy-plugin": "./cli.mjs" },
@@ -8,6 +8,6 @@
     ".": { "types": "./index.d.ts", "default": "./index.js" },
     "./manifest.schema.json": "./manifest.schema.json"
   },
-  "files": ["index.js", "index.d.ts", "manifest.schema.json", "package-format.mjs", "package-format.d.mts", "cli.mjs", "packager.mjs"],
+  "files": ["index.js", "index.d.ts", "director.d.ts", "manifest.schema.json", "package-format.mjs", "package-format.d.mts", "cli.mjs", "packager.mjs"],
   "dependencies": { "ajv": "8.17.1", "esbuild": "0.21.5", "fflate": "0.8.2", "semver": "7.7.3" }
 }

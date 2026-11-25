@@ -6,6 +6,7 @@ import type { BranchState } from '../store/branch-state';
 import { swipeId } from '../store/chat-tree';
 import type { ChatMessageNode, NormalizedCharacterCard } from '../types';
 import { packSyncImages, unpackSyncImages } from './snapshot-codec';
+import type { PackedImage } from './story-plugin-archive';
 
 export const storySaveLimit = 96 * 1024 * 1024;
 export const storySaveExtension = '.tipsy-story';
@@ -25,11 +26,12 @@ export interface TavernStory {
 }
 export interface TipsyStory {
     kind: 'tipsy'; fingerprint: string; chat: ArchivedChat; character: NormalizedCharacterCard;
+    images?:PackedImage[];
 }
 export type StoryImport = TavernStory | TipsyStory;
 
 // Export story data without device connection settings or plugin-owned storage.
-function portableStory(source: ArchivedChat, card: NormalizedCharacterCard) {
+function portableStory(source: ArchivedChat, card: NormalizedCharacterCard,plugins=false) {
     const seen = new WeakMap<object, any>();
     const clean = (value: any): any => {
         if (!value || typeof value !== 'object') return value;
@@ -42,7 +44,7 @@ function portableStory(source: ArchivedChat, card: NormalizedCharacterCard) {
     };
     const limit = (value: Continuation): Continuation => {
         const quickReply = value.extensions?.quickReplyV2?.chatConfigs?.[source.id];
-        return { ...value, portable: true, nativePluginRoute: undefined, extensionKeys: [],
+        return { ...value, portable: true, nativePluginRoute: plugins?value.nativePluginRoute:undefined, extensionKeys: [],
         variables: { ...value.variables, global: {}, chat: { [source.id]: value.variables.chat?.[source.id] ?? {} } },
         settings: Object.fromEntries(Object.entries(value.settings ?? {}).filter(([key]) => storySettings.test(key))),
         extensions: Array.isArray(quickReply?.setList) ? { quickReplyV2: { chatConfigs: { [source.id]: quickReply } } } : {} };
@@ -50,7 +52,7 @@ function portableStory(source: ArchivedChat, card: NormalizedCharacterCard) {
     const points = (states?: Record<string, BranchState>) => states && Object.fromEntries(Object.entries(states).map(([id, point]) => [id, { ...point, continuation: limit(point.continuation) }]));
     return clean({ character: card, chat: { ...source, importedFrom: undefined,
         continuation: source.continuation && limit(source.continuation), messages: source.messages.map(node => ({ ...node,
-            nativePluginReplies: undefined, nativePluginOpeningRoutes: undefined, nativeRouteAnchors: undefined,
+            nativePluginReplies: plugins?node.nativePluginReplies:undefined, nativePluginOpeningRoutes: plugins?node.nativePluginOpeningRoutes:undefined, nativeRouteAnchors: undefined,
             branchBases: points(node.branchBases), branchStates: points(node.branchStates) })) } }) as { chat: ArchivedChat; character: NormalizedCharacterCard };
 }
 
@@ -120,7 +122,8 @@ function readTavern(source: string, hash: string): TavernStory {
 function readTipsy(bytes: Uint8Array, hash: string): TipsyStory {
     let inflated = 0;
     const files = unzipSync(bytes, { filter: file => {
-        if (!['manifest.json', 'story.json'].includes(file.name)) return false;
+        if (!['manifest.json', 'story.json'].includes(file.name) && !/^media\/\d{1,4}$/.test(file.name)) return false;
+        if(file.name.startsWith('media/')&&file.originalSize>20*1024*1024)throw new Error('存档内的图片过大');
         inflated += file.originalSize;
         if (inflated > storySaveLimit * 3) throw new Error('解压后的故事存档太大。');
         return true;
@@ -158,7 +161,8 @@ function readTipsy(bytes: Uint8Array, hash: string): TipsyStory {
         for (const id of path) visited.add(id);
     }
     if (!chat.activeLeafId || !nodes.has(chat.activeLeafId)) throw new Error('存档缺少当前路线。');
-    return { kind: 'tipsy', fingerprint: hash, ...portableStory(chat, character) };
+    const images:PackedImage[]=[];if(manifest.pluginMedia!==undefined){if(!Array.isArray(manifest.pluginMedia)||manifest.pluginMedia.length>2048)throw new Error('无效的插图目录');for(const [index,meta] of manifest.pluginMedia.entries()){const bytes=files[`media/${index}`];if(!bytes||typeof meta?.owner!=='string'||typeof meta?.id!=='string'||typeof meta?.mime!=='string')throw new Error('存档缺少插图');images.push({owner:meta.owner,id:meta.id,mime:meta.mime,bytes:new Uint8Array(bytes)});}}
+    return { kind: 'tipsy', fingerprint: hash, ...portableStory(chat, character,manifest.pluginMedia!==undefined),images };
 }
 
 export async function decodeStoryFile(file: File): Promise<StoryImport> {
@@ -180,13 +184,13 @@ export function countStoryRoutes(messages: ChatMessageNode[]) {
         count + Number(!continued.has(JSON.stringify([node.id, swipeId(node, i)]))), 0)), 0));
 }
 
-export async function encodeStoryFile(chat: ArchivedChat, character: NormalizedCharacterCard): Promise<Uint8Array<ArrayBuffer>> {
+export async function encodeStoryFile(chat: ArchivedChat, character: NormalizedCharacterCard, images?:PackedImage[]): Promise<Uint8Array<ArrayBuffer>> {
     const manifest = { format, version: 1, character: character.name, messages: chat.messages.length, routes: countStoryRoutes(chat.messages),
         resources: { character: character.name, preset: chat.continuation?.inUsePreset?.name, worldbooks: chat.continuation?.worldbooks?.map(book => book.name), persona: chat.continuation?.persona?.name },
-        dependencies: ['model-connection', 'external-resources'] };
-    const story = strToU8(JSON.stringify(await packSyncImages(portableStory(chat, character))));
+        dependencies: ['model-connection', 'external-resources'],pluginMedia:images?.map(({owner,id,mime})=>({owner,id,mime})) };
+    const story = strToU8(JSON.stringify(await packSyncImages(portableStory(chat, character,!!images))));
     if (story.byteLength > storySaveLimit * 3) throw new Error('故事数据太大，暂不能导出为单个文件。');
-    const bytes = zipSync({ 'manifest.json': strToU8(JSON.stringify(manifest)), 'story.json': story }, { level: 3 });
+    const bytes = zipSync({ 'manifest.json': strToU8(JSON.stringify(manifest)), 'story.json': story,...Object.fromEntries((images??[]).map((image,index)=>[`media/${index}`,[image.bytes,{level:0}]])) }, { level: 3 });
     if (bytes.byteLength > storySaveLimit) throw new Error('压缩后的故事存档超过 96 MB。');
     return new Uint8Array(bytes);
 }

@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import type { ReplyCheckpoint, JobContext, MediaAction } from '../../../packages/plugin-sdk/index.js';
+import { scheduleJob } from './jobs';
+import { generationState } from './checkpoints';
 import type { CommandDeclaration, CommandInput, GenerationInput, MessageRef, Panel, Permission, ReplySaved, RouteChanged, StorageScope, PromptStageInput, ServiceInput, ToolInput } from '../../../packages/plugin-sdk/index.js';
 import { supportedHostApi } from '../../../packages/plugin-sdk/package-format.mjs';
 import { platformStorage } from '../../core/platform-bridge';
@@ -30,7 +33,7 @@ const panelSchema = z.strictObject({ title: label,
     task: z.strictObject({ id: text(480).min(1), onFinished: smallId.optional() }).optional(),
 });
 const scopeSchema = z.enum(['device', 'route', 'reply']);
-type Invocation = { mode: Exclude<VmMode, 'verify' | 'migrate'>; input: CommandInput | GenerationInput | ReplySaved | RouteChanged | PromptStageInput | ServiceInput | ToolInput | { cursor: string }; view: StoryView; plugin: InstalledPlugin;
+type Invocation = { mode: Exclude<VmMode, 'verify' | 'migrate'>; input: CommandInput | GenerationInput | ReplySaved | RouteChanged | PromptStageInput | ServiceInput | ToolInput | JobContext | MediaAction | ReplyCheckpoint | { cursor: string }; view: StoryView; plugin: InstalledPlugin;
     target?: MessageRef; id: string; external?: AbortSignal };
 
 function parsePanel(value: unknown): Panel | null {
@@ -48,8 +51,8 @@ export async function invokeNativePlugin(call: Invocation): Promise<unknown> {
     const { plugin, mode, view, target, external } = call;
     const id = plugin.manifest.id;
     const phase = mode === 'command' ? `操作 · ${(call.input as CommandInput).id}` : ({ replySaved: '回复已保存', routeChanged: '路线已切换', contribute: '生成补充',
-        beforeScan: '世界书扫描前', afterScan: '世界书扫描后', storyChanged: '存档已更新', tool: '模型工具', service: '插件服务' })[mode];
-    const timeout = mode === 'command' ? vmLimits.commandWall : isPromptMode(mode) ? vmLimits.contributionWall : mode === 'tool' ? vmLimits.toolWall : mode === 'service' ? vmLimits.serviceWall : vmLimits.eventWall;
+        beforeScan: '世界书扫描前', afterScan: '世界书扫描后', storyChanged: '存档已更新', tool: '模型工具', service: '插件服务', job: '后台作业', checkpoint: '段落闭合', mediaAction: '插图操作' })[mode];
+    const timeout = mode === 'job' ? 360_000 : mode === 'command' ? vmLimits.commandWall : isPromptMode(mode) ? vmLimits.contributionWall : mode === 'tool' ? vmLimits.toolWall : mode === 'service' ? vmLimits.serviceWall : vmLimits.eventWall;
     const task = bindPluginTask(plugin, timeout, external);
     const start = performance.now();
     const check = () => { task.signal.throwIfAborted(); assertPluginActive(plugin); };
@@ -57,7 +60,7 @@ export async function invokeNativePlugin(call: Invocation): Promise<unknown> {
     const checkTarget = () => {
         if (target && !findStoryMessage(liveStory(), target)) throw new PluginApiError('STALE_REPLY', '插件操作对应的回复已经改变');
     };
-    const persistent = mode === 'command' || mode === 'replySaved' || mode === 'storyChanged' || mode === 'service';
+    const persistent = ['command', 'replySaved', 'storyChanged', 'service', 'job', 'mediaAction'].includes(mode);
     const legacy = supportedHostApi(plugin.manifest) === '1.0.0';
     try {
         const pkg = await untilAbort(loadPluginPackage(plugin), task.signal);
@@ -82,6 +85,41 @@ export async function invokeNativePlugin(call: Invocation): Promise<unknown> {
             const work = pending.then(async () => {
                 check();
                 switch (method) {
+                    case 'replyMedia.developing': {
+                        permitted('ui.surface'); permitted('media.manage');
+                        if (mode === 'checkpoint') {
+                            const event = call.input as ReplyCheckpoint, state = generationState(event.generationId);
+                            if (!state) throw new PluginApiError('EXPIRED', '生成已结束');
+                            return (await import('./latent-film')).developPreview(event, id, plugin.digest, args, state.completion, state.signal);
+                        }
+                        if (mode === 'job') {
+                            const jobInput = call.input as JobContext, state = jobInput.generationId ? generationState(jobInput.generationId) : undefined;
+                            if (!state) throw new PluginApiError('EXPIRED', '生成已结束');
+                            const draftNode = view.path.find((m) => m.id === jobInput.generationId);
+                            const fallback = draftNode ? { messageId: draftNode.id, swipeId: messageRef(draftNode).swipeId } : undefined;
+                            return (await import('./latent-film')).updateJobPreview(jobInput.generationId!, id, plugin.digest, args, state.completion, state.signal, fallback);
+                        }
+                        throw new PluginApiError('PERMISSION_DENIED', '临时槽只用于本轮生成');
+                    }
+                    case 'story.visualSources': {
+                        permitted('assets.read');permitted('story.read');return (await import('./media-ref')).visualSources();
+                    }
+                    case 'jobs.awaitReply': {
+                        permitted('jobs.run'); const key=(call.input as JobContext).generationId, state=key && generationState(key);
+                        if(mode!=='job'||!state)throw new PluginApiError('EXPIRED','此作业未绑定生成');return untilAbort(state.completion,task.signal);
+                    }
+                    case 'jobs.schedule': {
+                        permitted('jobs.run');
+                        if (!persistent && mode !== 'checkpoint' || mode === 'job') throw new PluginApiError('PERMISSION_DENIED', '此阶段不能投递作业');
+                        const generationId=mode==='checkpoint'?(call.input as ReplyCheckpoint).generationId:undefined;
+                        const state=generationId&&generationState(generationId),generation=state?{id:generationId!,signal:state.signal}:undefined;
+                        return scheduleJob(`${id}:${plugin.digest}`, args, view.route ?? null, generation, (job, signal) => invokeNativePlugin({ mode: 'job', id: job.id, plugin, view, input: job, target: job.target, external: signal }));
+                    }
+                    case 'ui.export': {
+                        permitted('ui.export'); permitted('media.manage');
+                        if (mode !== 'command' || !(call.input as CommandInput).action) throw new PluginApiError('PERMISSION_DENIED', '请从面板点击导出');
+                        return (await import('./chronicle-export')).exportChronicle(`${id}:${plugin.fingerprint}`, args, task.signal,view,plugin.grants);
+                    }
                     case 'story.readMessages': {
                         permitted('story.read');
                         const { before, limit } = z.strictObject({ before: z.number().int().nonnegative().optional(), limit: z.number().int().min(1).max(16).optional() }).parse(args);
@@ -205,11 +243,15 @@ export function notifyNativeReplySaved(view: StoryView, reply: MessageRef, kind:
     // restoration never produces a new event, even if the plugin is installed.
     if (!view.ref || !findStoryMessage(view, reply)) return;
     const event: ReplySaved = { id: `reply:${contentHash(JSON.stringify([view.ref.chatId, reply])).toString(36)}`, reply, kind };
+    generationState(reply.messageId)?.save(event);
     void initializeNativePlugins().then(() => {
         for (const plugin of activePlugins()) if (plugin.manifest.events?.includes('story.replySaved')) {
             void invokeNativePlugin({ mode: 'replySaved', id: `${event.id}:${kind}`, input: event, plugin, view, target: reply }).catch(() => {});
         }
     }).catch(() => {});
+}
+export function notifyCheckpoint(view:StoryView,event:ReplyCheckpoint,signal:AbortSignal){
+    for(const plugin of activePlugins())if(plugin.grants.includes('story.events')&&plugin.manifest.events?.includes('story.replyCheckpoint'))void invokeNativePlugin({mode:'checkpoint',id:event.id,plugin,view,input:event,external:signal}).catch(()=>{});
 }
 
 export function observeNativeRoutes() {

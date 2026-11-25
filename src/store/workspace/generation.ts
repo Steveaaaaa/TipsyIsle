@@ -20,6 +20,8 @@ import type { BranchState } from '../branch-state';
 import { executePluginHooks } from '../../plugins/plugin-host';
 import { messageRef, settled } from '../../plugins/native/story-port';
 import { nativeGenerationContributions, notifyNativeReplySaved } from '../../plugins/native/host';
+import { notifyCheckpoint } from '../../plugins/native/host';
+import { closedParagraphs, startGeneration } from '../../plugins/native/checkpoints';
 import { prepareNativePrompt, readNativeAfterScan } from '../../plugins/native/generation-stages';
 import { streamStoryWithNativeTools } from '../../plugins/native/generation-tools';
 import { continueNativeRoute } from '../../plugins/native/route-graph';
@@ -428,6 +430,7 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
     const path = getActiveChatMessages(state);
     const floor = path.length;
     const placeholderId = `msg_${crypto.randomUUID()}`;
+    const checkpointCycle=startGeneration(placeholderId,controller.signal);
     regeneratedPlaceholderId = placeholderId;
     const prevNode = path.at(-1);
 
@@ -553,9 +556,9 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
             const view = readNativeStory();
             if (reply) {
                 void persistWorkspaceNow().then(() => notifyNativeReplySaved(view, reply, generationType))
-                    .catch(error => setStatusBanner(`保存失败：${error instanceof Error ? error.message : String(error)}`));
-            } else persistWorkspace();
-        } else persistWorkspace();
+                    .catch(error => {checkpointCycle.fail();setStatusBanner(`保存失败：${error instanceof Error ? error.message : String(error)}`);});
+            } else {checkpointCycle.fail();persistWorkspace();}
+        } else {checkpointCycle.fail();persistWorkspace();}
     }
     schedulePreview();
     return resultContent;
@@ -587,6 +590,8 @@ async function streamStoryReply(controller: AbortController, state: ReturnType<t
     connection: { apiSource: string; baseUrl: string; apiKey: string; model: string; schemaVals: ReturnType<typeof getSchemaValues> }): Promise<CompletionResult> {
     const { apiSource, baseUrl, apiKey, model, schemaVals } = connection;
     let previewSummary = new StorySummaryChannel(summaryChannel.tag);
+    let checkpointCount=0;
+    let midCheckpointFired=false;
     if (!baseUrl) {
         const simulatedChunks = [
             '尚未配置模型连接，本条为本地演示提示。\n\n',
@@ -636,6 +641,20 @@ async function streamStoryReply(controller: AbortController, state: ReturnType<t
             });
             void tavernEventBus.emit('generation_stream_token', deltaContent);
             const current = workspaceStore.getState();
+            if(checkpointCount<4 && /\n/.test(deltaContent)) {
+                const node=current.messages.find(message=>message.id===placeholderId), parts=node&&closedParagraphs(node.content);
+                if(node&&parts&&parts.length>checkpointCount){checkpointCount=parts.length;const view=readNativeStory(),routeId=node.nativeRouteAnchors?.[swipeId(node)],route=routeId?{chatId:current.activeChatId,routeId}:view.route;if(route)notifyCheckpoint({...view,route},{id:`${placeholderId}:${parts.length}`,generationId:placeholderId,route,draft:{messageId:placeholderId,swipeId:swipeId(node),floor},settledText:parts.join('\n\n').slice(0,12000),paragraphCount:parts.length,kind:assemblyInput.generationType==='regenerate'?'regenerate':'normal'},controller.signal);}
+            } else if (!midCheckpointFired && /\n/.test(deltaContent)) {
+                const node=current.messages.find(message=>message.id===placeholderId);
+                if(node&&node.content.length>=2200){
+                    const parts=closedParagraphs(node.content,24);
+                    if(parts.length>=8&&parts.join('\n\n').length>=1850){
+                        midCheckpointFired=true;
+                        const view=readNativeStory(),routeId=node.nativeRouteAnchors?.[swipeId(node)],route=routeId?{chatId:current.activeChatId,routeId}:view.route;
+                        if(route)notifyCheckpoint({...view,route},{id:`${placeholderId}:mid:${parts.length}`,generationId:placeholderId,route,draft:{messageId:placeholderId,swipeId:swipeId(node),floor},settledText:parts.join('\n\n').slice(0,12000),paragraphCount:parts.length,kind:assemblyInput.generationType==='regenerate'?'regenerate':'normal'},controller.signal);
+                    }
+                }
+            }
             publishNativeGenerationProgress(placeholderId, floor, current.messages.find(message => message.id === placeholderId)?.content ?? '', current.streamingReasoning);
         },
     }, delta => {

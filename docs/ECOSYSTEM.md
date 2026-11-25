@@ -22,10 +22,11 @@ When you build a TipsyIsle plugin, you target its own versioned host API. When y
 
 ## Start with working examples
 
-The repository includes two TipsyIsle plugin examples:
+The repository includes three TipsyIsle plugin examples:
 
-- **[Story Journal](../examples/plugins/story-journal):** Records a note for the current route when a reply is saved and lets players add their own notes. Recent notes can serve as a recap for the next generation. It demonstrates event subscriptions, route storage, settings, and prompt contributions.
+- **[Story Journal](../examples/plugins/story-journal):** Records a note for the current route when a reply is saved and lets players add their own notes. Recent notes can serve as a recap for the next generation, and it optionally consumes the visual chronicle service. It demonstrates event subscriptions, route storage, settings, cross-plugin services, and prompt contributions.
 - **[Action Options](../examples/plugins/action-options):** Extracts action choices from a character reply and puts the player's selected option into the input draft. The player decides when to send it. It demonstrates message commands, reply storage, and composer interaction.
+- **[Lumina Director](../examples/plugins/lumina-director/README.md):** Zero-friction narrative visual director with auto visual profiling, branch-aware continuity ledgers, streaming checkpoint pre-rendering, multi-protocol image generation, and scroll-synced stage backdrops (SDK 1.2.0).
 
 Install dependencies from the repository root, then inspect the packaging commands:
 

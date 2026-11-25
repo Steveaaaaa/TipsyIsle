@@ -12,6 +12,7 @@ node_modules/
 *.tsbuildinfo
 /src-tauri/target/
 /src-tauri/gen/schemas/
+/src-tauri/gen/apple/
 
 # Personal content, local databases and connection settings
 /data/
@@ -33,6 +34,7 @@ node_modules/
 *.jks
 *.p12
 *.pfx
+*.mobileprovision
 *.key
 *.pem
 keystore.properties

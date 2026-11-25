@@ -1,3 +1,5 @@
+import type { CharacterVisualEntry, ImageProviderKind, ImageCapability, ImageModelRequest, JobContext, JobScheduleInput, ReplyCheckpoint, MediaAction, StoryParticipant } from './director.js';
+export * from './director.js';
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type JsonMap = Record<string, Json>;
 export type Immutable<T, Depth extends 0[] = []> = Depth['length'] extends 6 ? T
@@ -6,8 +8,8 @@ export type Permission = 'story.read' | 'story.events' | 'storage.device' | 'sto
     | 'ui.panel' | 'composer.draft' | 'generation.contribute' | 'resources.read'
     | 'story.history' | 'story.variables' | 'story.edit' | 'story.navigate' | 'assets.read' | 'assets.write'
     | 'generation.pipeline' | 'generation.tools' | 'models.use' | 'network.request' | 'media.manage'
-    | 'index.manage' | 'services.provide' | 'services.call' | 'ui.surface';
-export type StoryEvent = 'story.replySaved' | 'story.routeChanged' | 'story.changed';
+    | 'index.manage' | 'services.provide' | 'services.call' | 'ui.surface' | 'ui.stage' | 'ui.export' | 'jobs.run';
+export type StoryEvent = 'story.replySaved' | 'story.routeChanged' | 'story.changed' | 'story.replyCheckpoint';
 export type PluginErrorCode = 'PERMISSION_DENIED' | 'STALE_ROUTE' | 'STALE_REPLY' | 'STORY_BUSY' | 'PLUGIN_INACTIVE'
     | 'STORAGE_CONFLICT' | 'INVALID_ARGUMENT' | 'QUOTA_EXCEEDED' | 'HOST_ERROR' | 'NOT_FOUND' | 'VERSION_CONFLICT'
     | 'UNAVAILABLE' | 'CANCELLED' | 'TIMEOUT' | 'NETWORK_ERROR' | 'SERVICE_VERSION' | 'EXPIRED';
@@ -138,14 +140,14 @@ export interface ServiceInput { id: string; method: string; args: Json; caller: 
 export interface ServiceOutput { value: Json; tasks?: string[]; media?: string[] }
 
 export type ModelKind = 'chat' | 'image' | 'speech' | 'embedding';
-export interface ModelConnection { id: string; label: string; model: string; kinds: ModelKind[] }
+export interface ModelConnection { id: string; label: string; model: string; kinds: ModelKind[]; providerKind?: ImageProviderKind | 'chat' | 'embedding' | 'speech'; imageCapabilities?: ImageCapability[]; workflowProfiles?: { id: string; label: string; slots: string[] }[] }
 export type ModelRequest = { connection: string } & (
-    { kind: 'chat'; messages: { role: MessageRole; content: string }[]; maxTokens?: number; temperature?: number; stream?: boolean; schema?: JsonMap }
-    | { kind: 'image'; prompt: string; size?: string }
+    { kind: 'chat'; messages: { role: MessageRole; content: string }[]; maxTokens?: number; temperature?: number; stream?: boolean; schema?: JsonMap; cacheKey?: string }
+    | ImageModelRequest
     | { kind: 'speech'; text: string; voice: string }
     | { kind: 'embedding'; texts: string[] });
 export interface MediaHandle { id: string; mime: string; size: number; name: string }
-export type TaskResult = { kind: 'chat'; text: string; reasoning: string } | { kind: 'image' | 'speech' | 'download'; media: MediaHandle }
+export type TaskResult = { kind: 'chat'; text: string; reasoning: string } | { kind: 'image' | 'speech' | 'download'; media: MediaHandle; seed?: number }
     | { kind: 'embedding'; count: number; dimensions: number; vectors?: number[][] };
 export interface TaskView { id: string; state: 'queued' | 'running' | 'done' | 'cancelled' | 'failed'; cursor: number; delta: string; reasoning: string;
     progress?: number; result?: TaskResult; error?: { code: PluginErrorCode; message: string } }
@@ -163,6 +165,8 @@ export interface PluginApi {
     readonly context: Immutable<{ story: StoryRef | null; target?: MessageRef; route: RouteAddress | null }>;
     readonly settings: Immutable<Settings>;
     readonly story: {
+        participants(): Promise<Immutable<StoryParticipant[]>>;
+        visualSources(): Promise<Immutable<{ characterId: string; layoutMode: 'tipsy-bubble' | 'novel-reader' | 'adv-galgame' | 'im-messenger'; people: string[]; profiles: Record<string, string>; gallery: string[]; characters?: CharacterVisualEntry[] }>>;
         /** Newest page by default, ordered oldest first within a page. Use nextBefore on this snapshot to page further. */
         readMessages(options?: { before?: number; limit?: number }): Promise<Immutable<StoryPage>>;
         getMessage(ref: MessageRef): Promise<Immutable<StoryMessage> | null>;
@@ -191,6 +195,7 @@ export interface PluginApi {
         patchAt(input: StoryStorageTarget & { expectedVersion: number; patch: StoragePatch }): Promise<Immutable<StorageView>>;
     };
     readonly ui: {
+        export(input: { title: string; pages: { text: string; mediaId?: string }[] } | {title:string;route:RouteAddress}): Promise<void>;
         /** Replaces the input draft; never sends it. Available from a user command. */
         replaceDraft(text: string): Promise<void>;
     };
@@ -207,6 +212,7 @@ export interface PluginApi {
     readonly host: { capabilities(): Promise<Immutable<HostCapabilities>> };
     readonly models: { connections(): Promise<Immutable<ModelConnection[]>>; start(input: ModelRequest): Promise<string> };
     readonly tasks: {
+        await(id: string): Promise<Immutable<TaskView>>;
         read(options: { id: string; after?: number; waitMs?: number }): Promise<Immutable<TaskView>>;
         /** Read a finished embedding task in input order, including when vectors do not fit in TaskView. */
         embeddings(options: { id: string; offset?: number; limit?: number }): Promise<Immutable<{ vectors: number[][]; next: number | null }>>;
@@ -214,6 +220,8 @@ export interface PluginApi {
     };
     readonly network: { request(input: OutboundRequest): Promise<Immutable<OutboundResponse>>; download(input: OutboundRequest & { name?: string }): Promise<string> };
     readonly media: {
+        reclaim(): Promise<Immutable<{removed:number}>>;
+        stats(): Promise<Immutable<{ bytes: number; items: number; totalLimit: number; maxItems: number }>>;
         list(options?: { cursor?: string; limit?: number }): Promise<Immutable<Page<MediaHandle>>>;
         put(input: { mime: string; name: string; base64: string }): Promise<Immutable<MediaHandle>>;
         remove(id: string): Promise<void>;
@@ -229,6 +237,8 @@ export interface PluginApi {
         call(input: { id: string; method: string; args: Json }): Promise<Immutable<Json>>;
     };
     readonly log: (message: string) => Promise<void>;
+    readonly jobs: { schedule(input: JobScheduleInput): Promise<string>; awaitReply(): Promise<Immutable<ReplySaved>> };
+    readonly replyMedia: { developing(item: Pick<import('./director.js').ReplyMediaItem, 'slotId' | 'label' | 'aspectRatio' | 'anchor' | 'palette' | 'presentation'> & Partial<Pick<import('./director.js').ReplyMediaItem, 'status' | 'takes' | 'activeTake'>>): Promise<void> };
 }
 export type ReadonlyPluginApi = Pick<PluginApi, 'host' | 'hostApi' | 'context' | 'settings' | 'resources' | 'log'> & {
     readonly storage: Pick<PluginApi['storage'], 'read' | 'readAt'>;
@@ -239,6 +249,9 @@ export type ReadonlyPluginApi = Pick<PluginApi, 'host' | 'hostApi' | 'context' |
 type Awaitable<T> = T | Promise<T>;
 type EventPluginApi = Omit<PluginApi, 'ui' | 'story'> & { readonly story: Omit<PluginApi['story'], 'open'> };
 export interface PluginDefinition {
+    onJob?: (api: EventPluginApi, job: Immutable<JobContext>) => Awaitable<void>;
+    onMediaAction?: (api: EventPluginApi, event: Immutable<MediaAction>) => Awaitable<void>;
+    onReplyCheckpoint?: (api: EventPluginApi, event: Immutable<ReplyCheckpoint>) => Awaitable<void>;
     commands?: Record<string, (api: PluginApi, input: Immutable<CommandInput>) => Awaitable<Panel | void>>;
     onReplySaved?: (api: EventPluginApi, event: Immutable<ReplySaved>) => Awaitable<void>;
     onRouteChanged?: (api: ReadonlyPluginApi, event: Immutable<RouteChanged>) => Awaitable<void>;
