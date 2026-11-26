@@ -15,7 +15,7 @@
     "version": { "type": "string", "minLength": 1, "maxLength": 64 },
     "hostApi": { "type": "string", "minLength": 1, "maxLength": 120 },
     "storageVersion": { "type": "integer", "minimum": 1, "maximum": 65535 },
-    "permissions": { "type": "array", "uniqueItems": true, "items": { "enum": ["story.read", "story.events", "storage.device", "storage.route", "storage.reply", "ui.panel", "composer.draft", "generation.contribute", "resources.read", "story.history", "story.variables", "story.edit", "story.navigate", "assets.read", "assets.write", "generation.pipeline", "generation.tools", "models.use", "network.request", "media.manage", "index.manage", "services.provide", "services.call", "ui.surface"] } },
+    "permissions": { "type": "array", "uniqueItems": true, "items": { "enum": ["story.read", "story.events", "storage.device", "storage.route", "storage.reply", "ui.panel", "composer.draft", "generation.contribute", "resources.read", "story.history", "story.variables", "story.edit", "story.navigate", "assets.read", "assets.write", "generation.pipeline", "generation.tools", "models.use", "network.request", "media.manage", "index.manage", "services.provide", "services.call", "ui.surface", "jobs.run", "ui.stage", "ui.export"] } },
     "entrypoints": {
       "type": "object", "additionalProperties": false, "required": ["main"],
       "properties": { "main": { "$ref": "#/definitions/entry" }, "migrate": { "$ref": "#/definitions/entry" } }
@@ -32,7 +32,7 @@
         }
       }
     },
-    "events": { "type": "array", "uniqueItems": true, "items": { "enum": ["story.replySaved", "story.routeChanged", "story.changed"] } },
+    "events": { "type": "array", "uniqueItems": true, "items": { "enum": ["story.replySaved", "story.routeChanged", "story.changed", "story.replyCheckpoint"] } },
     "generation": { "type": "boolean" },
     "pipeline": { "type": "array", "uniqueItems": true, "items": { "enum": ["beforeScan", "afterScan"] } },
     "macros": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "$ref": "#/definitions/id" } },

@@ -1,6 +1,8 @@
 const routes = new Set([
     '/api/characters/get',
     '/api/characters/merge-attributes',
+    '/api/chats/get',
+    '/api/presets/save',
     '/api/settings/get',
     '/api/worldinfo/get',
     '/api/worldinfo/edit',

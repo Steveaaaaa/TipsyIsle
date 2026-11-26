@@ -1,0 +1,105 @@
+{
+  "$schema": "../../../packages/plugin-sdk/manifest.schema.json",
+  "manifestVersion": 1,
+  "id": "dev.tipsy-isle.lumina-director",
+  "name": "浮光",
+  "publisher": "微醺屿",
+  "description": "无感沉浸式叙事视觉导演：自动提取角色视觉档案、跨分支连续性场记、流式抢跑暗房显影、向量场景闪回与随滚剧场舞台。",
+  "version": "1.2.11",
+  "hostApi": "1.2.0",
+  "storageVersion": 1,
+  "permissions": [
+    "story.read",
+    "story.history",
+    "story.events",
+    "story.variables",
+    "assets.read",
+    "storage.device",
+    "storage.route",
+    "storage.reply",
+    "jobs.run",
+    "models.use",
+    "media.manage",
+    "index.manage",
+    "ui.stage",
+    "ui.surface",
+    "ui.panel",
+    "ui.export",
+    "services.provide"
+  ],
+  "entrypoints": { "main": "main.js" },
+  "events": ["story.replySaved", "story.replyCheckpoint"],
+  "provides": [
+    {
+      "id": "dev.tipsy-isle.lumina-director.visual",
+      "version": "1.0.0",
+      "methods": ["chronicle"]
+    }
+  ],
+  "commands": [
+    { "id": "studio", "label": "本线胶片轨", "location": "composer", "surface": "sidebar" },
+    { "id": "darkroom", "label": "暗房精修台", "location": "message", "role": "assistant", "surface": "dialog" }
+  ],
+  "settings": [
+    {
+      "id": "enabled",
+      "type": "boolean",
+      "label": "开启自动叙事显影",
+      "description": "开启后，在剧情转场、动作高潮或命中卡片镜头标记时自动后台作画。",
+      "default": true
+    },
+    {
+      "id": "pacing",
+      "type": "select",
+      "label": "自动分镜频率",
+      "default": "balanced",
+      "options": [
+        { "value": "restrained", "label": "克制关键帧（至少隔 3 轮回复）" },
+        { "value": "balanced", "label": "标准电影感（至少隔 1 轮回复）" },
+        { "value": "dense", "label": "密集分镜（每轮回复可触发）" },
+        { "value": "markers_only", "label": "仅卡片显式标记" }
+      ]
+    },
+    {
+      "id": "daily_limit",
+      "type": "number",
+      "label": "每日自动显影上限",
+      "description": "本机每日最多自动触发的出图次数（不含手动重绘）。",
+      "default": 24,
+      "min": 1,
+      "max": 200
+    },
+    {
+      "id": "saved_only",
+      "type": "boolean",
+      "label": "仅在回复保存后显影",
+      "description": "关闭流式抢跑，省流模式：等整条回复生成完毕再判断并出图。",
+      "default": false
+    },
+    {
+      "id": "presentation_mode",
+      "type": "select",
+      "label": "默认插图形态",
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "按阅读布局自适应" },
+        { "value": "editorial", "label": "暗房画卷直展" },
+        { "value": "bookmark", "label": "琥珀页边胶片签" }
+      ]
+    },
+    {
+      "id": "art_direction",
+      "type": "text",
+      "label": "补充全局画风与色调",
+      "description": "可选：如 cinematic lighting, cel shaded, muted film grain。",
+      "default": ""
+    },
+    {
+      "id": "override_wallpaper",
+      "type": "boolean",
+      "label": "允许舞台替换我的壁纸",
+      "description": "开启后，即使当前外观已设置自定义壁纸，舞台背景也会同步柔焦切换。",
+      "default": false
+    }
+  ]
+}

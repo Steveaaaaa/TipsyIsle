@@ -29,6 +29,7 @@ import { getActiveChatMessages, preserveAuthorMessageRevision, getEffectiveMvuSe
 import { branchBusy, isNativeStorySaving } from './activity';
 import { routePluginBucketsAt, routeWorldbooks } from './route-resources';
 import { normalizeMessageVariableSnapshots, ensureInitialVariables } from './story-initialization';
+import { syncCharacterScriptsFromLibrary, syncPresetScriptsFromLibrary } from './scripts';
 
 function buildInitialMessages(card: NormalizedCharacterCard): ChatMessageNode[] {
     const firstMes = card.firstMessage ?? '';
@@ -181,7 +182,8 @@ export async function importStorySave(data: StoryImport, characterId: string, co
         const state = workspaceStore.getState();
         const card = state.characters.find(item => item.id === characterId);
         if (data.kind === 'tavern' && !card) throw new Error('目标角色卡已不在馆藏中，请重新选择。');
-        const result = data.kind === 'tipsy' ? restoreStoryResources(data.chat, data.character, state)
+        const source=data.kind==='tipsy'&&await (await import('../../core/story-plugin-archive')).restoreImages(data.chat,data.images??[],async(owner,blob)=>(await (await import('../../plugins/native/media')).saveMedia(owner,'存档插图',blob)).id);
+        const result = data.kind === 'tipsy' ? restoreStoryResources(source || data.chat, data.character, state)
             : { chat: tavernArchive(data, card!), added: { characters: [], lorebooks: [], presets: [] } };
         const chat = { ...result.chat, importedFrom: data.fingerprint };
         const index = await listChatArchives();
@@ -257,6 +259,17 @@ export async function openArchivedChat(id: string, selectedRoute?: string, keepC
 
 export const SYNC_EXTENSIONS = ['tipsy_regex', 'tipsy_worldinfo', 'tavern_helper', 'EjsTemplate', 'quickReplyV2'];
 
+function storyExtensionBucket(key: string, bucket: Record<string, unknown>): Record<string, unknown> {
+    if (key !== 'tavern_helper') return bucket;
+    const { scripts: _globalScripts, ...settings } = bucket;
+    return settings;
+}
+
+export function captureChatExtensions(extension: ReturnType<typeof scopedVariableStore.getState>['extension'], extensionKeys?: string[]): Record<string, unknown> {
+    return Object.fromEntries([...new Set([...SYNC_EXTENSIONS, ...extensionKeys ?? []])]
+        .filter(key => key in extension).map(key => [key, storyExtensionBucket(key, extension[key])]));
+}
+
 export function restoreChatExtensions(extension: ReturnType<typeof scopedVariableStore.getState>['extension'], continuation: NonNullable<ArchivedChat['continuation']>, chatId: string, previousKeys?: string[]): void {
     if (continuation.portable) {
         const config = continuation.extensions.quickReplyV2?.chatConfigs?.[chatId];
@@ -267,7 +280,13 @@ export function restoreChatExtensions(extension: ReturnType<typeof scopedVariabl
         return;
     }
     for (const key of new Set([...SYNC_EXTENSIONS, ...previousKeys ?? [], ...continuation.extensionKeys ?? []])) {
-        if (key in continuation.extensions) extension[key] = structuredClone(continuation.extensions[key]);
+        if (key === 'tavern_helper') {
+            const scripts = extension[key]?.scripts;
+            const settings = storyExtensionBucket(key, continuation.extensions[key] ?? {});
+            if (Array.isArray(scripts)) extension[key] = { ...structuredClone(settings), scripts };
+            else if (Object.keys(settings).length) extension[key] = structuredClone(settings);
+            else delete extension[key];
+        } else if (key in continuation.extensions) extension[key] = structuredClone(continuation.extensions[key]);
         else delete extension[key];
     }
 }
@@ -281,7 +300,7 @@ export function captureChatContinuation(state = workspaceStore.getState(), varia
         preset: { [state.activePresetId]: variables.preset[state.activePresetId] ?? {} },
         chat: { [state.activeChatId]: variables.chat[state.activeChatId] ?? {} },
         message: Object.fromEntries(state.messages.map(message => [message.id, variables.message[message.id] ?? {}])) },
-        extensions: Object.fromEntries([...new Set([...SYNC_EXTENSIONS, ...state.branchExtensionKeys ?? []])].filter(key => key in variables.extension).map(key => [key, variables.extension[key]])),
+        extensions: captureChatExtensions(variables.extension, state.branchExtensionKeys),
         extensionKeys: state.branchExtensionKeys,
         activePresetId: state.activePresetId, inUsePreset: getActivePreset(state), activeLorebookIds: state.activeLorebookIds,
         userName: state.userName, activePersonaId: state.activePersonaId,
@@ -401,7 +420,8 @@ export function applyArchivedChatState(chat: ArchivedChat, keepChoices = false):
         draft.storyCharacterBinding = !chat.continuation?.portable && Object.hasOwn(draft.characterWorldbookBindings, chat.characterId)
             ? undefined
             : structuredClone(chat.continuation?.characterBinding);
-        draft.storyCharacter = structuredClone(chat.continuation?.character);
+        draft.storyCharacter = syncCharacterScriptsFromLibrary(structuredClone(chat.continuation?.character), draft.characters, chat.continuation?.portable);
+        draft.inUsePreset = syncPresetScriptsFromLibrary(draft.inUsePreset, draft.presets, chat.continuation?.portable);
         draft.storyPersona = structuredClone(chat.continuation?.persona);
         draft.branchEpoch = (draft.branchEpoch ?? 0) + 1;
         draft.storyImportFingerprint = chat.importedFrom;

@@ -478,6 +478,13 @@ a { color: var(--ti-accent); text-underline-offset: 3px; }
 .ttm-bottom-sheet h3 { font-size: 16px; }
 .ttm-bottom-sheet-handle { width: 38px; height: 4px; background: var(--ti-border); border-radius: 2px; margin: 0 auto 18px; }
 .ttm-bottom-sheet-actions { display: flex; flex-direction: column; gap: 8px; }
+.ttm-message-edit-dialog { width: min(640px, 100%); }
+.ttm-message-edit-sheet { width: 100%; display: flex; flex-direction: column; gap: 12px; }
+.ttm-message-edit-textarea { width: 100%; min-height: 180px; max-height: 46dvh; padding: 12px 14px; border: 1px solid var(--ti-border); border-radius: 10px; background: var(--ti-bg-primary); color: var(--ti-text-primary); font: 16px/1.6 var(--ti-font-body); resize: vertical; }
+.ttm-message-edit-error { margin: 0; color: var(--ti-danger); font-size: 13px; }
+.ttm-message-edit-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.ttm-message-edit-footer > button { min-height: 44px; }
+.ttm-message-edit-footer > :first-child { margin-right: auto; }
 .ttm-loading { align-items: center; justify-content: center; }
 .ttm-loading-content { width: min(360px, 85vw); text-align: center; padding-block: 40px; }
 .ttm-loading-emblem { display: grid; place-items: center; width: 76px; height: 76px; margin: 0 auto 24px; border: 1px solid var(--ti-border); border-radius: 20px; background: var(--ti-bg-surface); color: var(--ti-accent); }

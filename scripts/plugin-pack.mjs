@@ -9,7 +9,7 @@ try {
     if (args[0] === 'examples') {
         const key = path.join(root, '.runtime', 'plugin-examples.pem');
         try { await keygen(key); } catch (error) { if (error.code !== 'EEXIST') throw error; }
-        for (const name of ['action-options', 'story-journal']) {
+        for (const name of ['action-options', 'story-journal', 'lumina-director']) {
             await pack(path.join(root, 'examples', 'plugins', name), key, path.join(outputDirectory, `${name}.tipsy-plugin`));
         }
     } else await runCli(args, { defaultKey: path.join(root, '.runtime', 'plugin-publisher.pem'), outputDirectory });

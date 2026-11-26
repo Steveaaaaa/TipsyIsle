@@ -11,6 +11,7 @@ import { PluginConnections, PluginResourceAccess } from './PluginAccess';
 import './native-plugins.css';
 
 const permissionLabels: Record<Permission, string> = {
+    'jobs.run': '在后台处理故事作业', 'ui.stage': '随阅读楼层调整舞台背景', 'ui.export': '从面板导出离线画册',
     'story.read': '读取剧情的消息正文和摘要',
     'story.events': '订阅回复、路线和存档更新',
     'storage.device': '读写插件自己的本机数据',

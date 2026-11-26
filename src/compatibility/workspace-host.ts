@@ -4,6 +4,7 @@ import { connectionStore } from '../plugins/native/connections';
 import { openMessagePluginPicker } from '../plugins/native/PluginCommands';
 import { readNativeAfterScan } from '../plugins/native/generation-stages';
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_RESPONSE_TOKENS } from '../core/generation-defaults';
+import { copyTextToClipboard } from '../core/clipboard';
 import { helperRenderDepth } from './render-settings';
 import { installCompatibilityHost, syncCompatibilityFrame, publishCompatibilityGenerationProgress, commandCompatibilityRuntime } from './runtime-client';
 import { analyzeMvuReply } from './mvu-extra-analysis';
@@ -196,6 +197,11 @@ export function installWorkspaceCompatibility(): void {
             const ctx = context();
             switch (method) {
                 case 'extension.illustration.open': window.dispatchEvent(new CustomEvent('tipsy-extension-illustration', { detail: String(params.id) })); return;
+                case 'ui.copy': {
+                    const ok = await copyTextToClipboard(String(params.text ?? ''));
+                    setStatusBanner(ok ? '已复制到剪贴板' : '复制失败，请长按正文手动选择复制', { kind: ok ? 'success' : 'error' });
+                    return ok;
+                }
                 case 'extension.media': {
                     const path = String(params.path);
                     if (!/^\/api\/(images\/(?:upload|folders|list(?:\/[^/]+)?|delete)|files\/(?:upload|delete|verify))$/.test(path)) throw new Error('无效的扩展媒体接口');
@@ -261,7 +267,14 @@ export function installWorkspaceCompatibility(): void {
                         for (const [id, value] of Object.entries(params.settings)) {
                             removed.delete(id);
                             if (value && typeof value === 'object' && !Array.isArray(value)) {
-                                writeExtensionVariables(draft.extension, id, value as Record<string, unknown>); delete values[id];
+                                if (id === 'tavern_helper') {
+                                    const liveScripts = (draft.extension.tavern_helper as Record<string, unknown> | undefined)?.scripts;
+                                    const { scripts: _ignored, ...rest } = value as Record<string, unknown>;
+                                    const nextHelper = Array.isArray(liveScripts) ? { ...rest, scripts: liveScripts } : rest;
+                                    writeExtensionVariables(draft.extension, id, nextHelper); delete values[id];
+                                } else {
+                                    writeExtensionVariables(draft.extension, id, value as Record<string, unknown>); delete values[id];
+                                }
                             } else values[id] = value;
                         }
                         for (const id of params.removed ?? []) { removed.add(id); delete values[id]; }
@@ -340,7 +353,13 @@ export function installWorkspaceCompatibility(): void {
                     for (const [index, node] of messages.entries()) {
                         const row = params.rows[index], parent = messages[index - 1];
                         if (parent) node.parentSwipeId = swipeId(parent);
-                        node.extra = { ...node.extra, helperSwipeInfo: { ...row.swipe_info, [node.activeSwipeIndex]: row.extra ?? {} } };
+                        node.extra = {
+                            ...node.extra,
+                            helperSwipeInfo: {
+                                ...Object.fromEntries((row.swipe_info ?? []).map((info: any, idx: number) => [idx, info?.extra && typeof info.extra === 'object' ? info.extra : info ?? {}])),
+                                [node.activeSwipeIndex]: row.extra ?? {},
+                            },
+                        };
                         if (row.is_system) hidden[swipeId(node)] = true;
                         if (baibaiLeaf(row.extra ?? {}, node.activeSwipeIndex)) scopedMessages[routeMessageKey(node)] = { memoryBody: baibaiHash(baibaiBody(node.content)) };
                     }
@@ -359,6 +378,10 @@ export function installWorkspaceCompatibility(): void {
                     const node = getActiveChatMessages().find(m => m.floor === Number(params.floor));
                     if (!node) throw new Error('消息楼层不存在');
                     await deleteChatMessage(node.id, true); return true;
+                }
+                case 'chat.edit': {
+                    window.dispatchEvent(new CustomEvent('tipsy-edit-message', { detail: { messageId: String(params.id ?? '') } }));
+                    return true;
                 }
                 case 'chat.swipe': {
                     const node = getActiveChatMessages().find(m => m.floor === Number(params.floor));

@@ -6,6 +6,7 @@ import type { ReadingPresentation } from '../theme/reading-presentation';
 import type { ReadingNavigationProps } from '../shell/reading-navigation';
 import { readReadingBookmark } from '../shell/reading-bookmark';
 import { CompatibilityLoading } from './CompatibilityLoading';
+import { CompatibilityFilms } from './CompatibilityFilms';
 
 /** Separate origin: nested documents share APIs without accessing the application origin. */
 export function CompatibilityChat({ session, visible = true, extensionPanel = false, closeExtensionPanel, replyId, jumpRequest, onReadingActivity, onReplyPosition }: {
@@ -115,9 +116,10 @@ export function CompatibilityChat({ session, visible = true, extensionPanel = fa
     return <>{preparing && !popupOpen && <div className="ttm-compatibility-loading-cover"><CompatibilityLoading key={`${session}:${epoch}`} stage={startupStage} /></div>}
         {extensionPanel && <button type="button" className="ttm-btn-secondary ttm-extension-panel-close" onClick={closeExtensionPanel}>返回聊天</button>}
         {popupOpen && visible && <div className="ttm-compatibility-chat" aria-hidden="true" />}
+        {visible && !preparing && <CompatibilityFilms key={`${session}:${epoch}`} frame={frame} session={session} showStage={!popupOpen} />}
         <iframe key={epoch} ref={frame} hidden={!frameVisible} style={!frameVisible ? { display: 'none' } : undefined} aria-hidden={(preparing && !popupOpen) || !frameVisible} {...(preparing && !popupOpen ? { inert: '', tabIndex: -1 } : {})} onLoad={() => {
         publishPresentation();
         publishView();
         frame.current?.contentWindow?.postMessage({ kind: 'compat:ping' }, compatibilityOrigin);
-    }} className={`ttm-compatibility-chat${panelOverlay ? ' ttm-extension-panel-frame' : ''}${popupOpen ? ' ttm-compat-popup-frame' : ''}`} title="角色卡兼容运行环境" allow="autoplay; fullscreen" allowFullScreen sandbox="allow-scripts allow-same-origin allow-modals" src={`${compatibilityOrigin}/compat.html?session=${encodeURIComponent(initialSession.current)}&view=${initialVisible.current ? 'chat' : 'worker'}`} /></>;
+    }} className={`ttm-compatibility-chat${panelOverlay ? ' ttm-extension-panel-frame' : ''}${popupOpen ? ' ttm-compat-popup-frame' : ''}`} title="角色卡兼容运行环境" allow="autoplay; fullscreen; clipboard-write" allowFullScreen sandbox="allow-scripts allow-same-origin allow-modals" src={`${compatibilityOrigin}/compat.html?session=${encodeURIComponent(initialSession.current)}&view=${initialVisible.current ? 'chat' : 'worker'}`} /></>;
 }

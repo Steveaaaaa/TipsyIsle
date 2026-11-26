@@ -17,11 +17,11 @@ export {
     bindHelperChatWorldbook, removeLibraryWorldbook,
 } from './workspace/library-actions';
 export { hydrateWorkspaceFromPlatform } from './workspace/hydrate';
-export { saveLegacyChat, editHelperChatMessage, setHelperChatMessages, createHelperChatMessages, deleteHelperChatMessages, rotateHelperChatMessages, editChatMessage, attachReplyIllustration, deleteChatMessage, swipeChatMessage } from './workspace/message-edits';
+export { saveLegacyChat, editHelperChatMessage, setHelperChatMessages, createHelperChatMessages, deleteHelperChatMessages, rotateHelperChatMessages, editChatMessage, editMessageInPlace, attachReplyIllustration, deleteChatMessage, swipeChatMessage } from './workspace/message-edits';
 
 export { stopActiveGeneration, regenerateLastAssistantMessage, reprocessLastMvuMessage, type MvuRepairPreview, prepareMvuRepair, applyMvuRepair, canUndoMvuRepair, undoMvuRepair, repairLastMvuMessage, sendUserMessageAndGenerate } from './workspace/generation';
 export { appendChatMessage } from './workspace/messages';
-export { getWorkspaceScriptTrees, getWorkspaceScripts, replaceWorkspaceScriptTrees } from './workspace/scripts';
+export { getWorkspaceScriptTrees, getWorkspaceScripts, replaceWorkspaceScriptTrees, syncCharacterScriptsFromLibrary, syncPresetScriptsFromLibrary } from './workspace/scripts';
 export { validateHelperVariableWrite, saveHelperVariables, commitMvuInitialization, commitMvuMessage } from './workspace/story-variables';
 export { commitPromptVariableChanges, commitPromptTask } from './workspace/prompt-commit';
 

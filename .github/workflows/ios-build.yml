@@ -1,0 +1,111 @@
+name: Build iOS
+
+on:
+  push:
+    branches:
+      - codex/ios-1.1.6
+  workflow_dispatch:
+    inputs:
+      signed:
+        description: Sign for App Store Connect (required for TestFlight and App Store)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      SIGNED: ${{ (github.event_name == 'push' && vars.APPLE_DEVELOPMENT_TEAM != '') || (github.event_name == 'workflow_dispatch' && inputs.signed) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up iOS toolchain
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          rustup target add aarch64-apple-ios
+          command -v xcodegen >/dev/null || brew install xcodegen
+          if ! xcrun simctl list runtimes available | grep '^iOS ' >/dev/null; then
+            xcodebuild -downloadPlatform iOS
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate the Xcode project
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ env.SIGNED == 'true' && vars.APPLE_DEVELOPMENT_TEAM || '' }}
+        run: |
+          if [[ "$SIGNED" == true ]]; then
+            : "${APPLE_DEVELOPMENT_TEAM:?Set the APPLE_DEVELOPMENT_TEAM repository variable}"
+          else
+            unset APPLE_DEVELOPMENT_TEAM
+          fi
+          npm run tauri -- ios init --ci --skip-targets-install
+          cp src-tauri/icons/ios/*.png src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/
+
+      - name: Build unsigned IPA
+        if: ${{ env.SIGNED != 'true' }}
+        run: npm run tauri -- ios build --ci --target aarch64 --no-sign
+
+      - name: Build signed IPA
+        if: ${{ env.SIGNED == 'true' }}
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ vars.APPLE_DEVELOPMENT_TEAM }}
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+        run: |
+          : "${APPLE_DEVELOPMENT_TEAM:?Set the APPLE_DEVELOPMENT_TEAM repository variable}"
+          : "${IOS_CERTIFICATE:?Set the IOS_CERTIFICATE repository secret}"
+          : "${IOS_CERTIFICATE_PASSWORD:?Set the IOS_CERTIFICATE_PASSWORD repository secret}"
+          : "${IOS_MOBILE_PROVISION:?Set the IOS_MOBILE_PROVISION repository secret}"
+          npm run tauri -- ios build --ci --target aarch64 --export-method app-store-connect
+
+      - name: Verify and name the IPA
+        id: ipa
+        run: |
+          shopt -s nullglob
+          packages=(src-tauri/gen/apple/build/arm64/*.ipa)
+          if [[ ${#packages[@]} != 1 ]]; then
+            echo 'Expected one iOS IPA' >&2
+            exit 1
+          fi
+          extracted="$RUNNER_TEMP/tipsy-ios-ipa"
+          ditto -x -k "${packages[0]}" "$extracted"
+          apps=("$extracted"/Payload/*.app)
+          [[ ${#apps[@]} == 1 ]]
+          version="$(node -p 'require("./src-tauri/tauri.ios.conf.json").version')"
+          expected_id="$(node -p 'require("./src-tauri/tauri.conf.json").identifier')"
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "${apps[0]}/Info.plist")" == "$version" ]]
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "${apps[0]}/Info.plist")" == "$expected_id" ]]
+          name="TipsyIsle-${version}-ios-arm64"
+          if [[ "$SIGNED" == true ]]; then
+            codesign --verify --deep --strict "${apps[0]}"
+          else
+            name="$name-unsigned"
+          fi
+          mkdir -p releases
+          cp "${packages[0]}" "releases/$name.ipa"
+          printf 'name=%s\n' "$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.ipa.outputs.name }}
+          path: releases/${{ steps.ipa.outputs.name }}.ipa
+          if-no-files-found: error
+          compression-level: 0

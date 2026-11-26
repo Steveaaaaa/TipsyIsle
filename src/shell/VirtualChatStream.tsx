@@ -1,3 +1,5 @@
+import { copyTextToClipboard } from '../core/clipboard';
+import { openMessageEditor } from './MessageEditDialog';
 import { openStoryRoutes } from './StoryRoutes';
 import { routesAt } from '../store/chat-tree';
 import { workspaceStore, setStatusBanner } from '../store/workspace-store';
@@ -7,6 +9,8 @@ import { renderMessageMarkdown, renderMixedMessage } from '../pipeline/message-m
 import { getMessageStreamPreview, getMessageComponentTargets } from '../store/workspace-store';
 import { StreamingMessage } from './StreamingMessage';
 import { SandboxFrame } from '../sandbox/SandboxFrame';
+import { InlineMedia, StageLight } from '../plugins/native/ReplyMediaSlot';
+import { resolveActiveStage } from '../plugins/native/reply-media';
 import { SlotMount } from '../plugins/slot-registry';
 import { PluginButtons } from '../plugins/native/PluginCommands';
 import { Icon } from './Icon';
@@ -76,6 +80,8 @@ export function VirtualChatStream({
 }: VirtualChatStreamProps) {
     const allMessages = workspaceStore.useStore(state => state.messages);
     const branchEpoch = workspaceStore.useStore(state => state.branchEpoch);
+    const isGenerating = workspaceStore.useStore(state => state.isGenerating);
+    const helperGenerationCount = workspaceStore.useStore(state => state.helperGenerationCount);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const introductionRef = useRef<HTMLDivElement | null>(null);
     const [introductionHeight, setIntroductionHeight] = useState(0);
@@ -306,9 +312,19 @@ export function VirtualChatStream({
                 setScrollTop(el.scrollTop);
             }}
         >
+            {messages.length > 0 && (
+                <div className="ti-stage-sticky" aria-hidden="true">
+                    <StageLight
+                        height={viewportHeight || '100vh'}
+                        slot={resolveActiveStage(
+                            messages,
+                            Math.max(0, (offsets.findIndex((offset) => offset > scrollTop + viewportHeight * 0.35) + 1 || messages.length + 1) - 2),
+                        )}
+                    />
+                </div>
+            )}
             {introduction && <div ref={introductionRef} className="ttm-stream-introduction">{introduction}</div>}
             { topPadding > 0 && <div style={{ height: `${topPadding}px`, flexShrink: 0 }} aria-hidden="true" /> }
-
             {visibleSlice.map((node) => {
                 const speakerName = node.role === 'user' ? userName : node.role === 'assistant' ? storySpeakerName(node.speakerName, characterName) : node.speakerName;
                 const formatted = renderFormattedContent(node);
@@ -354,6 +370,7 @@ export function VirtualChatStream({
                                         key={`${node.id}_${branchEpoch}_sbx_${idx}`}
                                         htmlContent={block.type === 'mixed' ? renderMixedMessage(block.content) : block.content}
                                         componentTargets={getMessageComponentTargets(node)}
+                                        messageNode={node}
                                         messageId={node.id}
                                         floor={node.floor}
                                         characterId={characterId}
@@ -368,6 +385,7 @@ export function VirtualChatStream({
                                         onReadingActivity={handleReadingActivity}
                                     />
                                 ))}
+                                {!freeChat&&<InlineMedia node={node} source={formatted}/>}
                             </div>
 
                         {!freeChat && <footer className="ttm-msg-footer">
@@ -386,6 +404,31 @@ export function VirtualChatStream({
                         <div className="ttm-section-head-row"><h3 id="message-actions-title">{actionSheetNode.speakerName} · #{actionSheetNode.floor}</h3><button type="button" className="ttm-icon-btn" aria-label="关闭消息操作" onClick={() => setActionSheetNode(null)}><Icon name="close" /></button></div>
                         <div className="ttm-bottom-sheet-actions">
                             {actionSheetNode.isHidden && <p>已从模型上下文隐藏</p>}
+                            <button
+                                type="button"
+                                className="ttm-btn-ghost"
+                                onClick={() => {
+                                    const text = actionSheetNode.content;
+                                    setActionSheetNode(null);
+                                    void copyTextToClipboard(text).then(ok => {
+                                        setStatusBanner(ok ? '已复制到剪贴板' : '复制失败，请长按正文手动选择复制', { kind: ok ? 'success' : 'error' });
+                                    });
+                                }}
+                            >
+                                复制内容
+                            </button>
+                            <button
+                                type="button"
+                                className="ttm-btn-ghost"
+                                disabled={isGenerating || helperGenerationCount > 0 || !!actionSheetNode.extra?.tipsy_generation_incomplete}
+                                onClick={() => {
+                                    const id = actionSheetNode.id;
+                                    setActionSheetNode(null);
+                                    openMessageEditor(id);
+                                }}
+                            >
+                                修改内容
+                            </button>
                             {!freeChat && <><SlotMount name="message.actions" slotProps={{ message: actionSheetNode }} />
                             <PluginButtons message={actionSheetNode} onOpen={() => setActionSheetNode(null)} /></>}
                             {onIllustrateMessage && actionSheetNode.role === 'assistant' && !actionSheetNode.extra?.tipsy_generation_incomplete && <button type="button" className="ttm-btn-ghost" onClick={() => { onIllustrateMessage(actionSheetNode.id); setActionSheetNode(null); }}>本楼配图</button>}

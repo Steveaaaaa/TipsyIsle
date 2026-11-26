@@ -1,10 +1,12 @@
 import { z } from 'zod';
-import type { ModelRequest, TaskResult, TaskView } from '../../../packages/plugin-sdk/index.js';
+import type { ModelRequest, Permission, TaskResult, TaskView } from '../../../packages/plugin-sdk/index.js';
+import { imageRequest } from './image-protocol';
+import { generateImage } from './image-adapter';
 import { detectRuntimeFlavor, streamLlmCompletion } from '../../core/platform-bridge';
 import { isNativeRuntime, platformFetch, compatibilityOrigin } from '../../core/native-runtime';
 import { authorizedConnection, httpEndpoint } from './connections';
 import { fromBase64, readLimited } from './bytes';
-import { mediaLimit, saveMedia } from './media';
+import { mediaLimit, saveMedia, transcodeToWebP } from './media';
 import { idSchema, jsonObject, missing, roleSchema, sliceInt } from './edits';
 import { PluginApiError } from './errors';
 
@@ -107,6 +109,18 @@ export function subscribeTask(owner: string, id: string, update: () => void) {
     const task = byOwner(owner, id); task.listeners.add(update);
     return () => { task.listeners.delete(update); };
 }
+export async function awaitTask(owner: string, args: unknown, signal: AbortSignal) {
+    const task = byOwner(owner, idSchema.parse(args));
+    signal.throwIfAborted();
+    if (!terminal(task.state)) await new Promise<void>(resolve => {
+        const wake = () => {
+            if (!signal.aborted && !terminal(task.state)) return;
+            task.listeners.delete(wake); signal.removeEventListener('abort', wake); resolve();
+        };
+        task.listeners.add(wake); signal.addEventListener('abort', wake, { once: true }); wake();
+    });
+    signal.throwIfAborted(); return taskView(owner, task.id);
+}
 export async function readTask(owner: string, args: unknown, signal: AbortSignal) {
     const { id, after, waitMs = 0 } = z.strictObject({ id: idSchema, after: sliceInt.optional(), waitMs: sliceInt.max(1500).optional() }).parse(args);
     const task = byOwner(owner, id);
@@ -121,12 +135,12 @@ export async function readTask(owner: string, args: unknown, signal: AbortSignal
 
 const model = z.discriminatedUnion('kind', [
     z.strictObject({ kind: z.literal('chat'), connection: idSchema, messages: z.array(z.strictObject({ role: roleSchema, content: z.string().max(150_000) })).min(1).max(256),
-        maxTokens: z.number().int().min(1).max(24_000).optional(), temperature: z.number().min(0).max(2).optional(), stream: z.boolean().optional(), schema: z.unknown().optional() }),
-    z.strictObject({ kind: z.literal('image'), connection: idSchema, prompt: z.string().min(1).max(16_000), size: z.string().regex(/^\d{2,4}x\d{2,4}$|^auto$/).optional() }),
+        maxTokens: z.number().int().min(1).max(24_000).optional(), temperature: z.number().min(0).max(2).optional(), stream: z.boolean().optional(), schema: z.unknown().optional(), cacheKey:idSchema.optional() }),
+    imageRequest,
     z.strictObject({ kind: z.literal('speech'), connection: idSchema, text: z.string().min(1).max(20_000), voice: z.string().min(1).max(80) }),
     z.strictObject({ kind: z.literal('embedding'), connection: idSchema, texts: z.array(z.string().min(1).max(20_000)).min(1).max(16) }),
 ]);
-export async function startModel(owner: string, args: unknown, grants: string[], signal: AbortSignal) {
+export async function startModel(owner: string, args: unknown, grants: string[], signal: AbortSignal, permissions:Permission[]=[]) {
     const data = model.parse(args) as ModelRequest;
     const connection = await authorizedConnection(data.connection, data.kind, grants);
     if (data.kind === 'chat' && data.schema) jsonObject(data.schema);
@@ -139,11 +153,14 @@ export async function startModel(owner: string, args: unknown, grants: string[],
                     ...(data.schema && { response_format: { type: 'json_schema', json_schema: { name: 'plugin_response', schema: data.schema } } }) } });
             return { kind: 'chat', text: response.content, reasoning: response.reasoning };
         }
-        const path = data.kind === 'image' ? 'images/generations' : data.kind === 'speech' ? 'audio/speech' : 'embeddings';
+        if (data.kind === 'image') {
+            const {blob,seed}=await generateImage(connection,data,owner,permissions,task.signal);
+            return {kind:'image',seed,media:await saveMedia(owner,'生成图像',connection.preservePng?blob:await transcodeToWebP(blob),task.signal)};
+        }
+        const path = data.kind === 'speech' ? 'audio/speech' : 'embeddings';
         const endpoint = new URL(httpEndpoint(connection.baseUrl));
         if (!endpoint.pathname.endsWith('/' + path)) endpoint.pathname = endpoint.pathname.replace(/\/(?:chat\/completions|images\/generations|audio\/speech|embeddings)\/?$/, '').replace(/\/$/, '') + '/' + path;
-        const body = { model: connection.model, ...(data.kind === 'image' ? { prompt: data.prompt, ...(data.size && { size: data.size }) }
-            : data.kind === 'speech' ? { input: data.text, voice: data.voice } : { input: data.texts }) };
+        const body = { model: connection.model, ...(data.kind === 'speech' ? { input: data.text, voice: data.voice } : { input: data.texts }) };
         const headers = { 'Content-Type': 'application/json', ...(connection.apiKey && { Authorization: `Bearer ${connection.apiKey}` }) };
         const gateway = await detectRuntimeFlavor() === 'local-gateway';
         const response = await (gateway ? fetch('/api/tipsy-isle/llm/artifact', { method: 'POST', signal: task.signal, headers: { 'Content-Type': 'application/json' },
@@ -160,17 +177,7 @@ export async function startModel(owner: string, args: unknown, grants: string[],
             }
             return { kind: 'embedding', vectors: values.map(row => row.embedding) };
         }
-        const image = payload.data?.[0];
-        let blob: Blob;
-        if (typeof image?.b64_json === 'string') blob = new Blob([fromBase64(image.b64_json)], { type: 'image/png' });
-        else if (typeof image?.url === 'string') {
-            const address = httpEndpoint(image.url);
-            // Image URLs are returned by the approved provider. Never forward its credentials.
-            const raw = await noRedirect(checkExternal(address).href, { signal: task.signal, credentials: 'omit' });
-            if (!raw.ok) throw new PluginApiError('NETWORK_ERROR', `读取生成图像失败 (${raw.status})`);
-            blob = await readLimited(raw, mediaLimit, task.signal, task.progress);
-        } else throw new PluginApiError('NETWORK_ERROR', '模型未返回图像');
-        return { kind: 'image', media: await saveMedia(owner, '生成图像', blob, task.signal) };
+        throw new PluginApiError('INVALID_ARGUMENT','未知模型任务');
     });
 }
 

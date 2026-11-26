@@ -8,6 +8,7 @@ export default defineConfig({
     generateBundle() {
       const paths = ['script.js', 'scripts/extensions.js', 'scripts/world-info.js', 'scripts/openai.js', 'scripts/user.js',
         'scripts/slash-commands.js', 'scripts/popup.js', 'scripts/extensions/quick-reply/index.js',
+        'scripts/extensions/regex/engine.js', 'scripts/preset-manager.js', 'scripts/showdown-underscore.js', 'scripts/showdown-exclusion.js', 'scripts/power-user.js',
         ...['SlashCommand','SlashCommandArgument','SlashCommandScope','SlashCommandClosure','SlashCommandParser',
           'SlashCommandAbortController','SlashCommandBreakController','SlashCommandClosureResult']
           .map(name => 'scripts/slash-commands/' + name + '.js')];

@@ -12,6 +12,7 @@ import { persistWorkspace } from './storage';
 import { normalizeMessageVariableSnapshots, ensureInitialVariables } from './story-initialization';
 import { captureChatContinuation } from './sessions';
 import { restoreMessageSnapshot } from './branches';
+import { syncCharacterScriptsFromLibrary, syncPresetScriptsFromLibrary } from './scripts';
 
 export async function hydrateWorkspaceFromPlatform(preview = true): Promise<void> {
     const chat = await platformStorage.loadSnapshot<(Partial<WorkspaceState> & { snapshotVersion?: number }) | null>('workspace_snapshot', null);
@@ -86,6 +87,8 @@ export async function hydrateWorkspaceFromPlatform(preview = true): Promise<void
             if (Array.isArray(saved.presets)) draft.presets = saved.presets;
             if (saved.activePresetId) draft.activePresetId = saved.activePresetId;
             draft.inUsePreset = saved.inUsePreset ?? draft.presets.find(item => item.id === draft.activePresetId);
+            draft.storyCharacter = syncCharacterScriptsFromLibrary(draft.storyCharacter, draft.characters, draft.portableStory);
+            draft.inUsePreset = syncPresetScriptsFromLibrary(draft.inUsePreset, draft.presets, draft.portableStory);
             if (saved.activeChatId) draft.activeChatId = saved.activeChatId;
             if (messages) draft.messages = messages;
             draft.activeLeafId = saved.activeLeafId === null && (saved.snapshotVersion ?? 1) >= 2 ? null : saved.activeLeafId ?? draft.messages.at(-1)?.id ?? null;

@@ -28,7 +28,7 @@ import { notifyMessage } from './messages';
 import { baibaiBody, baibaiHash, baibaiRouteFields, isBaibaiNoteEdit } from '../../compatibility/baibai-route';
 import { remapRouteMessageData, routeContent, routeMessageDataKey, routeMessages, routeMessageKey, type RouteMessageData } from '../route-message-data';
 
-type LegacyMessagePatch = { id: string; swipe: number; content: string; mes?: string; hidden?: boolean; extra?: Record<string, unknown>; variables?: Record<string, unknown> };
+type LegacyMessagePatch = { id: string; swipe: number; content: string; mes?: string; hidden?: boolean; extra?: Record<string, unknown>; swipeInfo?: Record<number, Record<string, unknown>>; topLevel?: Record<string, unknown>; variables?: Record<string, unknown> };
 
 type LegacyMetadataPatch = { values: Record<string, unknown>; removed: string[] };
 
@@ -56,7 +56,7 @@ export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<st
     const path = new Map(getActiveChatMessages(state).map(node => [node.id, node]));
     const hidden = { ...state.chatMetadata?.[hostHiddenKey] as Record<string, boolean> | undefined };
     let hiddenChanged = false;
-    const edits = new Map<string, { swipe: number; mes?: string; extra?: Record<string, unknown> }>();
+    const edits = new Map<string, { swipe: number; mes?: string; extra?: Record<string, unknown>; swipeInfo?: Record<number, Record<string, unknown>>; topLevel?: Record<string, unknown> }>();
     const routeEdits = new Map<string, RouteMessageData>();
     const writes: Array<{ floor: number; value: Record<string, unknown> }> = [];
     for (const message of rows) {
@@ -82,12 +82,35 @@ export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<st
             }
             if (_.isEqual(extra, shared)) extra = undefined;
         }
+        const swipeInfoUpdates: Record<number, Record<string, unknown>> = {};
+        if (message.swipeInfo) {
+            for (const [rawIndex, infoExtra] of Object.entries(message.swipeInfo)) {
+                const swipeIndex = Number(rawIndex);
+                if (!Number.isInteger(swipeIndex) || swipeIndex < 0 || !infoExtra || typeof infoExtra !== 'object') continue;
+                const baselineSwipe = messageExtra(node, swipeIndex, state.chatMetadata);
+                const cleaned = { ...infoExtra };
+                for (const k of baibaiRouteFields) {
+                    if (Object.hasOwn(baselineSwipe, k)) cleaned[k] = baselineSwipe[k]; else delete cleaned[k];
+                }
+                if (!_.isEqual(cleaned, baselineSwipe)) swipeInfoUpdates[swipeIndex] = cleaned;
+            }
+        }
+        const currentTopLevel = (node.extra?.helperTopLevel as Record<string, unknown> | undefined) ?? {};
+        const topLevel = message.topLevel && !_.isEqual(message.topLevel, currentTopLevel) ? structuredClone(message.topLevel) : undefined;
         if (mes !== undefined && isBaibaiNoteEdit(visible!, mes)) {
             scoped.content = { base: node.content, value: mes };
             mes = undefined;
         }
         if (!_.isEqual(scoped, prior ?? {})) routeEdits.set(key, scoped);
-        if (mes !== undefined || extra) edits.set(node.id, { swipe: node.activeSwipeIndex, mes, extra });
+        if (mes !== undefined || extra || Object.keys(swipeInfoUpdates).length || topLevel) {
+            edits.set(node.id, {
+                swipe: node.activeSwipeIndex,
+                mes,
+                extra,
+                ...(Object.keys(swipeInfoUpdates).length ? { swipeInfo: swipeInfoUpdates } : {}),
+                ...(topLevel ? { topLevel } : {}),
+            });
+        }
         if (message.variables && !_.isEqual(message.variables, readScopedVariables('message', { messageId: node.id }))) writes.push({ floor: node.floor, value: message.variables });
         if (message.hidden !== undefined && message.hidden !== hostMessageHidden(node, state.chatMetadata) && !node.isHidden) {
             if (message.hidden) hidden[swipeId(node)] = true; else delete hidden[swipeId(node)];
@@ -108,7 +131,19 @@ export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<st
             for (const node of draft.messages) {
                 const patch = edits.get(node.id);
                 if (!patch) continue;
-                if (patch.extra) node.extra = { ...node.extra, helperSwipeInfo: { ...node.extra?.helperSwipeInfo as object, [patch.swipe]: patch.extra } };
+                if (patch.extra || patch.swipeInfo || patch.topLevel) {
+                    node.extra = {
+                        ...node.extra,
+                        ...(patch.extra || patch.swipeInfo ? {
+                            helperSwipeInfo: {
+                                ...node.extra?.helperSwipeInfo as object,
+                                ...patch.swipeInfo,
+                                ...(patch.extra ? { [patch.swipe]: patch.extra } : {}),
+                            },
+                        } : {}),
+                        ...(patch.topLevel ? { helperTopLevel: patch.topLevel } : {}),
+                    };
+                }
                 const key = swipeId(node, patch.swipe);
                 if (patch.mes !== undefined) {
                     const previous = node.swipes[patch.swipe];
@@ -128,8 +163,14 @@ export function saveLegacyChat(rows: LegacyMessagePatch[], variables?: Record<st
                         const original = point.reply.swipe;
                         point.reply.swipe = typeof original === 'object' ? { ...original, content: patch.mes } : patch.mes;
                     }
-                    if (patch.extra) point.reply.extra = { ...point.reply.extra,
-                        helperSwipeInfo: { ...point.reply.extra?.helperSwipeInfo as object, [patch.swipe]: patch.extra } };
+                    const branchExtra = patch.extra ?? patch.swipeInfo?.[patch.swipe];
+                    if (branchExtra || patch.topLevel) {
+                        point.reply.extra = {
+                            ...point.reply.extra,
+                            ...(branchExtra ? { helperSwipeInfo: { ...point.reply.extra?.helperSwipeInfo as object, [patch.swipe]: branchExtra } } : {}),
+                            ...(patch.topLevel ? { helperTopLevel: patch.topLevel } : {}),
+                        };
+                    }
                 }
             }
         });
@@ -419,6 +460,68 @@ export async function editChatMessage(messageId: string, newContent: string): Pr
         schedulePreview();
     }
     return updated;
+}
+
+/**
+ * Edit an existing message's active content in place without truncating subsequent floors
+ * or triggering a full compatibility branch reset.
+ */
+export async function editMessageInPlace(messageId: string, newContent: string): Promise<boolean> {
+    if (isNativeStorySaving() || workspaceStore.getState().isGenerating) {
+        throw new Error('生成或保存期间不能修改消息');
+    }
+    const visible = getActiveChatMessages();
+    const resolvedId = visible.find(node => node.id === messageId)?.id ?? visible.find(node => String(node.floor) === String(messageId))?.id;
+    const source = visible.find(node => node.id === resolvedId);
+    if (!source) return false;
+    if (source.extra?.tipsy_generation_incomplete) {
+        throw new Error('不能修改尚在生成的消息');
+    }
+    if (source.content === newContent) return true;
+    if (workspaceStore.getState().sessionKind !== 'free') await settleRouteChange(true);
+    let updated = false;
+    workspaceStore.setState((draft) => {
+        const target = draft.messages.find((m) => m.id === source.id);
+        if (!target) return;
+        const finalContent = draft.sessionKind !== 'free'
+            ? applyRegexScripts(newContent, orderedRegexScripts(globalRegexes(), getActivePreset().regexScripts, getActiveCharacter().regexScripts), {
+                stage: target.role === 'user' ? 'user_input' : 'ai_output',
+                role: target.role,
+                isEdit: true,
+                macroContext: { userName: draft.userName, charName: getActiveCharacter().name },
+            })
+            : newContent;
+        const key = swipeId(target);
+        target.content = finalContent;
+        const swipe = target.swipes[target.activeSwipeIndex];
+        target.swipes[target.activeSwipeIndex] = typeof swipe === 'string' || swipe === undefined
+            ? finalContent
+            : { ...swipe, content: finalContent };
+        target.updatedAt = Date.now();
+        delete target.storySummaries?.[key];
+        if (target.floor === 0 && visible.length === 1 && finalContent !== source.content && textHasMvuSetup(finalContent)) {
+            target.extra = { ...target.extra, tipsy_mvu_initialization_pending: true };
+        }
+        for (const point of [target.branchBases?.[key], target.branchStates?.[key]]) {
+            if (!point?.reply) continue;
+            point.reply.content = finalContent;
+            const original = point.reply.swipe;
+            point.reply.swipe = typeof original === 'string' || original === undefined
+                ? finalContent
+                : { ...original, content: finalContent };
+        }
+        updated = true;
+    });
+    if (!updated) return false;
+    const latestState = workspaceStore.getState();
+    if (latestState.sessionKind !== 'free' && latestState.activeLeafId) {
+        captureMessageSnapshot(latestState.activeLeafId);
+    }
+    persistWorkspace();
+    schedulePreview();
+    const updatedNode = getActiveChatMessages().find(m => m.id === source.id);
+    if (updatedNode) notifyMessage('message_edited', updatedNode);
+    return true;
 }
 
 export function attachReplyIllustration(expected: { chatId: string; branchEpoch?: number; messageId: string; swipeId: string; content: string }, illustration: HostIllustration): boolean {

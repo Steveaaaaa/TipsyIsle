@@ -6,9 +6,9 @@ import { importCharacterFile } from '../core/character-import';
 import { serializeCharacterCard, serializeRegexRule } from '../pipeline/asset-serializer';
 import { characterAvatarId } from './asset-identity';
 import { fromTavernRegexes, toTavernRegex } from './regex-codec';
-import { defaultHelperPreset, fromHelperPreset, toHelperPreset } from './preset-codec';
+import { defaultHelperPreset, fromHelperPreset, fromNativePreset, toHelperPreset, toNativePreset } from './preset-codec';
 import type { NormalizedCharacterCard, NormalizedPreset } from '../types';
-import { getSchemaValues, schemaRegistryStore } from '../registry/schema-registry';
+import { getSchemaValues, schemaRegistryStore, setSchemaValue } from '../registry/schema-registry';
 
 export function findHelperCharacter(name: string): NormalizedCharacterCard | undefined {
     return name === 'current' ? getActiveCharacter() : workspaceStore.getState().characters.find(card => [card.id, card.name, characterAvatarId(card)].includes(name));
@@ -21,11 +21,17 @@ function characterData(card: NormalizedCharacterCard) {
 let previousSources: unknown[] = []; let cachedCatalog: ReturnType<typeof buildCatalog>;
 const rawCharacters = new WeakMap<NormalizedCharacterCard, any>();
 const helperPresets = new WeakMap<NormalizedPreset, ReturnType<typeof toHelperPreset>>();
+const nativePresets = new WeakMap<NormalizedPreset, Record<string, any>>();
 let characterSource: unknown; let characterList: Array<{ id: string; avatar: string; name: string; image: string; raw: any }> = [];
-let presetSource: unknown; let presetList: Array<{ id: string; name: string; data: ReturnType<typeof toHelperPreset> }> = [];
+let presetSource: unknown; let presetList: Array<{ id: string; name: string; data: ReturnType<typeof toHelperPreset>; native: Record<string, any> }> = [];
 function presetData(preset: NormalizedPreset) {
     let value = helperPresets.get(preset);
     if (!value) { value = toHelperPreset(preset); helperPresets.set(preset, value); }
+    return value;
+}
+function nativePresetData(preset: NormalizedPreset) {
+    let value = nativePresets.get(preset);
+    if (!value) { value = toNativePreset(preset); nativePresets.set(preset, value); }
     return value;
 }
 function rawCharacter(card: NormalizedCharacterCard) {
@@ -48,15 +54,26 @@ function rawCharacter(card: NormalizedCharacterCard) {
 function buildCatalog() {
     const state = workspaceStore.getState();
     if (characterSource !== state.characters) { characterSource = state.characters; characterList = state.characters.map(card => ({ id: card.id, avatar: characterAvatarId(card), name: card.name, image: card.avatar, raw: rawCharacter(card) })); }
-    if (presetSource !== state.presets) { presetSource = state.presets; presetList = state.presets.map(preset => ({ id: preset.id, name: preset.name, data: presetData(preset) })); }
-    const active = presetData(getActivePreset()); const live = getSchemaValues();
+    if (presetSource !== state.presets) { presetSource = state.presets; presetList = state.presets.map(preset => ({ id: preset.id, name: preset.name, data: presetData(preset), native: nativePresetData(preset) })); }
+    const activePreset = getActivePreset();
+    const active = presetData(activePreset); const live = getSchemaValues();
     const settings = { ...active.settings };
     for (const [name, key] of Object.entries({ max_context: 'sampler.context_max_tokens', max_completion_tokens: 'sampler.max_tokens', should_stream: 'api.stream',
         temperature: 'sampler.temperature', frequency_penalty: 'sampler.frequency_penalty', presence_penalty: 'sampler.presence_penalty', top_p: 'sampler.top_p', top_k: 'sampler.top_k', min_p: 'sampler.min_p', reasoning_effort: 'sampler.reasoning_effort' })) {
         if (live[key] !== undefined) settings[name] = live[key];
     }
+    const loadedPresetName = state.presets.find(item => item.id === state.activePresetId)?.name ?? '';
+    const nativeActive = structuredClone(nativePresetData(activePreset));
+    for (const [field, key] of Object.entries({ openai_max_context: 'sampler.context_max_tokens', openai_max_tokens: 'sampler.max_tokens', stream_openai: 'api.stream',
+        temperature: 'sampler.temperature', frequency_penalty: 'sampler.frequency_penalty', presence_penalty: 'sampler.presence_penalty', top_p: 'sampler.top_p', top_k: 'sampler.top_k', min_p: 'sampler.min_p', reasoning_effort: 'sampler.reasoning_effort' })) {
+        if (live[key] !== undefined) nativeActive[field] = live[key];
+    }
+    if (loadedPresetName) nativeActive.preset_settings_openai = loadedPresetName;
+    if (typeof live['sampler.prompt_post_processing'] === 'string' && live['sampler.prompt_post_processing'] !== 'auto') {
+        nativeActive.custom_prompt_post_processing = live['sampler.prompt_post_processing'] === 'none' ? '' : live['sampler.prompt_post_processing'];
+    }
     return { characters: characterList, presets: presetList,
-        loadedPresetName: state.presets.find(item => item.id === state.activePresetId)?.name ?? '', inUsePreset: { ...active, settings } };
+        loadedPresetName, inUsePreset: { ...active, settings }, inUseNativePreset: nativeActive };
 }
 export function assetCatalog() {
     const state = workspaceStore.getState();
@@ -129,6 +146,30 @@ export async function requestAsset(method: string, params: Record<string, any>):
     }
     if (!method.startsWith('asset.preset.')) throw new Error(`未知资源接口：${method}`);
     const operation = method.slice('asset.preset.'.length);
+    if (operation === 'saveNative') {
+        if (!name.trim()) throw new Error('预设名称不能为空');
+        if (!params.preset || typeof params.preset !== 'object' || Array.isArray(params.preset)) throw new Error('预设内容必须是对象');
+        const previous = state.presets.find(item => item.name === name);
+        const next = fromNativePreset(params.preset as Record<string, any>, name, previous);
+        writeHelperPreset(next, previous?.id, false);
+        if (previous && previous.id === state.activePresetId) {
+            writeHelperPreset(structuredClone(next), previous.id, true);
+        }
+        await persistWorkspaceNow(); worldbooksChanged();
+        return { name };
+    }
+    if (operation === 'saveWorkingNative') {
+        if (!params.preset || typeof params.preset !== 'object' || Array.isArray(params.preset)) throw new Error('预设内容必须是对象');
+        const active = getActivePreset();
+        const next = fromNativePreset(params.preset as Record<string, any>, active.name, active);
+        writeHelperPreset(next, active.id, true);
+        const postProc = (params.preset as Record<string, any>).custom_prompt_post_processing;
+        if (typeof postProc === 'string') {
+            setSchemaValue('sampler.prompt_post_processing', postProc === '' ? 'none' : postProc);
+        }
+        await persistWorkspaceNow(); worldbooksChanged();
+        return { ok: true };
+    }
     const previous = name === 'in_use' ? getActivePreset() : state.presets.find(item => item.name === name);
     if (operation === 'load') { if (!previous || name === 'in_use') return false; selectPreset(previous.id); await persistWorkspaceNow(); return true; }
     if (operation === 'delete') {

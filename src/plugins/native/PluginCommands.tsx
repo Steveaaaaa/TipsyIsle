@@ -23,6 +23,17 @@ export function openMessagePluginPicker(id: string, swipe: string, updatedAt?: n
     picker.setState({ request: { commands, view, target, nonce: ++sequence } });
 }
 
+export function openPluginMessageCommand(pluginId: string, commandId: string, node: ChatMessageNode) {
+    const view = liveStory();
+    const target = messageRef(node);
+    const liveNode = view.path.find(item => item.id === node.id);
+    if (!liveNode || messageRef(liveNode).revision !== target.revision) throw new Error('这条回复已经改变，请重试');
+    const commands = listNativeCommands('message', view, target);
+    const matched = commands.find(item => item.plugin.manifest.id === pluginId && item.spec.id === commandId);
+    if (!matched) throw new Error(`找不到插件命令：${commandId}`);
+    picker.setState({ request: { commands: [matched], selected: matched, view, target, nonce: ++sequence } });
+}
+
 export function PluginButtons({ message, onOpen }: { message?: ChatMessageNode; onOpen?(): void }) {
     nativePluginStore.useStore(state => state.catalog);
     nativePluginStore.useStore(state => state.maintenance);

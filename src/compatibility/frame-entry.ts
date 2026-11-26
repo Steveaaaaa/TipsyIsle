@@ -12,6 +12,7 @@ import $ from 'jquery';
 import * as z from 'zod';
 import * as YAML from 'yaml';
 import showdown from 'showdown';
+import DOMPurify from 'dompurify';
 import { jQueryFactory } from 'jquery/factory';
 import { applyMvuCommands, mvuPathParts, readMvuCommands, setMvuVariable } from '../pipeline/mvu-commands';
 import { normalizeMvuVariables, reconcileMvuVariables } from '../pipeline/mvu-data';
@@ -25,7 +26,7 @@ import { placeholderPromptDefaultOrder, type CardScript, type CompatSnapshot, ty
 import { normalizePromptInjection, resolvePromptInjections } from './prompt-injections';
 import { readExtensionVariables, writeExtensionVariables } from './extension-variables';
 import { tavernEvents as events, mvuEvents, canonicalEvent } from './event-contracts';
-import { hostHiddenKey, hostMessageHidden, messageExtra } from './chat-message-codec';
+import { hostHiddenKey, hostMessageHidden, messageExtra, messageTopLevel } from './chat-message-codec';
 import { routeMessageDataKey, routeMessageKey, routeMessages } from '../store/route-message-data';
 import { defaultTemplateFeatures, normalizeTemplateFeatures } from '../pipeline/template-features';
 import { ResidentTemplateHost } from './template-host';
@@ -34,6 +35,7 @@ import type { TemplateRuntime } from '../pipeline/template-runtime';
 import { compileAuthorTemplate, templateSyntaxError } from '../pipeline/template-compiler';
 import { parseTemplateJSON, patchTemplateJSON } from '../pipeline/template-json';
 import { toTavernRegex, regexSources } from './regex-codec';
+import { serializeRegexRule } from '../pipeline/asset-serializer';
 import { applyRegexScripts, orderedRegexScripts } from '../pipeline/macro-regex-engine';
 import vueBrowserRuntimeUrl from 'vue/dist/vue.global.prod.js?url';
 import { defaultHelperPreset, systemPromptIds, placeholderPromptIds } from './preset-codec';
@@ -41,6 +43,7 @@ import { normalizeScriptTrees, scriptsFromTrees, type ScriptScope } from './scri
 import type { CompatibilityLoadReport } from './contracts';
 import { formatTemplateMarkdown } from '../pipeline/template-formatting';
 import { renderMessageMarkdown, renderMixedMessage } from '../pipeline/message-markdown';
+import { createFilmSurface, type CompatFilmSlot } from './film-surface';
 import { normalizeRegexScripts } from '../pipeline/normalizer';
 import { createAudioRuntime } from './audio-runtime';
 import { executeSlashPipeline, type SlashExecutionOptions } from '../sandbox/slash-core';
@@ -190,7 +193,7 @@ composerSendProxy.addEventListener('click', () => {
 composerMount.append(composerSendProxy);
 // TavernHelper's predefine environment shares these DOM-independent libraries
 // with author frames. Keep the host and child globals on the same implementation.
-const authorLibraries = { _, z, YAML, showdown };
+const authorLibraries = { _, z, YAML, showdown, DOMPurify };
 const rootSlashRegistration = slashRegistration(window, runAuthorSlash);
 let token = '';
 let snapshot: CompatSnapshot;
@@ -276,8 +279,177 @@ function setExtensionPrompt(key: string, value: unknown, position: number, depth
     if (!text) { extensionPrompts.delete(key); return; }
     extensionPrompts.set(key, { value: text, position: Number(position), depth: Number(depth), scan: !!scan, role: Number(role ?? 0), filter });
 }
+const extensionPromptsProxy: Record<string, any> = new Proxy({}, {
+    get: (_target, key) => typeof key === 'string' ? extensionPrompts.get(key) : undefined,
+    set: (_target, key, value) => {
+        if (typeof key !== 'string') return false;
+        if (!value) { extensionPrompts.delete(key); return true; }
+        const entry = typeof value === 'string'
+            ? { value, position: 0, depth: 4, scan: false, role: 0, filter: null }
+            : { value: String(value.value ?? ''), position: Number(value.position ?? 0), depth: Number(value.depth ?? 4),
+                scan: !!value.scan, role: Number(value.role ?? 0), filter: typeof value.filter === 'function' ? value.filter : null };
+        if (!entry.value) extensionPrompts.delete(key); else extensionPrompts.set(key, entry);
+        return true;
+    },
+    deleteProperty: (_target, key) => typeof key === 'string' ? (extensionPrompts.delete(key), true) : false,
+    has: (_target, key) => typeof key === 'string' && extensionPrompts.has(key),
+    ownKeys: () => [...extensionPrompts.keys()],
+    getOwnPropertyDescriptor: (_target, key) => typeof key === 'string' && extensionPrompts.has(key)
+        ? { configurable: true, enumerable: true, writable: true, value: extensionPrompts.get(key) } : undefined,
+});
 const extensionSettings: Record<string, any> = {};
 const extensionTypes: Record<string, string> = {};
+let nativeOaiSettings: Record<string, any> = {};
+let nativeOaiBaseline: Record<string, any> = {};
+const nativePresetCache: { names: Record<string, number>; presets: Record<string, Record<string, any>>; settings: Record<string, any> } = {
+    names: {}, presets: {}, settings: nativeOaiSettings,
+};
+let lastNotifiedPresetName = '';
+let settingsSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let chatSaveTimer: ReturnType<typeof setTimeout> | undefined;
+function ensureRegexScriptsRef(presetObj: Record<string, any>): Record<string, any>[] {
+    if (!presetObj.extensions || typeof presetObj.extensions !== 'object' || Array.isArray(presetObj.extensions)) presetObj.extensions = {};
+    if (!Array.isArray(presetObj.extensions.regex_scripts)) presetObj.extensions.regex_scripts = [];
+    return presetObj.extensions.regex_scripts;
+}
+function syncNativePresetState(next: CompatSnapshot) {
+    const incoming = structuredClone(next.assetCatalog.inUseNativePreset ?? {});
+    for (const key of Object.keys(nativeOaiSettings)) if (!(key in incoming)) delete nativeOaiSettings[key];
+    Object.assign(nativeOaiSettings, incoming);
+    ensureRegexScriptsRef(nativeOaiSettings);
+    nativeOaiBaseline = structuredClone(nativeOaiSettings);
+    nativePresetCache.names = {};
+    nativePresetCache.presets = {};
+    next.assetCatalog.presets.forEach((preset, index) => {
+        nativePresetCache.names[preset.name] = index;
+        nativePresetCache.presets[String(index)] = preset.name === next.assetCatalog.loadedPresetName
+            ? nativeOaiSettings
+            : structuredClone(preset.native ?? {});
+    });
+    nativePresetCache.settings = nativeOaiSettings;
+}
+const powerUserSettings: Record<string, any> = {
+    auto_swipe: false,
+    auto_continue: { enabled: false, allow_chat_completions: false, target_length: 0 },
+};
+const registeredTools: Array<Record<string, any>> = [];
+const ToolManager = {
+    tools: registeredTools,
+    hasTool: (name: string) => registeredTools.some(tool => tool?.name === name),
+    registerFunctionTool: (options: Record<string, any>) => {
+        if (!options || typeof options.name !== 'string' || !options.name) return;
+        const idx = registeredTools.findIndex(tool => tool?.name === options.name);
+        const def = {
+            ...options,
+            toFunctionOpenAI: () => ({
+                type: 'function',
+                function: {
+                    name: options.name,
+                    description: options.description ?? '',
+                    parameters: options.parameters ?? { type: 'object', properties: {} },
+                },
+            }),
+        };
+        if (idx >= 0) registeredTools[idx] = def;
+        else registeredTools.push(def);
+        return def;
+    },
+    unregisterFunctionTool: (name: string) => {
+        const idx = registeredTools.findIndex(tool => tool?.name === name);
+        if (idx >= 0) registeredTools.splice(idx, 1);
+    },
+    isToolCallingSupported: () => true,
+    canPerformToolCalls: () => true,
+};
+type FormatterStage = 'beforeRegex' | 'afterRegex' | 'afterMarkdown';
+type FormatterHookFn = (...args: any[]) => any;
+const formatterHooks: Array<{ stage: FormatterStage; fn: FormatterHookFn; order: number; index: number }> = [];
+let formatterHookSeq = 0;
+function removeFormatterHook(stageOrFn: FormatterStage | FormatterHookFn, maybeFn?: FormatterHookFn) {
+    const stage = typeof stageOrFn === 'function' ? undefined : stageOrFn;
+    const fn = typeof stageOrFn === 'function' ? stageOrFn : maybeFn;
+    for (let i = formatterHooks.length - 1; i >= 0; i--) {
+        const hook = formatterHooks[i]!;
+        if ((!stage || hook.stage === stage) && (!fn || hook.fn === fn)) formatterHooks.splice(i, 1);
+    }
+}
+const messageFormatter = {
+    addHook: (
+        stageOrFn: FormatterStage | FormatterHookFn,
+        fnOrOptions?: FormatterHookFn | { stage?: FormatterStage; order?: number } | FormatterStage,
+        order = 0,
+    ) => {
+        const fn = typeof stageOrFn === 'function' ? stageOrFn : typeof fnOrOptions === 'function' ? fnOrOptions : undefined;
+        if (typeof fn !== 'function') return () => {};
+        const stage: FormatterStage = typeof stageOrFn === 'string'
+            ? stageOrFn
+            : typeof fnOrOptions === 'string'
+                ? fnOrOptions
+                : (fnOrOptions && typeof fnOrOptions === 'object' ? fnOrOptions.stage : undefined) ?? 'beforeRegex';
+        const resolvedOrder = typeof stageOrFn === 'function' && fnOrOptions && typeof fnOrOptions === 'object'
+            ? Number(fnOrOptions.order ?? order) || 0
+            : Number(order) || 0;
+        formatterHooks.push({ stage, fn, order: resolvedOrder, index: formatterHookSeq++ });
+        formatterHooks.sort((a, b) => (a.order - b.order) || (a.index - b.index));
+        return () => removeFormatterHook(stage, fn);
+    },
+    removeHook: removeFormatterHook,
+};
+function hasFormatterStage(stage: FormatterStage): boolean {
+    return formatterHooks.some(hook => hook.stage === stage);
+}
+function runFormatterStage(stage: FormatterStage, text: string, hookContext: { messageId: number; isSystem: boolean; isUser: boolean }): string {
+    let current = text;
+    for (const hook of formatterHooks) {
+        if (hook.stage !== stage) continue;
+        try {
+            const nextText = hook.fn(current, hookContext);
+            if (typeof nextText === 'string') current = nextText;
+        } catch (error) {
+            diagnostic('消息格式化钩子', error, undefined, 'warning', false);
+        }
+    }
+    return current;
+}
+function formatMarkdownWithHooks(
+    rawText: string,
+    floor: number,
+    isSystem: boolean,
+    isUser: boolean,
+    renderHtml: (source: string) => string = renderMessageMarkdown,
+): string {
+    const role: 'assistant' | 'user' | 'system' = isUser ? 'user' : isSystem ? 'system' : 'assistant';
+    if (!formatterHooks.length) return renderHtml(displayedSource(rawText, floor, role));
+    const hookContext = { messageId: floor, isSystem, isUser };
+    const before = runFormatterStage('beforeRegex', rawText, hookContext);
+    const regexed = displayedSource(before, floor, role);
+    const afterRegex = runFormatterStage('afterRegex', regexed, hookContext);
+    const html = renderHtml(afterRegex);
+    return runFormatterStage('afterMarkdown', html, hookContext);
+}
+const promptManager = {
+    get serviceSettings() { return nativeOaiSettings; },
+    messages: { collection: [] as any[] },
+    tokenUsage: {} as Record<string, any>,
+    getPromptById: (id: string) => {
+        const prompts = Array.isArray(nativeOaiSettings.prompts) ? nativeOaiSettings.prompts : [];
+        return prompts.find((entry: any) => entry?.identifier === id) ?? null;
+    },
+    getPromptOrderEntry: (character: unknown, identifier: string) => {
+        const charId = typeof character === 'number' || typeof character === 'string' ? Number(character) : 100001;
+        const orders = Array.isArray(nativeOaiSettings.prompt_order) ? nativeOaiSettings.prompt_order : [];
+        const bucket = orders.find((entry: any) => Number(entry?.character_id) === charId)
+            ?? orders.find((entry: any) => Number(entry?.character_id) === 100001)
+            ?? orders[0];
+        const order = Array.isArray(bucket?.order) ? bucket.order : [];
+        return order.find((entry: any) => entry?.identifier === identifier) ?? null;
+    },
+    isPromptDisabledForActiveCharacter: (identifier: string) => {
+        const entry = promptManager.getPromptOrderEntry(100001, identifier);
+        return entry ? entry.enabled === false : false;
+    },
+    render: () => [],
+};
 const waiting = new Map<number, { resolve(value: any): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>();
 const writes = new Set<Promise<unknown>>();
 let writeFailure: unknown;
@@ -304,6 +476,19 @@ function registerVariableSchema(value: z.ZodType<any>, options: { type: string }
     variableSchemas.set(options.type, { schema: value, owner });
 }
 const rows = new Map<string, { element: HTMLElement; content: string; swipe: number; incomplete: boolean; identity: string; avatar?: string }>();
+let currentFilmToken = '';
+const films = createFilmSurface({
+    row: id => rows.get(id)?.element,
+    onAction: (req, filmToken) => {
+        if (snapshot) outer.postMessage({ kind: 'compat:film-action', session: snapshot.session, token: filmToken || currentFilmToken, ...req }, '*');
+    },
+    onMediaNeed: mediaIds => {
+        if (snapshot && mediaIds.length) outer.postMessage({ kind: 'compat:film-media-need', session: snapshot.session, mediaIds }, '*');
+    },
+    onVisibleChange: visible => {
+        if (snapshot) outer.postMessage({ kind: 'compat:film-visible', session: snapshot.session, visible }, '*');
+    },
+});
 let showMessages = new URLSearchParams(location.search).get('view') !== 'worker';
 let readingReplyId: string | undefined;
 let readingFrame = 0;
@@ -754,7 +939,7 @@ function getChatMessages(range: number | string = `0-${chat.length - 1}`, option
         const base = { message_id: i, name: m.name, role: m.role, is_hidden: !!m.is_system };
         const swipes = { swipe_id: m.swipe_id, swipes: [...m.swipes], swipes_data: m.swipes.map((_: string, index: number) => structuredClone(m.variables[index] ?? {})) };
         result.push({ ...base, ...swipes, ...(options.include_swipes || options.include_swipe
-            ? { swipes_info: m.swipes.map((_: string, index: number) => structuredClone(m.swipe_info[index] ?? {})) }
+            ? { swipes_info: m.swipes.map((_: string, index: number) => structuredClone(m.swipe_info[index]?.extra ?? m.swipe_info[index] ?? {})) }
             : { message: m.mes, data: structuredClone(m.variables[m.swipe_id] ?? {}), extra: structuredClone(m.extra ?? {}) }) });
     }
     return result;
@@ -787,11 +972,17 @@ function applySnapshot(next: CompatSnapshot) {
         pendingVariableWrites.clear();
     }
     snapshot = next;
+    syncNativePresetState(next);
     composerSendProxy.disabled = next.generating;
     if (!previous || previous.extensionVariables !== next.extensionVariables) {
         const settings = hostExtensionSettings(next);
         const old = previous ? hostExtensionSettings(previous) : {};
         for (const key of new Set([...Object.keys(old), ...Object.keys(settings)])) {
+            if (key === 'tavern_helper' && settings.tavern_helper && typeof settings.tavern_helper === 'object' && extensionSettings.tavern_helper && typeof extensionSettings.tavern_helper === 'object'
+                && !_.isEqual(extensionSettings.tavern_helper.scripts, settings.tavern_helper.scripts)
+                && !_.isEqual(old.tavern_helper?.scripts, settings.tavern_helper.scripts)) {
+                extensionSettings.tavern_helper = { ...extensionSettings.tavern_helper, scripts: structuredClone(settings.tavern_helper.scripts) };
+            }
             if (!_.isEqual(extensionSettings[key], old[key]) || _.isEqual(old[key], settings[key])) continue;
             if (Object.hasOwn(settings, key)) extensionSettings[key] = structuredClone(settings[key]); else delete extensionSettings[key];
         }
@@ -816,9 +1007,12 @@ function applySnapshot(next: CompatSnapshot) {
         const extra = preserve && _.isEqual(oldExtra, nextExtra) ? target.extra ?? nextExtra : nextExtra;
         const swipeVariables = (node.extra?.swipeVariables ?? {}) as Record<string, unknown>;
         const mes = preserve && old.content === node.content ? target.mes ?? node.content : node.content;
-        Object.assign(target, { name: node.speakerName, role: node.role, mes, message: mes,
+        const topLevel = messageTopLevel(node);
+        if (old) for (const key of Object.keys(messageTopLevel(old))) if (!(key in topLevel)) delete target[key];
+        Object.assign(target, topLevel, { name: node.speakerName, role: node.role, mes, message: mes,
             is_user: node.role === 'user', is_system: preserve && hidden === hostMessageHidden(old, previous.chatMetadata) ? target.is_system : hidden, swipe_id: node.activeSwipeIndex,
-            swipes: node.swipes.map((s, i) => i === node.activeSwipeIndex ? mes : typeof s === 'string' ? s : s.content), extra, swipe_info: node.swipes.map((_, swipe) => messageExtra(node, swipe, next.chatMetadata)) });
+            swipes: node.swipes.map((s, i) => i === node.activeSwipeIndex ? mes : typeof s === 'string' ? s : s.content), extra,
+            swipe_info: node.swipes.map((_, swipe) => ({ extra: messageExtra(node, swipe, next.chatMetadata) })) });
         target.variables = node.swipes.map((_, swipe) => structuredClone(normalizeMvuVariables((swipeVariables[swipe] ?? {}) as Record<string, unknown>).variables));
         target.variables[node.activeSwipeIndex] = structuredClone(normalizeMvuVariables(node.variables).variables);
         target.variables_initialized = node.swipes.map((_, swipe) => !!(node.extra?.tipsy_template_variables_initialized as Record<string, boolean> | undefined)?.[swipe]);
@@ -837,7 +1031,12 @@ function applySnapshot(next: CompatSnapshot) {
     }
     if (!switchingSession && (!previous || previous.messages !== next.messages || previous.scopes.chat !== next.scopes.chat || previous.scopes.global !== next.scopes.global)) synchronizeTemplateScopes();
     if (initialized && previous?.scriptTrees !== next.scriptTrees) scheduleScriptRefresh();
-    if (!previous || previous.session !== next.session || previous.character.id !== next.character.id || previous.character.name !== next.character.name || previous.userName !== next.userName || previous.assetCatalog.characters !== next.assetCatalog.characters) window.dispatchEvent(new Event('tipsy-host-context'));
+    if (!previous || previous.session !== next.session || previous.character.id !== next.character.id || previous.character.name !== next.character.name || previous.userName !== next.userName || previous.assetCatalog.characters !== next.assetCatalog.characters || previous.generating !== next.generating || previous.assetCatalog.loadedPresetName !== next.assetCatalog.loadedPresetName || previous.assetCatalog.inUseNativePreset !== next.assetCatalog.inUseNativePreset) window.dispatchEvent(new Event('tipsy-host-context'));
+    if (!previous) lastNotifiedPresetName = next.assetCatalog.loadedPresetName;
+    else if (initialized && next.assetCatalog.loadedPresetName !== lastNotifiedPresetName) {
+        lastNotifiedPresetName = next.assetCatalog.loadedPresetName;
+        void emit(events.OAI_PRESET_CHANGED_AFTER, next.assetCatalog.loadedPresetName).catch(error => diagnostic('预设切换事件', error));
+    }
     if (!previous || !_.isEqual(previous.worldbookBindings.names, next.worldbookBindings.names) || !_.isEqual(previous.worldbookBindings.global, next.worldbookBindings.global)) window.dispatchEvent(new Event('tipsy-host-worldbooks'));
     if (initialized && showMessages) {
         const presentationChanged = !previous || routeChanged || previous.session !== next.session ||
@@ -894,6 +1093,7 @@ function saveChatMetadata(withMetadata?: Record<string, unknown>, explicitSave =
         const values = Object.fromEntries(Object.entries(savedMetadata).filter(([key, value]) => key !== 'variables' && !_.isEqual(value, baseline[key])));
         const removed = Object.keys(baseline).filter(key => key !== hostHiddenKey && key !== routeMessageDataKey && !Object.hasOwn(savedMetadata, key));
         const variables = !_.isEqual(savedMetadata.variables, normalizeMvuVariables(snapshot.scopes.chat).variables) ? savedMetadata.variables : undefined;
+        const baseRowKeys = new Set(['_id', 'name', 'role', 'mes', 'message', 'is_user', 'is_system', 'swipe_id', 'swipes', 'extra', 'swipe_info', 'variables', 'variables_initialized', 'send_date']);
         const messageState = chat.flatMap((row, index) => {
             const node = snapshot.messages[index];
             if (!node || node.id !== row._id || node.activeSwipeIndex !== row.swipe_id) return [];
@@ -902,7 +1102,22 @@ function saveChatMetadata(withMetadata?: Record<string, unknown>, explicitSave =
             const hidden = Boolean(row.is_system) === hostMessageHidden(node, snapshot.chatMetadata) ? undefined : Boolean(row.is_system);
             const current = row.variables[row.swipe_id];
             const variables = _.isEqual(current, normalizeMvuVariables(node.variables).variables) ? undefined : current;
-            return mes === undefined && extra === undefined && hidden === undefined && variables === undefined ? [] : [{ id: node.id, swipe: row.swipe_id, content: node.content, mes, extra, hidden, variables }];
+            const swipeInfo: Record<number, Record<string, unknown>> = {};
+            const swipeCount = Array.isArray(row.swipes) ? row.swipes.length : node.swipes.length;
+            for (let s = 0; s < swipeCount; s++) {
+                const rawSwipe = row.swipe_info?.[s];
+                const swipeExtra = rawSwipe && typeof rawSwipe === 'object' && 'extra' in rawSwipe ? rawSwipe.extra : rawSwipe;
+                if (swipeExtra && typeof swipeExtra === 'object' && !_.isEqual(swipeExtra, messageExtra(node, s, snapshot.chatMetadata))) {
+                    swipeInfo[s] = structuredClone(swipeExtra);
+                }
+            }
+            const nextTopLevel = Object.fromEntries(Object.entries(row).filter(([key, value]) => !baseRowKeys.has(key) && value !== undefined));
+            const topLevel = _.isEqual(nextTopLevel, messageTopLevel(node)) ? undefined : nextTopLevel;
+            return mes === undefined && extra === undefined && hidden === undefined && variables === undefined && !Object.keys(swipeInfo).length && topLevel === undefined
+                ? []
+                : [{ id: node.id, swipe: row.swipe_id, content: node.content, mes, extra, hidden, variables,
+                    ...(Object.keys(swipeInfo).length ? { swipeInfo } : {}),
+                    ...(topLevel !== undefined ? { topLevel } : {}) }];
         });
         if (!messageState.length && !variables && !removed.length && !Object.keys(values).length) return;
         await request('legacy.save', { messageState, variables, metadata: { values, removed } });
@@ -945,17 +1160,85 @@ function displayedSource(text: string, floor: number, role: 'assistant' | 'user'
     const regexed = role === 'system' ? helper.substitudeMacros(text) : helper.formatAsTavernRegexedString(text, role === 'user' ? 'user_input' : 'ai_output', 'display', { depth });
     return role === 'system' ? regexed : applyMacroLikes(regexed, { message_id: floor, role });
 }
+function modelSettingsOverlay(): Record<string, any> {
+    return {
+        ...snapshot.assetCatalog.inUsePreset,
+        chat_completion_source: snapshot.modelSettings.source,
+        openai_model: snapshot.modelSettings.model,
+        claude_model: snapshot.modelSettings.model,
+        google_model: snapshot.modelSettings.model,
+        stream_openai: snapshot.modelSettings.stream,
+        openai_max_context: snapshot.modelSettings.maxContext,
+        openai_max_tokens: snapshot.modelSettings.maxResponse,
+        proxies: (snapshot.proxyPresets ?? []).map(({ name, model }) => ({ name, model, url: '', password: '' })),
+    };
+}
+const chatCompletionSettingsProxy = new Proxy({} as Record<string, any>, {
+    get: (_target, key) => {
+        if (typeof key !== 'string') return undefined;
+        if (key in nativeOaiSettings) return nativeOaiSettings[key];
+        return modelSettingsOverlay()[key];
+    },
+    set: (_target, key, value) => {
+        if (typeof key !== 'string') return false;
+        nativeOaiSettings[key] = value;
+        return true;
+    },
+    has: (_target, key) => typeof key === 'string' && (key in nativeOaiSettings || key in modelSettingsOverlay()),
+    ownKeys: () => [...new Set([...Object.keys(modelSettingsOverlay()), ...Object.keys(nativeOaiSettings)])],
+    getOwnPropertyDescriptor: (_target, key) => {
+        if (typeof key !== 'string') return undefined;
+        const overlay = modelSettingsOverlay();
+        if (!(key in nativeOaiSettings) && !(key in overlay)) return undefined;
+        return { configurable: true, enumerable: true, writable: true, value: key in nativeOaiSettings ? nativeOaiSettings[key] : overlay[key] };
+    },
+});
+function resolveRenderedMessageContent(node: CompatSnapshot['messages'][number], overrideMes?: string): string {
+    const role: 'assistant' | 'user' | 'system' = node.role === 'user' ? 'user' : node.isHidden ? 'system' : 'assistant';
+    const raw = typeof overrideMes === 'string' ? overrideMes : (chat[node.floor]?.mes ?? node.content);
+    const hookContext = { messageId: node.floor, isSystem: Boolean(node.isHidden), isUser: node.role === 'user' };
+    let base = node.formatted;
+    if (typeof overrideMes === 'string' && overrideMes !== node.content) {
+        const before = hasFormatterStage('beforeRegex') ? runFormatterStage('beforeRegex', raw, hookContext) : raw;
+        base = displayedSource(before, node.floor, role);
+    } else if (hasFormatterStage('beforeRegex')) {
+        const before = runFormatterStage('beforeRegex', raw, hookContext);
+        if (before !== raw) base = displayedSource(before, node.floor, role);
+    }
+    return hasFormatterStage('afterRegex') ? runFormatterStage('afterRegex', base, hookContext) : base;
+}
+function repaintMessageBlock(floor: number, overrideMes?: string) {
+    const node = snapshot?.messages[floor];
+    const row = node ? rows.get(node.id) : undefined;
+    const rowEl = (row?.element.querySelector('.mes_text') ?? document.querySelector(`.mes[mesid="${floor}"] .mes_text`)) as HTMLElement | null;
+    if (!node || !rowEl || node.streamPreview || node.templatePending) return;
+    const nextContent = resolveRenderedMessageContent(node, overrideMes);
+    const incomplete = !!node.extra?.tipsy_generation_incomplete || !!node.templatePending;
+    if (row && row.content === nextContent && rowEl.childNodes.length > 0 && !hasFormatterStage('afterMarkdown')) return;
+    const restore = preserveReadingAnchor(rowEl);
+    disposeRowBody(rowEl);
+    rowEl.replaceChildren();
+    populateMessageBody(rowEl, node, nextContent, incomplete, snapshot.messages.length);
+    if (row) row.content = nextContent;
+    films.sync();
+    restore();
+    scheduleReadingPosition();
+}
 const context = () => {
     const session = snapshot.session;
     const ensureSession = () => { if (snapshot.session !== session) throw new Error('操作所属聊天已切换'); };
     return { ...hostPopupApi, chat, chatId: session, name1: snapshot.userName, name2: snapshot.character.name,
     ChatCompletionService: chatCompletionService,
+    messageFormatter,
+    ToolManager,
+    powerUserSettings,
+    promptManager,
     messageFormatting: (text: string, _name: string, isSystem: boolean, isUser: boolean, floor = chat.length - 1) =>
-        formatTemplateMarkdown(displayedSource(text, floor, isUser ? 'user' : isSystem ? 'system' : 'assistant')),
+        formatMarkdownWithHooks(text, floor, isSystem, isUser, formatTemplateMarkdown),
     setExtensionPrompt,
     extension_prompt_types: { NONE: -1, IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT: 2 },
     extension_prompt_roles: { SYSTEM: 0, USER: 1, ASSISTANT: 2 },
-    get extensionPrompts() { return Object.fromEntries(extensionPrompts); },
+    get extensionPrompts() { return extensionPromptsProxy; },
     generateRaw: generateTavernRaw,
     doNewChat: async (options: { deleteCurrentChat?: boolean } = {}) => {
         ensureSession();
@@ -977,8 +1260,52 @@ const context = () => {
         await emit(events.CHAT_CHANGED, snapshot.session);
     },
     reloadWorldInfoEditor: () => request('runtime.sync'),
-    getPresetManager: () => ({ apiId: 'openai', getSelectedPresetName: () => snapshot.assetCatalog.loadedPresetName,
-        readPresetExtensionField: ({ path }: { path: string }) => structuredClone(_.get(snapshot.assetCatalog.inUsePreset.extensions, path)) }),
+    getPresetManager: (apiId = 'openai') => ({
+        apiId,
+        getSelectedPresetName: () => snapshot.assetCatalog.loadedPresetName,
+        getPresetList: () => nativePresetCache,
+        getCompletionPresetByName: (name?: string) => {
+            const targetName = name ?? snapshot.assetCatalog.loadedPresetName;
+            const idx = nativePresetCache.names[targetName];
+            return idx !== undefined ? nativePresetCache.presets[String(idx)] : snapshot.assetCatalog.presets.find(preset => preset.name === targetName)?.native;
+        },
+        savePreset: async (name?: string, presetData?: Record<string, unknown>, _options?: { skipUpdate?: boolean }) => {
+            const targetName = name || snapshot.assetCatalog.loadedPresetName;
+            const payload = structuredClone(presetData ?? nativeOaiSettings);
+            await track(request('asset.preset.saveNative', { name: targetName, preset: payload }));
+            if (targetName === snapshot.assetCatalog.loadedPresetName) {
+                for (const key of Object.keys(nativeOaiSettings)) if (!(key in payload)) delete nativeOaiSettings[key];
+                Object.assign(nativeOaiSettings, structuredClone(payload));
+                ensureRegexScriptsRef(nativeOaiSettings);
+                nativeOaiBaseline = structuredClone(nativeOaiSettings);
+                await emit(events.OAI_PRESET_CHANGED_AFTER, targetName);
+            }
+            return targetName;
+        },
+        selectPreset: async (nameOrIndex: string | number) => {
+            const targetName = typeof nameOrIndex === 'number'
+                ? Object.entries(nativePresetCache.names).find(([, idx]) => idx === nameOrIndex)?.[0]
+                : nameOrIndex;
+            if (!targetName) return;
+            helper.loadPreset(targetName);
+        },
+        readPresetExtensionField: ({ path }: { path: string }) =>
+            structuredClone(_.get(snapshot.assetCatalog.inUsePreset.extensions, path) ?? _.get(nativeOaiSettings.extensions, path)),
+        writePresetExtensionField: async ({ path, value }: { path: string; value: unknown }) => {
+            _.set(nativeOaiSettings.extensions ??= {}, path, structuredClone(value));
+            await saveSettingsImmediate();
+        },
+    }),
+    getRegexScriptsByType: (type: number | string, options?: { allowedOnly?: boolean }) => {
+        if (options?.allowedOnly && extensionSettings.disabledExtensions?.includes('regex')) return [];
+        if (type === 2 || type === 'preset') return ensureRegexScriptsRef(nativeOaiSettings);
+        if (type === 0 || type === 'global') return snapshot.regexCatalog.global.map(serializeRegexRule);
+        if (type === 1 || type === 'scoped' || type === 'character') {
+            const card = snapshot.regexCatalog.characters.find(entry => entry.id === snapshot.character.id);
+            return (card?.rules ?? []).map(serializeRegexRule);
+        }
+        return [];
+    },
     getOneCharacter: async (avatar: string) => {
         await request('runtime.sync');
         const character = snapshot.assetCatalog.characters.find(card => card.avatar === avatar || card.id === avatar);
@@ -986,10 +1313,7 @@ const context = () => {
         return character.raw;
     },
     mainApi: 'openai', getChatCompletionModel: () => snapshot.modelSettings.model,
-    chatCompletionSettings: { ...snapshot.assetCatalog.inUsePreset, chat_completion_source: snapshot.modelSettings.source,
-        openai_model: snapshot.modelSettings.model, claude_model: snapshot.modelSettings.model, google_model: snapshot.modelSettings.model,
-        stream_openai: snapshot.modelSettings.stream, openai_max_context: snapshot.modelSettings.maxContext, openai_max_tokens: snapshot.modelSettings.maxResponse,
-        proxies: (snapshot.proxyPresets ?? []).map(({ name, model }) => ({ name, model, url: '', password: '' })) },
+    chatCompletionSettings: chatCompletionSettingsProxy,
     registerMacro: registerHostMacro, unregisterMacro: unregisterHostMacro,
     substituteParams: (text: string) => helper.substitudeMacros(text),
     substituteParamsExtended: (text: string) => helper.substitudeMacros(text),
@@ -1013,7 +1337,9 @@ const context = () => {
     characterId: String(snapshot.assetCatalog.characters.findIndex(card => card.id === snapshot.character.id)), characterUuid: snapshot.character.id,
     characters: snapshot.assetCatalog.characters.map(card => card.raw),
     setUserAvatar: (name: string) => track(request('persona.select', { name })),
-    extensionSettings, extension_settings: extensionSettings, extensionTypes, saveSettingsDebounced: saveExtensionSettings,
+    extensionSettings, extension_settings: extensionSettings, extensionTypes,
+    saveSettings: saveSettingsImmediate,
+    saveSettingsDebounced,
     findExtension: (id: string) => findCompatibilityExtension(snapshot.extensions, id) ?? null,
     loadWorldInfo: async (name: string) => {
         if (!name) return null;
@@ -1043,10 +1369,10 @@ const context = () => {
     },
     updateMessageBlock: async (messageId: number, message?: Record<string, any>) => {
         ensureSession();
-        const content = message?.mes ?? chat[messageId]?.mes;
-        if (typeof content !== 'string' || !chat[messageId]) return;
-        chat[messageId].mes = content;
-        await helper.setChatMessages([{ message_id: messageId, message: content }]);
+        if (!chat[messageId]) return;
+        const nextMes = typeof message?.mes === 'string' ? message.mes : chat[messageId].mes;
+        if (typeof nextMes !== 'string') return;
+        repaintMessageBlock(messageId, nextMes);
     },
     addOneMessage: async (message: Record<string, any>, options?: { insertAfter?: number }) => {
         ensureSession();
@@ -1061,6 +1387,8 @@ const context = () => {
     shouldSendOnEnter: () => true,
     getVariables: helper.getVariables,
     worldInfoNames: snapshot.worldbookBindings.names, selectedWorldInfo: snapshot.worldbookBindings.global,
+    get worldInfo() { return { globalSelect: [...snapshot.worldbookBindings.global] }; },
+    getWorldInfoSettings: () => structuredClone({ ...snapshot.worldinfoSettings, world_info: { globalSelect: [...snapshot.worldbookBindings.global] } }),
     getWorldInfoNames: () => [...snapshot.worldbookBindings.names], checkWorldInfo, getWorldInfoPrompt,
     getCharacterCardFields: () => { const raw = snapshot.assetCatalog.characters.find(card => card.id === snapshot.character.id)?.raw as any; return structuredClone(raw?.data ?? raw ?? {}); },
     chatMetadata: metadata, eventTypes: events, event_types: events, getCurrentChatId: () => snapshot.session,
@@ -1072,6 +1400,7 @@ const context = () => {
         }
         await saveChatMetadata(options?.withMetadata, true);
     },
+    saveChatDebounced,
     saveMetadata: () => { ensureSession(); return saveChatMetadata(); },
     saveMetadataDebounced: () => {
         ensureSession();
@@ -1085,6 +1414,25 @@ async function saveExtensionSettings(): Promise<void> {
     const settings = Object.fromEntries(Object.entries(extensionSettings).filter(([key, value]) => !_.isEqual(value, baseline[key])));
     const removed = Object.keys(baseline).filter(key => !Object.hasOwn(extensionSettings, key));
     if (Object.keys(settings).length || removed.length) await track(request('extensions.settings', { settings: structuredClone(settings), removed }));
+}
+async function saveSettingsImmediate(): Promise<void> {
+    clearTimeout(settingsSaveTimer); settingsSaveTimer = undefined;
+    await saveExtensionSettings();
+    if (!_.isEqual(nativeOaiSettings, nativeOaiBaseline)) {
+        const nextPreset = structuredClone(nativeOaiSettings);
+        await track(request('asset.preset.saveWorkingNative', { preset: nextPreset }));
+        nativeOaiBaseline = structuredClone(nativeOaiSettings);
+    }
+    await emit(events.SETTINGS_UPDATED);
+}
+function saveSettingsDebounced(): void {
+    clearTimeout(settingsSaveTimer);
+    settingsSaveTimer = setTimeout(() => { void saveSettingsImmediate().catch(error => diagnostic('设置保存', error)); }, 200);
+}
+function saveChatDebounced(): void {
+    if (!snapshot?.session) return;
+    clearTimeout(chatSaveTimer);
+    chatSaveTimer = setTimeout(() => { void saveChatMetadata(undefined, true).catch(error => diagnostic('聊天保存', error)); }, 200);
 }
 function sillyTavernApi(readContext: () => any) {
     return new Proxy({ getContext: readContext }, {
@@ -1200,7 +1548,13 @@ const helper: Record<string, any> = {
     builtin: {
         getImageTokenCost, getVideoTokenCost,
         uuidv4: () => crypto.randomUUID(), renderMarkdown: formatTemplateMarkdown,
-        copyText: (text: string) => { void navigator.clipboard.writeText(text).catch(error => diagnostic('剪贴板', error)); },
+        copyText: (text: string) => {
+            if (navigator.clipboard?.writeText) {
+                void navigator.clipboard.writeText(text).catch(() => void request('ui.copy', { text }).catch(error => diagnostic('剪贴板', error)));
+                return;
+            }
+            void request('ui.copy', { text }).catch(error => diagnostic('剪贴板', error));
+        },
         duringGenerating: () => snapshot.generating || generationTasks.size > 0,
         parseRegexFromString: (value: string) => { try { const match = /^\/([\s\S]*)\/([dgimsuvy]*)$/.exec(value); return match ? new RegExp(match[1], match[2]) : new RegExp(value); } catch { return null; } },
         saveSettings: async () => { await saveExtensionSettings(); await flush(); await request('template.save'); },
@@ -1319,13 +1673,18 @@ const helper: Record<string, any> = {
         const lastRole = (role: string) => { for (let index = chat.length - 1; index >= 0; index--) if (chat[index].role === role) return index; return -1; };
         const floor = target === 'last' ? chat.length - 1 : target === 'last_user' ? lastRole('user') : target === 'last_char' ? lastRole('assistant') : Number(target);
         if (!Number.isInteger(floor) || !chat[floor]) throw new Error('消息楼层不存在');
-        return formatTemplateMarkdown(displayedSource(text, floor, chat[floor].role));
+        return formatMarkdownWithHooks(text, floor, Boolean(chat[floor].is_system), chat[floor].role === 'user', formatTemplateMarkdown);
     },
     refreshOneMessage: async (floor: number, target?: ReturnType<typeof $>) => {
         const node = snapshot.messages[floor];
         if (!node || !rows.has(node.id)) return;
         if (target?.length) {
-            target.find('.mes_text').html(formatTemplateMarkdown(node.formatted)); return;
+            const rendered = resolveRenderedMessageContent(node);
+            let html = formatTemplateMarkdown(rendered);
+            if (hasFormatterStage('afterMarkdown')) {
+                html = runFormatterStage('afterMarkdown', html, { messageId: floor, isSystem: Boolean(node.isHidden), isUser: node.role === 'user' });
+            }
+            target.find('.mes_text').html(html); return;
         }
         const old = rows.get(node.id)!; disposeRow(old.element); rows.delete(node.id); renderMessages();
     },
@@ -1355,9 +1714,13 @@ const helper: Record<string, any> = {
         const selected = snapshot.assetCatalog.presets.find(preset => preset.name === name);
         if (!selected || name === 'in_use') return false;
         // The upstream call is synchronous; publish the selection locally before the RPC round trip.
-        snapshot.assetCatalog = { ...snapshot.assetCatalog, loadedPresetName: name, inUsePreset: structuredClone(selected.data) };
+        snapshot.assetCatalog = { ...snapshot.assetCatalog, loadedPresetName: name, inUsePreset: structuredClone(selected.data),
+            ...(selected.native ? { inUseNativePreset: structuredClone(selected.native) } : {}) };
+        syncNativePresetState(snapshot);
         snapshot.regexCatalog = { ...snapshot.regexCatalog, presetId: selected.id,
             inUse: snapshot.regexCatalog.presets.find(preset => preset.id === selected.id)?.rules ?? [] };
+        lastNotifiedPresetName = name;
+        void emit(events.OAI_PRESET_CHANGED_AFTER, name).catch(error => diagnostic('预设切换事件', error));
         track(request('asset.preset.load', { name })); return true;
     },
     createPreset: (name: string, value?: any) => track(request('asset.preset.create', { name, value })),
@@ -1546,9 +1909,11 @@ const helper: Record<string, any> = {
     createLorebookEntry: async (name: string, entry: any) => (await helper.createLorebookEntries(name, [entry])).new_uids[0],
     deleteLorebookEntry: async (name: string, uid: number) => (await helper.deleteLorebookEntries(name, [uid])).delete_occurred,
     eventOn: (e: string, f: any) => ({ stop: eventOn(e, f) }),
+    eventOff,
     eventMakeFirst: (e: string, f: any) => ({ stop: eventOn(e, f, -1) }),
     eventMakeLast: (e: string, f: any) => ({ stop: eventOn(e, f, 1) }), eventRemoveListener: eventOff,
     eventOnce: (e: string, f: any) => ({ stop: eventOnce(e, f) }), eventEmit: emit, eventEmitAndWait: emitAndWait,
+    saveChatDebounced,
     eventClearEvent: (event: string) => { listeners.delete(canonicalEvent(event)); },
     eventClearListener: (fn: (...args: any[]) => any) => { for (const event of listeners.keys()) eventOff(event, fn); },
     eventClearAll: () => listeners.clear(),
@@ -2176,9 +2541,11 @@ function createChild(html: string, floor?: number, script?: CardScript, componen
     // selectors and runtime template compilation in message/script iframes.
     const vueRuntime = `${authorBrowserRuntime}<script src="${vueBrowserRuntimeUrl}"></script>`;
     const head = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>@layer tipsy-reader {:where(html){font-size:16px;-webkit-text-size-adjust:100%;text-size-adjust:100%}:where(body){margin:0;background:transparent;color:var(--reader-text,#252d3b);font-family:var(--reader-font,system-ui);font-size:var(--reader-size,16px);line-height:var(--reader-leading,1.9);overflow-wrap:normal;overflow-x:hidden}:where(body > *){min-width:0}}</style>${bootstrap}${vueRuntime}${importMap(script?.content ?? html)}`;
-    const content = script ? `<script type="module">\n${escapeScript(script.content)}\n;await __compatReady();parent.__compatScriptDone(${safeJson(id)});</script>` : html;
+    const content = script ? `<script type="module" onerror="parent.__compatScriptDone('${id}','脚本模块加载失败')">\n${escapeScript(script.content)}\n;await __compatReady();parent.__compatScriptDone(${safeJson(id)});</script>` : html;
     const ready = script ? '' : `<script>window.addEventListener('DOMContentLoaded',()=>{__compatReady().catch(__compatReport);(${observeFrameHeight.toString()})(height=>parent.__compatResize(${safeJson(id)},height),parent);},{once:true});</script>`;
-    if (!script && /<script\b/i.test(content) && needsAuthorWindowAdapt(content)) {
+    if (script) {
+        frame.srcdoc = `<!doctype html><html><head>${head}</head><body>${content}</body></html>`;
+    } else if (/<script\b/i.test(content) && needsAuthorWindowAdapt(content)) {
         void adaptAuthorHtml(content).then(adapted => {
             if (children.has(frame)) frame.srcdoc = authorDocument(adapted, head, ready);
         });
@@ -2190,6 +2557,8 @@ function createChild(html: string, floor?: number, script?: CardScript, componen
     frame.addEventListener('load', () => {
         if (!frame.getAttribute('srcdoc')) return;
         loadedMessageFrames.add(frame);
+        films.sync();
+        requestAnimationFrame(() => films.sync());
         scheduleReadingPosition();
         if (readingPresentation && frame.contentDocument) applyReadingPresentation(readingPresentation, frame.contentDocument);
         if (!script) void emit(iframeEvents.MESSAGE_IFRAME_RENDER_ENDED, frame.id).catch(error => diagnostic('前端界面渲染完成', error));
@@ -2319,6 +2688,7 @@ function publishFrameSize(id: string, height: number) {
         const restore = first.getBoundingClientRect().top < 0 ? preserveReadingAnchor(first) : undefined;
         for (const [item, value] of changed) setFrameHeight(item, value, 80);
         restore?.();
+        films.schedule();
         scheduleReadingPosition();
     });
 }
@@ -2345,7 +2715,7 @@ function renderMessages(previous?: CompatSnapshot) {
         const openingSelector = node.floor === 0 && messages.length === 1 && node.swipes.length > 1;
         if (oldNode === node && oldRow && canRetry === oldRow.element.hasAttribute('data-can-retry') &&
             (index !== 0 || (prior!.length === 1) === (messages.length === 1))) continue;
-        const content = node.formatted;
+        const content = resolveRenderedMessageContent(node);
         const incomplete = !!node.extra?.tipsy_generation_incomplete || !!node.templatePending;
         const avatar = node.role === 'assistant' ? characterAvatar : node.role === 'user' ? userAvatar : undefined;
         const speakerName = node.role === 'user' ? snapshot.userName : node.role === 'assistant' ? storySpeakerName(node.speakerName, snapshot.character.name) : node.speakerName;
@@ -2410,6 +2780,8 @@ function renderMessages(previous?: CompatSnapshot) {
             button('›', () => request('chat.swipe', { floor: node.floor, direction: 'next' }), () => snapshot.generating || node.activeSwipeIndex === node.swipes.length - 1);
             toolbar.append(swipes);
         }
+        button('复制', () => request('ui.copy', { text: chat[node.floor]?.mes ?? node.content }));
+        button('修改', () => request('chat.edit', { id: node.id }), () => snapshot.generating || !!snapshot.messages.find(m => m.id === node.id)?.extra?.tipsy_generation_incomplete);
         if (canRetry) button('从这里重新选择', () => request('story.retry', { id: node.id }), () => snapshot.generating);
         if (node.role === 'assistant' && !incomplete) {
             const illustration = button('本楼配图', () => request('extension.illustration.open', { id: node.id }));
@@ -2431,50 +2803,17 @@ function renderMessages(previous?: CompatSnapshot) {
         menu.append(toggle, actions); toolbar.append(menu); header.append(toolbar); element.append(header);
         menu.addEventListener('keydown', event => { if (event.key === 'Escape') { menu.open = false; toggle.focus(); } });
         element.addEventListener('contextmenu', event => {
-            if ((event.target as HTMLElement).closest('input, textarea, a, button')) return;
+            if (matchMedia('(any-pointer: coarse)').matches || window.getSelection()?.toString()
+                || (event.target as HTMLElement).closest('input, textarea, select, a, button, [contenteditable]')) return;
             event.preventDefault(); menu.open = true; toggle.focus();
         });
         const body = document.createElement('div'); body.className = node.streamPreview ? 'compat-stream-body' : 'mes_text';
-        const extracted = node.streamStatus ? [] : extractHtmlSandboxBlocks(content);
-        if (node.floor > 0 && !incomplete && !node.streamStatus && extracted.every(block => block.type === 'markdown')) {
-            body.classList.add('compat-defer-paint');
-            body.style.setProperty('--compat-row-estimate', `${Math.max(72, Math.ceil(content.length / 44) * 24 + 48)}px`);
-        }
         if (node.streamPreview) {
+            body.classList.add('compat-stream-body');
             const view = new StreamingView(body, () => readingPresentation?.streamLoadingSprite ?? '');
             streamViews.set(element, view); view.update(node.streamPreview);
-        } else if (node.templatePending) {
-            const pending = document.createElement('p'); pending.setAttribute('role', 'status'); pending.textContent = '正在渲染消息模板…'; body.append(pending);
         } else {
-            let notified = false;
-            for (const block of extracted) {
-                if (block.type === 'markdown') { const prose = document.createElement('div'); prose.className = 'compat-prose message-markdown'; prose.innerHTML = renderMessageMarkdown(block.content); body.append(prose); }
-                else if (!incomplete) {
-                    const mount = () => {
-                        const frame = createChild(block.type === 'mixed' ? renderMixedMessage(block.content) : block.content, node.floor, undefined, node.componentTargets);
-                        const loader = mountAuthorLoading(frame, node.componentTargets, () => readingPresentation?.streamLoadingSprite ?? '');
-                        authorLoaders.set(frame, loader.dispose);
-                        return loader.wrapper;
-                    };
-                    if (preloadsMessageHtml(node.floor, messages.length, snapshot.helperRenderDepth)) body.append(mount());
-                    else {
-                        const slot = document.createElement('p');
-                        slot.className = 'compat-deferred-author'; slot.textContent = '正在加载互动内容…';
-                        body.append(slot);
-                        deferredAuthorPages.set(slot, () => {
-                            const restore = preserveReadingAnchor(slot);
-                            slot.replaceWith(mount());
-                            restore();
-                        });
-                        authorPageObserver.observe(slot);
-                    }
-                }
-                else if (!notified) {
-                    const notice = document.createElement('p'); notice.setAttribute('role', 'status');
-                    notice.textContent = '正在生成互动内容…';
-                    body.append(notice); notified = true;
-                }
-            }
+            populateMessageBody(body, node, content, incomplete, messages.length);
         }
         element.append(body); rows.set(node.id, { element, content, swipe: node.activeSwipeIndex, incomplete, identity, avatar });
         if (samePrefix) root.insertBefore(element, nextSibling);
@@ -2488,21 +2827,79 @@ function renderMessages(previous?: CompatSnapshot) {
         else root.insertBefore(element, cursor);
     }
     restoreAnchors.forEach(restore => restore());
+    films.sync();
     restoreReadingPosition();
     scheduleReadingPosition();
 }
-function disposeRow(element: HTMLElement) {
-    streamViews.get(element)?.dispose(); streamViews.delete(element);
-    for (const slot of element.querySelectorAll('.compat-deferred-author')) {
+function populateMessageBody(
+    body: HTMLElement,
+    node: CompatSnapshot['messages'][number],
+    content: string,
+    incomplete: boolean,
+    totalMessages: number,
+) {
+    const extracted = node.streamStatus ? [] : extractHtmlSandboxBlocks(content);
+    body.classList.remove('compat-defer-paint');
+    body.style.removeProperty('--compat-row-estimate');
+    if (node.floor > 0 && !incomplete && !node.streamStatus && extracted.every(block => block.type === 'markdown')) {
+        body.classList.add('compat-defer-paint');
+        body.style.setProperty('--compat-row-estimate', `${Math.max(72, Math.ceil(content.length / 44) * 24 + 48)}px`);
+    }
+    if (node.templatePending) {
+        const pending = document.createElement('p'); pending.setAttribute('role', 'status'); pending.textContent = '正在渲染消息模板…'; body.append(pending);
+        return;
+    }
+    const hookContext = { messageId: node.floor, isSystem: Boolean(node.isHidden), isUser: node.role === 'user' };
+    const hasAfterMarkdown = hasFormatterStage('afterMarkdown');
+    let notified = false;
+    for (const block of extracted) {
+        if (block.type === 'markdown') {
+            const prose = document.createElement('div');
+            prose.className = 'compat-prose message-markdown';
+            const html = renderMessageMarkdown(block.content);
+            prose.innerHTML = hasAfterMarkdown ? runFormatterStage('afterMarkdown', html, hookContext) : html;
+            body.append(prose);
+        } else if (!incomplete) {
+            const mount = () => {
+                const frame = createChild(block.type === 'mixed' ? renderMixedMessage(block.content) : block.content, node.floor, undefined, node.componentTargets);
+                const loader = mountAuthorLoading(frame, node.componentTargets, () => readingPresentation?.streamLoadingSprite ?? '');
+                authorLoaders.set(frame, loader.dispose);
+                return loader.wrapper;
+            };
+            if (preloadsMessageHtml(node.floor, totalMessages, snapshot.helperRenderDepth)) body.append(mount());
+            else {
+                const slot = document.createElement('p');
+                slot.className = 'compat-deferred-author'; slot.textContent = '正在加载互动内容…';
+                body.append(slot);
+                deferredAuthorPages.set(slot, () => {
+                    const restore = preserveReadingAnchor(slot);
+                    slot.replaceWith(mount());
+                    restore();
+                });
+                authorPageObserver.observe(slot);
+            }
+        } else if (!notified) {
+            const notice = document.createElement('p'); notice.setAttribute('role', 'status');
+            notice.textContent = '正在生成互动内容…';
+            body.append(notice); notified = true;
+        }
+    }
+}
+function disposeRowBody(container: HTMLElement) {
+    for (const slot of container.querySelectorAll('.compat-deferred-author')) {
         authorPageObserver.unobserve(slot); deferredAuthorPages.delete(slot);
     }
-    for (const frame of element.querySelectorAll('iframe')) {
+    for (const frame of container.querySelectorAll('iframe')) {
         if (frame.contentWindow) childDisposers.get(frame.contentWindow)?.();
         authorLoaders.get(frame)?.(); authorLoaders.delete(frame);
         if (frame.dataset.compatChild) messageFrames.delete(frame.dataset.compatChild);
         pendingFrameSizes.delete(frame);
         children.delete(frame);
     }
+}
+function disposeRow(element: HTMLElement) {
+    streamViews.get(element)?.dispose(); streamViews.delete(element);
+    disposeRowBody(element);
     element.remove();
 }
 Object.assign(globals, { __compatInstall: installApi, __tipsyHostContext: context,
@@ -2621,6 +3018,7 @@ async function switchCompatibilitySession(next: CompatSnapshot, scripts: CardScr
     lastPublishedOverlay = false;
     document.documentElement.toggleAttribute('data-compat-popup', nativePopupVisible);
     for (const row of rows.values()) disposeRow(row.element); rows.clear();
+    films.sync([], '');
     const retained = new Set(scriptsFromTrees(next.scriptTrees.global).filter(script => script.enabled).map(script => script.id));
     if (snapshot.assetCatalog.loadedPresetName === next.assetCatalog.loadedPresetName) {
         for (const script of scriptsFromTrees(next.scriptTrees.preset)) if (script.enabled) retained.add(script.id);
@@ -2711,6 +3109,22 @@ window.addEventListener('message', event => {
     if (event.source !== outer || !event.data) return;
     const data = event.data;
     if (data.kind === 'compat:popup-focus' && data.session === snapshot?.session) { focusPopup(); return; }
+    if (data.kind === 'compat:film-slots' && data.session === snapshot?.session && Array.isArray(data.slots)) {
+        if (typeof data.filmToken === 'string') currentFilmToken = data.filmToken;
+        films.sync(data.slots as CompatFilmSlot[], currentFilmToken);
+        return;
+    }
+    if (data.kind === 'compat:film-media' && data.session === snapshot?.session && typeof data.mediaId === 'string') {
+        const mime = typeof data.mime === 'string' && /^image\/(?:png|jpeg|webp)$/.test(data.mime) ? data.mime : '';
+        const blob = data.bytes instanceof ArrayBuffer && mime
+            ? new Blob([data.bytes], { type: mime })
+            : data.blob instanceof Blob
+                ? (/^image\/(?:png|jpeg|webp)$/.test(data.blob.type) || !mime ? data.blob : new Blob([data.blob], { type: mime }))
+                : null;
+        if (blob) films.receiveMedia(data.mediaId, blob, typeof data.name === 'string' ? data.name : undefined);
+        return;
+    }
+    if (data.kind === 'compat:presentation' && data.session === snapshot?.session && 'stageTint' in data) { if (typeof data.stageTint === 'string' && /^#[0-9a-f]{6}$/i.test(data.stageTint)) document.documentElement.style.setProperty('--ti-stage-tint', data.stageTint); else document.documentElement.style.removeProperty('--ti-stage-tint'); return; }
     if (data.kind === 'compat:reading-target' && data.session === snapshot?.session) {
         readingReplyId = typeof data.replyId === 'string' ? data.replyId : undefined;
         lastReadingPosition = ''; scheduleReadingPosition(); return;

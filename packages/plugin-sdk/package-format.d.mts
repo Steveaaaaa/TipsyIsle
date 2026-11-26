@@ -1,6 +1,6 @@
 import type { PluginManifest, SettingField } from './index.js';
-export const hostApi: '1.1.0';
-export function supportedHostApi(manifest: PluginManifest): '1.0.0' | '1.1.0' | null;
+export const hostApi: '1.2.0';
+export function supportedHostApi(manifest: PluginManifest): '1.0.0' | '1.1.0' | '1.2.0' | null;
 export const guestExports: '__tipsy_plugin_exports__';
 export const packageLimit: number, expandedLimit: number, entryLimit: number, resourceLimit: number, manifestLimit: number, maxFiles: number;
 export const pathPattern: RegExp;

@@ -10,8 +10,8 @@ interface Task {
     cancel(): void;
     slot?: Slot;
 }
-type Lane = 'main' | 'migration' | 'service' | 'prompt';
-const laneFor = (job: VmJob): Lane => job.mode === 'migrate' ? 'migration' : job.mode === 'service' ? 'service' : isPromptMode(job.mode) || job.mode === 'tool' ? 'prompt' : 'main';
+type Lane = 'main' | 'migration' | 'service' | 'prompt' | 'job';
+const laneFor = (job: VmJob): Lane => job.mode === 'job' ? 'job' : job.mode === 'migrate' ? 'migration' : job.mode === 'service' ? 'service' : isPromptMode(job.mode) || job.mode === 'tool' ? 'prompt' : 'main';
 interface Slot { worker: Worker; lane: Lane; task?: Task; idle?: ReturnType<typeof setTimeout> }
 const slots = new Set<Slot>();
 const waiting: Task[] = [];
@@ -90,7 +90,7 @@ function drainLane(lane: Lane) {
 }
 function drain() {
     // A storage RPC can need a migration while its calling VM is still resident.
-    drainLane('migration'); drainLane('service'); drainLane('prompt'); drainLane('main');
+    drainLane('migration'); drainLane('service'); drainLane('prompt'); drainLane('main'); drainLane('job');
 }
 export function callVm(job: VmJob, signal: AbortSignal, rpc: Task['rpc'] = async () => { throw new Error('此阶段没有宿主接口'); }): Promise<unknown> {
     signal.throwIfAborted();

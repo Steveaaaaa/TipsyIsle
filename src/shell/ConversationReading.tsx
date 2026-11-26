@@ -5,6 +5,7 @@ import { deleteChatMessage, editChatMessage, formatMessageForDisplay, getActiveC
 import type { ThemeEngineState } from '../theme/theme-engine';
 import type { ChatMessageNode, NormalizedCharacterCard, NormalizedLorebook, NormalizedPreset } from '../types';
 import { Icon } from './Icon';
+import { MessageEditDialog } from './MessageEditDialog';
 import { VirtualChatStream } from './VirtualChatStream';
 import type { useReadingMode } from './useReadingMode';
 
@@ -99,6 +100,11 @@ export function ConversationReading({
                     <p>{state.nativeToolPreview?.reasoning ?? state.streamingReasoning}</p>
                 </details>
             )}
+            <MessageEditDialog
+                freeChat={isFree}
+                userName={isFree ? '你' : state.userName}
+                characterName={isFree ? 'AI' : activeCharacter.name}
+            />
         </>
     );
 }

@@ -1,4 +1,4 @@
-import { definePlugin, type Json, type PluginApi } from '@tipsy-isle/plugin-sdk';
+import { definePlugin, type Json, type PluginApi, type SurfaceBlock } from '@tipsy-isle/plugin-sdk';
 
 type Note = { key: string; text: string; floor: number | null };
 const excerpt = (text: string) => text.replace(/<(script|style|think|thinking|UpdateVariable)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
@@ -40,8 +40,9 @@ export default definePlugin({
                 notes = recent(api, [...notes, { key: `manual:${Date.now()}:${Math.random().toString(36).slice(2)}`, floor: null, text: input.action.values.note.trim().slice(0, 240) }]);
                 await api.storage.patch('route', { set: { notes: notes as Json[] } });
             }
-            return { title: '剧情手记', blocks: notes.length ? [{ type: 'list', items: notes.map(note => `${note.floor === null ? '手写' : `第 ${note.floor} 楼`} · ${note.text}`) }]
-                : [{ type: 'text', text: '这条路线还没有手记。' }],
+            const blocks:SurfaceBlock[]=notes.length ? [{ type: 'list', items: notes.map(note => `${note.floor === null ? '手写' : `第 ${note.floor} 楼`} · ${note.text}`) }] : [{ type: 'text', text: '这条路线还没有手记。' }];
+            try{const service=(await api.services.list()).find(item=>item.id==='dev.tipsy-isle.lumina-director.visual');if(service){const pages=await api.services.call({id:service.id,method:'chronicle',args:null});if(Array.isArray(pages))for(const page of pages)if(page&&typeof page==='object'&&!Array.isArray(page)&&typeof page.id==='string'&&typeof page.label==='string')blocks.push({type:'media',id:page.id,label:page.label.slice(0,100)});}}catch{ /* Journal entries remain usable without the optional service. */ }
+            return { title: '剧情手记', blocks,
                 fields: [{ id: 'note', label: '补一条手记', type: 'textarea', required: true }],
                 actions: [{ id: 'save', label: '保存手记', kind: 'primary' }],
             };

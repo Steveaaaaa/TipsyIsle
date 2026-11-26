@@ -1,5 +1,5 @@
 import { applyRegexScripts, isEmptySlotPlaceholder, type ApplyRegexOptions } from './macro-regex-engine';
-import { messageCodeBlocks } from './message-code-blocks';
+import { isHtmlCodeBlock, messageCodeBlocks } from './message-code-blocks';
 import { generationPresentation, type GenerationPhase } from '../theme/generation-presentation';
 import type { RegexScriptRule } from '../types';
 
@@ -11,9 +11,16 @@ export interface StreamPart {
 export interface MessageStreamPreview { source: string; status: string; phase: GenerationPhase; parts: StreamPart[]; document: boolean; scope: string; errorDetail?: string; }
 interface ComponentRule { key: string; selector?: string; label: string; height?: number; document: boolean; dynamic: boolean; }
 export interface StreamPlan { rules: RegexScriptRule[]; tags: Map<string, ComponentRule>; whole: boolean; scope: string; user: string; character: string; mode: StreamDisplayMode; options: Pick<ApplyRegexOptions, 'role' | 'depth'>; }
-const narrativeTags = new Set(['now_plot', 'story', 'content', 'text', 'plot', 'narrative', 'maintext', 'main_text', 'response', 'message', 'start']);
+const narrativeTags = new Set([
+    'now_plot', 'dream_plot', 'dream_body', 'story', 'content', 'text', 'plot',
+    'narrative', 'maintext', 'main_text', 'response', 'message', 'start',
+    'body', 'prose', 'chapter', 'scene', 'main', 'output', 'dialogue',
+]);
 const proseTags = new Set(['p', 'br', 'b', 'strong', 'em', 'i', 'u', 's', 'span', 'blockquote', 'h1', 'h2', 'h3', 'ul', 'ol', 'li']);
-const reasoningTags = new Set(['think', 'thinking', 'reasoning', 'analysis', 'logic_check']);
+const reasoningTags = new Set([
+    'think', 'thinking', 'reasoning', 'analysis', 'logic_check',
+    'draft', 'cot', 'thought', 'scratchpad', 'reflection', 'dice_calculation', 'review', 'plan', 'planning',
+]);
 const dataTags = new Set(['updatevariable', 'updatevariablevariable', 'update', 'jsonpatch', 'statusplaceholderimpl']);
 const hiddenBlock = (block: PendingBlock) => ['comment', 'script', 'style', 'template'].includes(block.tag)
     || dataTags.has(block.tag) && !(block.tag === 'statusplaceholderimpl' && block.info);
@@ -34,24 +41,56 @@ function componentShape(html: string) {
     const fixed = /(?:^|[;\s])height\s*:\s*(\d+(?:\.\d+)?)px\b/i.exec(inline + ';' + css);
     return { selector, height: fixed && Number(fixed[1]) > 0 ? Number(fixed[1]) : undefined };
 }
+function expandTagChoice(expr: string): string[] {
+    const out = new Set<string>();
+    for (const part of expr.split('|')) {
+        const clean = part.trim();
+        const opt = /^([a-zA-Z_][\w:-]*)\(\?:([a-zA-Z0-9_:-]+)\)\?$/.exec(clean);
+        if (opt) {
+            out.add(opt[1].toLowerCase());
+            out.add(`${opt[1]}${opt[2]}`.toLowerCase());
+            continue;
+        }
+        const simple = /^([a-zA-Z_][\w:-]*)$/.exec(clean);
+        if (simple) out.add(simple[1].toLowerCase());
+    }
+    return [...out];
+}
+
+function extractFindRegexTags(unescapedPattern: string): string[] {
+    const tags = new Set<string>();
+    for (const m of unescapedPattern.matchAll(/<([a-zA-Z_][\w:-]*)\b/g)) {
+        tags.add(m[1].toLowerCase());
+    }
+    for (const m of unescapedPattern.matchAll(/<\(\?:((?:[^()|]|\(\?:[^()]+\)\?)+(?:\|(?:[^()|]|\(\?:[^()]+\)\?)+)*)\)/g)) {
+        for (const tag of expandTagChoice(m[1])) tags.add(tag);
+    }
+    return [...tags];
+}
+
 export function createStreamPlan(rules: RegexScriptRule[], scope: string, user: string, character: string, mode: StreamDisplayMode, templateDocument = false, options: Pick<ApplyRegexOptions, 'role' | 'depth'> = {}): StreamPlan {
     const tags = new Map<string, ComponentRule>();
     let whole = mode === 'document' || mode === 'auto' && templateDocument;
     for (const rule of rules) {
+        if (rule.disabled) continue;
         const replacement = rule.replaceString ?? '';
         const document = /<!doctype\s+html\b|<html\b|<body\b/i.test(replacement);
-        const tag = /<([a-zA-Z_][\w:-]*)\b/.exec(rule.findRegex)?.[1].toLowerCase();
+        const body = rule.findRegex.replace(/^\/|\/[gimsuy]*$/g, '');
+        const unescaped = body.replace(/\\</g, '<').replace(/\\\//g, '/');
+        const matchedTags = extractFindRegexTags(unescaped);
         const html = /<[a-z][\w-]*\b/i.test(replacement);
-        // A whole-message capture may end in a component tag. That marker does
-        // not make the replacement safe to split into generic prose and widgets.
-        const pattern = rule.findRegex.replace(/^\//, '');
+        const hasScopedCloseTag = /<\/[a-zA-Z_(]/.test(unescaped);
         const page = /<!doctype\s+html\b|<html\b|<body\b/i.test(replacement);
-        const capturesMessage = (pattern.includes('[\\s\\S]') || pattern.includes('.*')) && (!tag || page && pattern.startsWith('^'));
+        const capturesMessage = (body.includes('[\\s\\S]') || body.includes('.*'))
+            && ((!matchedTags.length && !hasScopedCloseTag) || (page && body.startsWith('^') && !hasScopedCloseTag));
         if (mode === 'auto' && capturesMessage && (document || /<(?:main|article|section|div)\b/i.test(replacement))) whole = true;
-        if (!tag || !html && !dataTags.has(tag) && replacement !== '') continue;
-        if (narrativeTags.has(tag) && isEmptySlotPlaceholder(replacement) && !/\$(?:[0-9&'`]|<[^>]+>)|\{\{match\}\}/i.test(replacement)) continue;
-        tags.set(tag, { key: `${scope}:${rule.id}`, label: rule.scriptName || '互动内容', document,
-            dynamic: !staticStreamMarkup(replacement) || /\{\{|<%/.test(rule.findRegex), ...componentShape(replacement) });
+        if (!matchedTags.length) continue;
+        for (const tag of matchedTags) {
+            if (!html && !dataTags.has(tag) && replacement !== '') continue;
+            if (narrativeTags.has(tag) && isEmptySlotPlaceholder(replacement) && !/\$(?:[0-9&'`]|<[^>]+>)|\{\{match\}\}/i.test(replacement)) continue;
+            tags.set(tag, { key: `${scope}:${rule.id}`, label: rule.scriptName || '互动内容', document,
+                dynamic: !staticStreamMarkup(replacement) || /\{\{|<%/.test(rule.findRegex), ...componentShape(replacement) });
+        }
     }
     return { rules, tags, whole, scope, user, character, mode, options };
 }
@@ -77,15 +116,16 @@ export class StreamProjector {
     private finishBlock(block: PendingBlock, end: number) {
         const raw = this.text.slice(block.start, end);
         const key = block.info?.key ?? `${this.plan.scope}:${block.fence ? 'code' : block.tag}`;
+        const fenceBody = block.fence ? raw.slice(raw.indexOf('\n') + 1).replace(/(?:\r?\n)[ \t]*[`~]{3,}[ \t]*$/, '') : '';
         if (hiddenBlock(block)) {
             // HTML comments do not occupy space in the final message.
-        } else if (block.fence && block.language !== 'html' && !/^\s*\[\s*\{\s*"op"\s*:/.test(raw.slice(raw.indexOf('\n') + 1)) && !/^(?:<!doctype\s+html\b|<html\b)/i.test(raw.slice(raw.indexOf('\n') + 1).trimStart())) {
+        } else if (block.fence && !isHtmlCodeBlock(block.language ?? '', fenceBody) && !/^\s*\[\s*\{\s*"op"\s*:/.test(fenceBody)) {
             this.prose(raw);
         } else if (block.reasoning) {
             this.parts.push({ id: `s${this.serial++}`, type: 'reasoning', content: raw.replace(/^<[^>]+>|<\/[^>]+>$/g, ''), complete: true });
         } else {
             let html = raw;
-            if (block.fence) html = raw.slice(raw.indexOf('\n') + 1).replace(/(?:\r?\n)[ \t]*[`~]{3,}[ \t]*$/, '');
+            if (block.fence) html = fenceBody;
             else if (!block.info?.dynamic) html = applyRegexScripts(raw, this.plan.rules, { stage: 'render', ...this.plan.options });
             html = this.expand(html);
             const transformed = html !== this.expand(raw);
@@ -172,7 +212,8 @@ export class StreamProjector {
             if (!info && (narrativeTags.has(tag) || proseTags.has(tag))) {
                 if (proseTags.has(tag)) this.prose(tagMatch[0]); this.cursor = end; continue;
             }
-            const block: PendingBlock = { start: this.cursor, scan: end, tag, level: 1, info, reasoning: reasoningTags.has(tag) };
+            const isReasoning = reasoningTags.has(tag);
+            const block: PendingBlock = { start: this.cursor, scan: end, tag, level: 1, info: isReasoning ? undefined : info, reasoning: isReasoning };
             if (tagMatch[3] || voidTags.has(tag)) this.finishBlock(block, end); else this.pending = block;
         }
         const parts = this.whole ? [] : this.parts.map(part => ({ ...part, content: part.type === 'prose' ? this.expand(part.content) : part.content }));

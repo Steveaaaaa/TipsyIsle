@@ -44,6 +44,7 @@ const prepare = `((bridge) => {
         if (mode === 'verify') {
             for (const id of input.commands) callable(definition.commands?.[id], id);
             if (input.events.includes('story.replySaved')) callable(definition.onReplySaved, 'onReplySaved');
+            if (input.events.includes('story.replyCheckpoint')) callable(definition.onReplyCheckpoint, 'onReplyCheckpoint');
             if (input.events.includes('story.routeChanged')) callable(definition.onRouteChanged, 'onRouteChanged');
             if (input.events.includes('story.changed')) callable(definition.onStoryChange, 'onStoryChange');
             if (input.generation) callable(definition.contribute, 'contribute');
@@ -53,9 +54,11 @@ const prepare = `((bridge) => {
             return 'null';
         }
         const { context, settings, hostApi } = parse(apiText), modern = hostApi !== '1.0.0';
-        const writes = ['command', 'replySaved', 'storyChanged', 'service'].includes(mode);
+        const director = hostApi === '1.2.0';
+        const writes = ['command', 'replySaved', 'storyChanged', 'service', 'job', 'mediaAction', 'checkpoint'].includes(mode);
         const api = immutable({ hostApi, context: modern ? context : { story: context.story, target: context.target }, settings,
             story: { ...ns('story', ['getMessage']), readMessages: (options = {}) => call('story.readMessages', options),
+                ...(director && ns('story', ['participants','visualSources'])),
                 ...(modern && { ...ns('story', ['listRoutes', 'tree', 'version', 'readPage', 'readText', 'search', 'state', ...(writes ? ['preview', 'commit', 'undo'] : []),
                         ...(mode === 'command' ? ['open'] : [])], ['open']), listChats: (options = {}) => call('story.listChats', options),
                     changes: (options = {}) => call('story.changes', options) }) },
@@ -63,15 +66,19 @@ const prepare = `((bridge) => {
                 patch: (scope, patch) => call('storage.patch', { scope, patch }).then(() => undefined) }) },
             ...(modern && { assets: ns('assets', ['list', 'get', 'entries', 'entry', ...(writes ? ['preview', 'commit', 'undo'] : [])]),
                 host: ns('host', ['capabilities']), index: ns('index', writes ? ['search', 'put', 'remove'] : ['search'], ['put', 'remove']) }),
-            ...(modern && writes && { models: ns('models', ['connections', 'start']), tasks: ns('tasks', ['read', 'cancel', 'embeddings'], ['cancel']), network: ns('network', ['request', 'download']),
-                media: { ...ns('media', ['put', 'remove', 'read'], ['remove']), list: (options = {}) => call('media.list', options) },
+            ...(modern && writes && { models: ns('models', ['connections', 'start']), tasks: ns('tasks', ['read', 'cancel', 'embeddings', ...(director ? ['await'] : [])], ['cancel']), network: ns('network', ['request', 'download']),
+                ...(director && { jobs: ns('jobs', ['schedule', 'awaitReply']),replyMedia:ns('replyMedia',['developing'],['developing']) }),
+                media: { ...ns('media', ['put', 'remove', 'read', ...(director ? ['stats','reclaim'] : [])], ['remove']), list: (options = {}) => call('media.list', options) },
                 ...(mode !== 'service' && { services: ns('services', ['list', 'call']) }) }),
-            ...(mode === 'command' && { ui: { replaceDraft: text => call('ui.replaceDraft', text).then(() => undefined) } }),
+            ...(mode === 'command' && { ui: { ...(director && ns('ui', ['export'], ['export'])), replaceDraft: text => call('ui.replaceDraft', text).then(() => undefined) } }),
             resources: { readText: path => call('resources.read', path) }, log: text => call('log', text).then(() => undefined),
         });
         let value;
         if (mode === 'command') value = await callable(definition.commands?.[input.id], input.id)(api, input);
         else if (mode === 'replySaved') value = await callable(definition.onReplySaved, 'onReplySaved')(api, input);
+        else if (mode === 'checkpoint') value = await callable(definition.onReplyCheckpoint, 'onReplyCheckpoint')(api, input);
+        else if (mode === 'job') value = await callable(definition.onJob, 'onJob')(api, input);
+        else if (mode === 'mediaAction') value = await callable(definition.onMediaAction, 'onMediaAction')(api, input);
         else if (mode === 'routeChanged') value = await callable(definition.onRouteChanged, 'onRouteChanged')(api, input);
         else if (mode === 'storyChanged') value = await callable(definition.onStoryChange, 'onStoryChange')(api, input);
         else if (mode === 'service') value = await callable(definition.services?.[input.id]?.[input.method], input.method)(api, input);
@@ -86,7 +93,11 @@ async function run(job: VmJob) {
     const runtime = qjs.newRuntime();
     runtime.setMemoryLimit(vmLimits.memory);
     runtime.setMaxStackSize(vmLimits.stack);
-    let remaining: number = isPromptMode(job.mode) ? vmLimits.contributionCpu : vmLimits.cpu;
+    let remaining: number = isPromptMode(job.mode)
+        ? vmLimits.contributionCpu
+        : job.mode === 'job'
+            ? vmLimits.jobCpu
+            : vmLimits.cpu;
     let deadline = Infinity;
     runtime.setInterruptHandler(() => performance.now() >= deadline);
     const withCpu = <T>(run: () => T): T => {
@@ -128,10 +139,11 @@ async function run(job: VmJob) {
         });
         for (;;) {
             withCpu(() => {
+                const maxPendingJobs = job.mode === 'job' ? 2048 : 512;
                 let executed = 0;
                 while (runtime.hasPendingJob()) {
                     executed += vm.unwrapResult(runtime.executePendingJobs(32));
-                    if (executed > 512 || performance.now() >= deadline) throw new Error('插件任务超过计算配额');
+                    if (executed > maxPendingJobs || performance.now() >= deadline) throw new Error('插件任务超过计算配额');
                 }
             });
             if (remaining <= 0) throw new Error('插件任务超过计算配额');

@@ -9,7 +9,18 @@ export type MvuSchemaProvider = z.ZodType | (() => z.ZodType);
 export function resolveMvuSchema(provider: MvuSchemaProvider): z.ZodType {
     const source = typeof provider === 'function' ? provider() : provider;
     if (!source || typeof source.parseAsync !== 'function') throw new Error('MVU 变量结构必须是 Zod Schema 或返回 Schema 的函数');
-    return source instanceof z.ZodObject ? z.looseObject(source.shape) : source;
+    if (source instanceof z.ZodObject) return z.looseObject(source.shape);
+    if (source instanceof z.ZodPrefault && source.def.innerType instanceof z.ZodObject) {
+        const loose = z.looseObject(source.def.innerType.shape);
+        const def = source.def.defaultValue;
+        return typeof def === 'function' ? loose.prefault(def as () => Record<string, unknown>) : loose.prefault(def as Record<string, unknown>);
+    }
+    if (source instanceof z.ZodDefault && source.def.innerType instanceof z.ZodObject) {
+        const loose = z.looseObject(source.def.innerType.shape);
+        const def = source.def.defaultValue;
+        return typeof def === 'function' ? loose.default(def as () => Record<string, unknown>) : loose.default(def as Record<string, unknown>);
+    }
+    return source;
 }
 
 /** Follow mvu_zod's loose root and root merge, while retaining the author's nested rules/transforms. */

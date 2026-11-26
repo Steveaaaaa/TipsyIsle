@@ -82,3 +82,52 @@ export function fromHelperPreset(value: HelperPreset, name: string, previous?: N
     next.id = previous?.id ?? `preset_${crypto.randomUUID()}`;
     return next;
 }
+export function toNativePreset(preset: NormalizedPreset): Record<string, any> {
+    const raw: Record<string, any> = structuredClone(preset.rawData ?? {});
+    const slots = preset.promptSlots ?? preset.prompts ?? [];
+    if (!Array.isArray(raw.prompts)) {
+        raw.prompts = slots.map(slot => ({
+            identifier: slot.identifier,
+            name: slot.name,
+            enabled: slot.enabled,
+            role: slot.role,
+            content: slot.content ?? '',
+            system_prompt: systemPromptIds.includes(slot.identifier) || placeholderPromptIds.includes(slot.identifier),
+            marker: Boolean(slot.marker || placeholderPromptIds.includes(slot.identifier)),
+            injection_position: slot.injectionPosition === 'in_chat' ? 1 : 0,
+            injection_depth: slot.injectionDepth ?? 4,
+            injection_order: slot.depthOrder ?? 100,
+            forbid_overrides: Boolean(slot.forbidOverrides),
+        }));
+    }
+    if (!Array.isArray(raw.prompt_order) || !raw.prompt_order.length) {
+        raw.prompt_order = [{
+            character_id: 100001,
+            order: (raw.prompts as any[]).map((item: any) => ({
+                identifier: String(item.identifier ?? item.id ?? ''),
+                enabled: item.enabled !== false,
+            })),
+        }];
+    }
+    if (!raw.extensions || typeof raw.extensions !== 'object' || Array.isArray(raw.extensions)) raw.extensions = {};
+    const rules = preset.regexScripts ?? [];
+    const existingRegex = raw.extensions.regex_scripts;
+    const regexInSync = Array.isArray(existingRegex) && existingRegex.length === rules.length && rules.every((rule, index) => {
+        const item = existingRegex[index];
+        return item && typeof item === 'object'
+            && String(item.id ?? '') === String(rule.id ?? '')
+            && String(item.scriptName ?? item.script_name ?? '') === String(rule.scriptName ?? '')
+            && String(item.findRegex ?? item.find_regex ?? '') === String(rule.findRegex ?? '')
+            && String(item.replaceString ?? item.replace_string ?? '') === String(rule.replaceString ?? '')
+            && Boolean(item.disabled) === Boolean(rule.disabled);
+    });
+    if (!regexInSync) raw.extensions.regex_scripts = rules.map(serializeRegexRule);
+    return raw;
+}
+export function fromNativePreset(rawInput: Record<string, any>, name: string, previous?: NormalizedPreset): NormalizedPreset {
+    const raw = structuredClone(rawInput);
+    const next = normalizePreset(raw, name);
+    next.rawData = raw;
+    next.id = previous?.id ?? `preset_${crypto.randomUUID()}`;
+    return next;
+}

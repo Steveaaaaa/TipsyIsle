@@ -1438,6 +1438,12 @@ select.ttm-select-input,
     min-height: 44px;
 }
 
+.ttm-message-edit-textarea {
+    background: var(--ti-bg-primary, #12151e);
+    color: var(--ti-text-primary);
+    border-color: var(--ti-border-subtle, rgba(255, 255, 255, 0.16));
+}
+
 /* === 兼容模式聊天 === */
 .ttm-compatibility-chat {
     width: 100%;

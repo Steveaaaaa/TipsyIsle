@@ -4,7 +4,7 @@ import { Immer } from 'immer';
 import { rollbackStateChanges } from '../../store/state-rollback';
 import { platformStorage, registerSnapshotCommitHook } from '../platform-bridge';
 import { batchReactiveUpdates, createReactiveStore } from '../../store/reactive-store';
-import { workspaceStore, captureMessageSnapshot, captureChatContinuation, getActiveCharacter, getActiveLorebooks, getActivePersona, getCharacterWorldbooks, persistWorkspaceNow, preserveAuthorMessageRevision, publishSyncedWorkspace, rollbackWorkspacePublication, restoreChatExtensions, SYNC_EXTENSIONS, worldbooksChanged } from '../../store/workspace-store';
+import { workspaceStore, captureMessageSnapshot, captureChatContinuation, getActiveCharacter, getActiveLorebooks, getActivePersona, getCharacterWorldbooks, persistWorkspaceNow, preserveAuthorMessageRevision, publishSyncedWorkspace, rollbackWorkspacePublication, restoreChatExtensions, syncCharacterScriptsFromLibrary, syncPresetScriptsFromLibrary, SYNC_EXTENSIONS, worldbooksChanged } from '../../store/workspace-store';
 import { scopedVariableStore } from '../../store/scoped-variable-store';
 import { APPEARANCE_SNAPSHOT, appearanceStore, decodeAppearance, isAppearanceLibrarySnapshot } from '../../theme/appearance-store';
 import { listChatArchives, loadChatArchive, summarizeChat, type ArchivedChat } from '../../store/chat-archives';
@@ -380,12 +380,20 @@ async function applyInbox(repairGuides = false, resolution?: SyncRevision, force
                     workspace.branchExtensionKeys = c.extensionKeys ?? []; Object.assign(settings, c.settings);
                     Object.assign(workspace, { activePresetId: c.activePresetId, inUsePreset: c.inUsePreset,
                         activeLorebookIds: c.activeLorebookIds, userName: c.userName, activePersonaId: c.activePersonaId });
+                    workspace.inUsePreset = syncPresetScriptsFromLibrary(workspace.inUsePreset, workspace.presets, c.portable);
                 }
+                workspace.storyCharacter = syncCharacterScriptsFromLibrary(workspace.storyCharacter, workspace.characters, active.continuation?.portable);
             } else if (missing) {
                 Object.assign(workspace, emptyStory());
             }
-            for (const id of changed) if (id.startsWith('extension:') && !id.includes('~') && !(active && (restore || missing) && active.continuation)) {
-                if (next.records[id].value === null) delete variables.extension[id.slice(10)]; else variables.extension[id.slice(10)] = structuredClone(next.records[id].value);
+            for (const id of changed) if (id.startsWith('extension:') && !id.includes('~')) {
+                const key = id.slice(10), value = next.records[id].value;
+                if (active && (restore || missing) && active.continuation) {
+                    if (key !== 'tavern_helper') continue;
+                    if (Array.isArray(value?.scripts)) (variables.extension[key] ??= {}).scripts = structuredClone(value.scripts);
+                    else if (variables.extension[key]) delete variables.extension[key].scripts;
+                } else if (value === null) delete variables.extension[key];
+                else variables.extension[key] = structuredClone(value);
             }
         });
         if (pluginOnly) preserveAuthorMessageRevision(before.workspace.messages, after.workspace.messages);

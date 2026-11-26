@@ -240,6 +240,85 @@ const server = http.createServer(async (req, res) => {
     res.end(JSON.stringify(await providerCatalog(url.searchParams.get('provider')))); return;
   }
 
+  if (url.pathname === '/api/tipsy-isle/llm/image' && req.method === 'POST') {
+    const input = JSON.parse(await readBody(req));
+    const destination = new URL(input.url);
+    const paths = {
+      openai: /\/images\/(?:generations|edits)$/,
+      moss: /\/(?:images\/generations|tasks\/[\w-]+)$/,
+      novelai: /\/ai\/generate-image$/,
+      gemini: /\/models\/[\w.-]+:generateContent$/,
+      webui: /\/sdapi\/v1\/txt2img$/,
+      comfyui: /\/(?:upload\/image|prompt|view|history\/[\w-]+)$/,
+    };
+    const isPrivateHost = (host) =>
+      ['localhost', '127.0.0.1', '[::1]', '::1', '0.0.0.0'].includes(host) ||
+      /^(?:10\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(host);
+    const checkUrl = (targetUrl, allowLocalOrigin) => {
+      if (!['https:', 'http:'].includes(targetUrl.protocol) || targetUrl.username || targetUrl.password || targetUrl.hash) {
+        throw new Error('不支持的生图地址');
+      }
+      if (input.protocol === 'result_url' && isPrivateHost(targetUrl.hostname) && targetUrl.origin !== allowLocalOrigin) {
+        throw new Error('不允许的结果地址');
+      }
+    };
+    const isResultUrl = input.protocol === 'result_url';
+    if (!isResultUrl && (!Object.hasOwn(paths, input.protocol) || !paths[input.protocol].test(destination.pathname))) {
+      throw new Error('不支持的生图地址');
+    }
+    checkUrl(destination, input.approvedOrigin);
+    const readOnly =
+      isResultUrl ||
+      (input.protocol === 'comfyui' && /\/(?:view|history\/[\w-]+)$/.test(destination.pathname)) ||
+      (input.protocol === 'moss' && /\/tasks\/[\w-]+$/.test(destination.pathname));
+    if (input.method !== (readOnly ? 'GET' : 'POST')) throw new Error('请求方式无效');
+    const multipart = input.binary !== undefined;
+    if (multipart && (!/\/(?:images\/edits|upload\/image)$/.test(destination.pathname) || !/^multipart\/form-data; boundary=[\w-]{1,100}$/.test(input.contentType) || typeof input.binary !== 'string' || input.binary.length > 32 * 1024 * 1024)) {
+      throw new Error('参考图上传格式无效');
+    }
+    const controller = new AbortController();
+    res.once('close', () => controller.abort());
+    try {
+      let current = destination;
+      let upstream;
+      for (let hop = 0; hop <= (isResultUrl ? 2 : 0); hop++) {
+        upstream = await fetch(current, {
+          method: input.method,
+          signal: controller.signal,
+          redirect: isResultUrl ? 'manual' : 'error',
+          headers: isResultUrl
+            ? {}
+            : {
+                'Content-Type': multipart ? input.contentType : 'application/json',
+                ...(input.key ? (input.protocol === 'gemini' ? { 'x-goog-api-key': input.key } : { Authorization: `Bearer ${input.key}` }) : {}),
+              },
+          body: readOnly ? undefined : multipart ? Buffer.from(input.binary, 'base64') : JSON.stringify(input.body),
+        });
+        if (isResultUrl && [301, 302, 303, 307, 308].includes(upstream.status)) {
+          const location = upstream.headers.get('location');
+          await upstream.body?.cancel();
+          if (!location || hop === 2) throw new Error('结果地址重定向过多');
+          current = new URL(location, current);
+          checkUrl(current, input.approvedOrigin);
+          continue;
+        }
+        break;
+      }
+      res.writeHead(upstream.status, { 'Content-Type': upstream.headers.get('content-type') || 'application/octet-stream', 'Cache-Control': 'no-store' });
+      let bytes = 0;
+      if (upstream.body) {
+        for await (const chunk of upstream.body) {
+          bytes += chunk.length;
+          if (bytes > 40 * 1024 * 1024) throw new Error('模型结果过大');
+          if (!res.write(chunk)) await once(res, 'drain', { signal: controller.signal });
+        }
+      }
+      res.end();
+    } finally {
+      controller.abort();
+    }
+    return;
+  }
   if (url.pathname === '/api/tipsy-isle/llm/artifact' && req.method === 'POST') {
     const { url: target, body, key } = JSON.parse(await readBody(req));
     const destination = new URL(target);

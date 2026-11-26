@@ -18,7 +18,8 @@ import { setStatusBanner } from './notice';
 import { getActiveChatMessages } from './queries';
 import { readWorkspaceInitialVariables, initialChatVariables, mvuChatProjection } from './story-initialization';
 import { routePluginBucketsAt, routeWorldbooks } from './route-resources';
-import { SYNC_EXTENSIONS, syncStorySetting, restoreChatExtensions } from './sessions';
+import { captureChatExtensions, syncStorySetting, restoreChatExtensions } from './sessions';
+import { syncCharacterScriptsFromLibrary } from './scripts';
 import { branchBusy } from './activity';
 
 /** Capture each swipe's variables, chat projection and lorebook timers as one logical snapshot. */
@@ -106,7 +107,7 @@ export function readBranchState(state: WorkspaceState, node: ChatMessageNode): B
             preset: { [state.activePresetId]: readScopedVariables('preset', { presetId: state.activePresetId }) },
             chat: { [state.activeChatId]: variables.chat[state.activeChatId] ?? {} },
             message: {} },
-        extensions: Object.fromEntries([...new Set([...SYNC_EXTENSIONS, ...state.branchExtensionKeys ?? []])].filter(key => key in variables.extension).map(key => [key, variables.extension[key]])),
+        extensions: captureChatExtensions(variables.extension, state.branchExtensionKeys),
         extensionKeys: state.branchExtensionKeys,
         activePresetId: state.activePresetId, inUsePreset: getActivePreset(state), activeLorebookIds: state.activeLorebookIds,
         userName: state.userName, activePersonaId: state.activePersonaId,
@@ -142,7 +143,8 @@ export function applyBranchState(checkpoint: BranchState, keepLibraryBooks = fal
         nativePluginRoute: c.nativePluginRoute,
         templateInjections: structuredClone(checkpoint.templateInjections), templateActivations: structuredClone(checkpoint.templateActivations),
         activePresetId: currentPresetId, inUsePreset: currentPreset, activeLorebookIds: c.portable ? c.activeLorebookIds : currentLorebooks,
-        storyCharacter: c.character, storyWorldbooks: keepLibraryBooks && !c.portable ? routeWorldbooks(c.worldbooks, current) : c.worldbooks,
+        storyCharacter: syncCharacterScriptsFromLibrary(c.character ? structuredClone(c.character) : undefined, current.characters, c.portable),
+        storyWorldbooks: keepLibraryBooks && !c.portable ? routeWorldbooks(c.worldbooks, current) : c.worldbooks,
         storyCharacterBinding: c.portable ? c.characterBinding : currentBinding ?? c.characterBinding, storyPersona: c.persona,
         activePersonaId: c.activePersonaId, userName: c.userName, branchExtensionKeys: c.extensionKeys ?? [], lastAssembledPrompt: null });
     workspaceStore.setState(draft => { draft.chatWorldbookBindings[draft.activeChatId] = c.portable ? checkpoint.worldbookName ?? null : currentChatWorldbook; });

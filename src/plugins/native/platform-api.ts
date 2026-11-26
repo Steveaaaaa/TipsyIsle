@@ -22,7 +22,7 @@ const capabilities = async (plugin: InstalledPlugin): Promise<HostCapabilities> 
     return { api: hostApi, platform: runtime === 'tauri-native' ? /Android/i.test(navigator.userAgent) ? 'android' : 'desktop' : 'web',
         transport: runtime === 'local-gateway' ? 'gateway' : runtime === 'tauri-native' ? 'native' : 'browser', permissions: [...plugin.grants],
         features: ['story.routes', 'story.journal', 'story.transactions', 'assets.transactions', 'generation.stages', 'generation.tools.openai',
-            'models.chat.openai', 'models.embedding.openai', 'services.v1', 'ui.isolatedLayout', ...(hasIndex ? ['index.text', 'index.vector', 'media.blobs', 'models.image.openai', 'models.speech.openai'] : []),
+            'models.chat.openai', 'models.embedding.openai', 'services.v1', 'ui.isolatedLayout','story.replyCheckpoint','jobs.background','tasks.await','ui.replyMedia.v2','ui.stage','ui.export', ...(hasIndex ? ['index.text', 'index.vector', 'media.blobs', 'models.image.openai','models.image.moss','models.image.gemini','models.image.novelai','models.image.comfy','models.image.webui','models.image.references','models.image.actors','models.image.workflowSlots', 'models.speech.openai'] : []),
             ...(runtime === 'local-gateway' ? ['models.chat.providerAdapter'] : []), runtime === 'tauri-native' ? 'network.native' : 'network.cors'],
     };
 };
@@ -37,9 +37,10 @@ export async function callPlatform(method: string, args: unknown, access: CallAc
     const { plugin, pkg, mode, signal, permit, check } = access;
     const allowed = plugin.access ?? { assets: [], connections: [], origins: [] };
     const owner = ownerOf(plugin);
-    const writes = mode === 'command' || mode === 'replySaved' || mode === 'storyChanged' || mode === 'service';
+    const writes = ['command', 'replySaved', 'storyChanged', 'service', 'job', 'mediaAction'].includes(mode);
     const requireWrites = () => { if (!writes) throw new PluginApiError('PERMISSION_DENIED', '当前阶段只允许读取数据'); };
     if (method === 'host.capabilities') return capabilities(plugin);
+    if(method==='story.participants'){permit('story.read');permit('assets.read');return (await import('./media-ref')).participants();}
     if (method === 'story.changes') {
         permit('story.events');
         const { readStoryChanges } = await import('./events');
@@ -60,7 +61,7 @@ export async function callPlatform(method: string, args: unknown, access: CallAc
     if (method === 'storage.readAt' || method === 'storage.patchAt') {
         if (method.endsWith('patchAt')) requireWrites();
         const { addressedStorage } = await import('./addressed-storage');
-        return addressedStorage(pkg, method === 'storage.readAt' ? 'readAt' : 'patchAt', args, permit, check, signal);
+        return addressedStorage(pkg, method === 'storage.readAt' ? 'readAt' : 'patchAt', args, permit, check, signal, mode === 'job');
     }
     if ((group === 'story' || group === 'assets') && editActions.has(action)) {
         requireWrites(); permit(group === 'story' ? 'story.edit' : 'assets.write');
@@ -86,12 +87,20 @@ export async function callPlatform(method: string, args: unknown, access: CallAc
     if (group === 'models') {
         requireWrites(); permit('models.use');
         if (action === 'connections') return (await (await import('./connections')).connectionChoices()).filter(item => allowed.connections.includes(item.id));
-        if (action === 'start') return (await import('./tasks')).startModel(owner, args, allowed.connections, signal);
+        if (action === 'start') {
+            const tasks = await import('./tasks'), id = await tasks.startModel(owner, args, allowed.connections, signal, plugin.grants);
+            if (mode === 'job') {
+                const cancel = () => tasks.cancelTask(owner, id);
+                if (signal.aborted) cancel(); else signal.addEventListener('abort', cancel, { once: true });
+            }
+            return id;
+        }
     }
     if (group === 'tasks') {
         requireWrites();
         if (!['models.use', 'network.request', 'services.call'].some(p => plugin.grants.includes(p as Permission))) permit('models.use');
         const { readTask, cancelTask, taskEmbeddings } = await import('./tasks');
+        if (action === 'await') return (await import('./tasks')).awaitTask(owner, args, signal);
         if (action === 'read') return readTask(owner, args, signal);
         if (action === 'embeddings') return taskEmbeddings(owner, args);
         if (action === 'cancel') return cancelTask(owner, idSchema.parse(args));
@@ -103,6 +112,7 @@ export async function callPlatform(method: string, args: unknown, access: CallAc
     }
     if (group === 'media') {
         requireWrites(); permit('media.manage');
+        if(action==='reclaim'){permit('jobs.run');permit('storage.reply');permit('story.history');if(mode!=='job')throw new PluginApiError('PERMISSION_DENIED','回收需要后台作业');return (await import('./reclaim')).reclaimTakes(plugin,signal,check);}
         return (await import('./media')).mediaRpc(owner, action, args, signal);
     }
     if (group === 'services') {

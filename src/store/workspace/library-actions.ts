@@ -374,6 +374,21 @@ export function updatePresetPrompt(presetId: string, identifier: string, patch: 
             Object.assign(slot, patch, { identifier });
             preset.promptSlots = slots;
             preset.prompts = slots;
+            const raw = preset.rawData as Record<string, any> | undefined;
+            if (raw && (patch.enabled !== undefined || patch.content !== undefined)) {
+                if (Array.isArray(raw.prompts)) {
+                    const target = raw.prompts.find((item: any) => String(item?.identifier ?? item?.id ?? '') === identifier);
+                    if (target) {
+                        if (patch.content !== undefined) target.content = patch.content;
+                        if (patch.enabled !== undefined) target.enabled = patch.enabled;
+                    }
+                }
+                if (patch.enabled !== undefined && Array.isArray(raw.prompt_order)) {
+                    const group = raw.prompt_order.find((g: any) => Number(g?.character_id) === 100001) ?? raw.prompt_order[0];
+                    const entry = Array.isArray(group?.order) ? group.order.find((item: any) => item?.identifier === identifier) : undefined;
+                    if (entry) entry.enabled = patch.enabled;
+                }
+            }
         }
     });
     persistWorkspace();
