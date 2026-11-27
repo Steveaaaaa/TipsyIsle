@@ -23,7 +23,7 @@ import { normalizeMvuVariables } from '../../pipeline/mvu-data';
 import { isNativeStorySaving } from './activity';
 import { sealBranchPoint, restoreMessageSnapshot, rememberBranch, publishBranchChange, captureMessageSnapshot, selectChatBranch, preserveReplyVersion, remapBranchSnapshots, swipeBranchMessage, settleRouteChange } from './branches';
 import { saveHelperVariables } from './story-variables';
-import { canAppendDuringGenerationPreparation, getGenerationNotificationMessage } from './generation';
+import { canAppendDuringGenerationPreparation, getGenerationNotificationMessage, isGenerationPreparing } from './generation';
 import { notifyMessage } from './messages';
 import { baibaiBody, baibaiHash, baibaiRouteFields, isBaibaiNoteEdit } from '../../compatibility/baibai-route';
 import { remapRouteMessageData, routeContent, routeMessageDataKey, routeMessages, routeMessageKey, type RouteMessageData } from '../route-message-data';
@@ -36,6 +36,43 @@ function textHasMvuSetup(text: string): boolean {
     if (!text) return false;
     try { return readMvuCommands(text).commands.length > 0 || !!readMvuGreetingVariables(text); }
     catch { return false; }
+}
+
+function swipeContent(swipe: ChatMessageNode['swipes'][number] | undefined): string {
+    return swipe === undefined ? '' : typeof swipe === 'string' ? swipe : swipe.content;
+}
+
+function hasStructuralGenerationChange(node: ChatMessageNode, planNode: ChatMessageNode, item: Record<string, any>): boolean {
+    if (planNode.activeSwipeIndex !== node.activeSwipeIndex
+        || planNode.role !== node.role
+        || Boolean(planNode.isHidden) !== Boolean(node.isHidden)
+        || planNode.swipes.length !== node.swipes.length) {
+        return true;
+    }
+    if (item.swipes_data !== undefined || item.swipes_info !== undefined) return true;
+    if (item.swipes !== undefined && (item.swipes.length !== node.swipes.length
+        || item.swipes.some((value: unknown, index: number) => index !== node.activeSwipeIndex && value !== swipeContent(node.swipes[index])))) {
+        return true;
+    }
+    return planNode.swipes.some((swipe, index) => index !== node.activeSwipeIndex && swipeContent(swipe) !== swipeContent(node.swipes[index]));
+}
+
+function syncNodeBranchReplies(node: ChatMessageNode, swipe: number, content?: string, extra?: Record<string, unknown>): void {
+    const key = swipeId(node, swipe);
+    for (const point of [node.branchBases?.[key], node.branchStates?.[key]]) {
+        if (!point?.reply) continue;
+        if (content !== undefined) {
+            point.reply.content = content;
+            const original = point.reply.swipe;
+            point.reply.swipe = typeof original === 'object' ? { ...original, content } : content;
+        }
+        if (extra) {
+            point.reply.extra = {
+                ...point.reply.extra,
+                helperSwipeInfo: { ...point.reply.extra?.helperSwipeInfo as object, [swipe]: extra },
+            };
+        }
+    }
 }
 
 function shouldRestoreOpeningSwipeVariables(node: ChatMessageNode, targetSwipe: number, targetContent: string, currentVariables: Record<string, unknown>): boolean {
@@ -189,17 +226,19 @@ export async function editHelperChatMessage(floor: number | string | undefined, 
     const node = path.find(m => m.id === resolvedFloor) ?? path.at(Number(resolvedFloor));
     if (!node) throw new Error('消息楼层不存在');
     const duringNotification = workspaceStore.getState().isGenerating && getGenerationNotificationMessage() === node.id;
-    if (workspaceStore.getState().isGenerating && !duringNotification) throw new Error('生成期间不能修改消息');
+    const duringPreparation = workspaceStore.getState().isGenerating && !node.extra?.tipsy_generation_incomplete && isGenerationPreparing();
+    const duringActiveGeneration = duringNotification || duringPreparation;
+    if (workspaceStore.getState().isGenerating && !duringActiveGeneration) throw new Error('生成期间不能修改消息');
     const swipe = options.swipe_id === undefined || options.swipe_id === 'current' ? node.activeSwipeIndex : Number(options.swipe_id);
     if (swipe !== node.activeSwipeIndex && isNativeStorySaving()) throw new Error('正在保存插件数据，请稍后切换路线');
     if (!Number.isInteger(swipe) || swipe < 0 || swipe > 16384) throw new Error('消息分支不存在');
-    if (duringNotification && swipe !== node.activeSwipeIndex) throw new Error('生成事件中不能切换消息分支');
+    if (duringActiveGeneration && swipe !== node.activeSwipeIndex) throw new Error('生成事件中不能切换消息分支');
     const fieldValues = typeof content === 'object' && content !== null ? content : { message: content, data: options.data };
     const existingSwipe = node.swipes[swipe];
     const existingText = existingSwipe === undefined ? '' : typeof existingSwipe === 'string' ? existingSwipe : existingSwipe.content;
     const nextContent = fieldValues.message !== undefined ? String(fieldValues.message) : existingText;
     const nextData = fieldValues.data ?? options.data;
-    if (node.floor > 0 && !duringNotification && swipe !== node.activeSwipeIndex && swipe < node.swipes.length) {
+    if (node.floor > 0 && !duringActiveGeneration && swipe !== node.activeSwipeIndex && swipe < node.swipes.length) {
         const routes = storyRoutes(workspaceStore.getState().messages).filter(route => route.path.some(item => item.id === node.id && item.activeSwipeIndex === swipe));
         if (routes.length > 1) throw new Error('这个回复有多条后续，请从故事路线选择要继续的一条');
         if (routes.length === 1) {
@@ -207,12 +246,12 @@ export async function editHelperChatMessage(floor: number | string | undefined, 
             if ((typeof current === 'string' ? current : current.content) === nextContent && nextData === undefined) { await selectChatBranch(routes[0].key, true); return true; }
         }
     }
-    if (!duringNotification && (swipe !== node.activeSwipeIndex || node.floor > 0 && node.id !== workspaceStore.getState().activeLeafId && nextContent !== node.content)) await settleRouteChange(true);
+    if (!duringActiveGeneration && (swipe !== node.activeSwipeIndex || node.floor > 0 && node.id !== workspaceStore.getState().activeLeafId && nextContent !== node.content)) await settleRouteChange(true);
     const liveVariables = getScopedVariables('message', { messageId: node.id });
     const restoreOpeningSwipe = node.floor === 0 && nextData === undefined && shouldRestoreOpeningSwipeVariables(node, swipe, nextContent, liveVariables);
     const needsOpeningMvuInit = node.floor === 0 && path.length === 1 && nextContent !== existingText && textHasMvuSetup(nextContent);
     captureMessageSnapshot(node.id);
-    const forksHistory = node.floor > 0 && !duringNotification && nextContent !== node.content && node.id !== workspaceStore.getState().activeLeafId;
+    const forksHistory = node.floor > 0 && !duringActiveGeneration && nextContent !== node.content && node.id !== workspaceStore.getState().activeLeafId;
     if (forksHistory) preserveReplyVersion(workspaceStore.getState().messages.find(item => item.id === node.id)!);
     workspaceStore.setState(draft => {
         const target = draft.messages.find(m => m.id === node.id)!;
@@ -227,6 +266,9 @@ export async function editHelperChatMessage(floor: number | string | undefined, 
         if (forksHistory) {
             target.branchBases = undefined; target.branchStates = undefined;
             draft.activeLeafId = target.id;
+        } else if (nextContent !== existingText) {
+            delete target.storySummaries?.[swipeId(target, swipe)];
+            syncNodeBranchReplies(target, swipe, nextContent);
         }
     });
     if (nextData !== undefined) {
@@ -240,7 +282,7 @@ export async function editHelperChatMessage(floor: number | string | undefined, 
     }
     if (forksHistory) { sealBranchPoint(true); publishBranchChange(false); }
     persistWorkspace();
-    if (!duringNotification) {
+    if (!duringActiveGeneration) {
         if (options.refresh !== 'none') schedulePreview();
         if (options.refresh === 'all') void commandCompatibilityRuntime('event', ['chat_changed', workspaceStore.getState().activeChatId]).catch(error => setStatusBanner(String(error)));
         else if (options.refresh !== 'none') notifyMessage('message_edited', { ...node, activeSwipeIndex: swipe, content: nextContent });
@@ -277,9 +319,18 @@ export async function setHelperChatMessages(items: Array<Record<string, any>>, o
             && plan.node.content !== node.content && textHasMvuSetup(plan.node.content)) {
             plan.node.extra = { ...plan.node.extra, tipsy_mvu_initialization_pending: true };
         }
-        if (state.isGenerating && (getGenerationNotificationMessage() !== node.id || plan.node.activeSwipeIndex !== node.activeSwipeIndex
-            || ['swipes', 'swipes_data', 'swipes_info', 'role', 'is_hidden'].some(key => item[key] !== undefined))) {
+        const allowedDuringGeneration = !node.extra?.tipsy_generation_incomplete
+            && (isGenerationPreparing() || getGenerationNotificationMessage() === node.id);
+        if (state.isGenerating && (!allowedDuringGeneration || hasStructuralGenerationChange(node, plan.node, item))) {
             throw new Error('生成期间不能修改其他消息或改变分支结构');
+        }
+        if (state.isGenerating) {
+            const key = swipeId(plan.node);
+            if (plan.node.content !== node.content) delete plan.node.storySummaries?.[key];
+            if (plan.node.content !== node.content || item.extra !== undefined) {
+                const extra = (plan.node.extra?.helperSwipeInfo as Record<number, Record<string, unknown>> | undefined)?.[plan.node.activeSwipeIndex];
+                syncNodeBranchReplies(plan.node, plan.node.activeSwipeIndex, plan.node.content !== node.content ? plan.node.content : undefined, item.extra !== undefined ? extra : undefined);
+            }
         }
         return { ...plan, restoreOpeningSwipe };
     });
@@ -307,13 +358,15 @@ export async function setHelperChatMessages(items: Array<Record<string, any>>, o
         ...(nextHead?.floor === 0 && previousHead && swipeId(nextHead) !== swipeId(previousHead) && { nativePluginRoute: nextHead.nativePluginOpeningRoutes?.[swipeId(nextHead)] }) });
     for (const plan of plans) {
         replaceScopedVariables(plan.variables, 'message', { messageId: plan.node.id });
-        if (plan.node.id === path.at(-1)?.id) {
-            if ((plan.node.floor > 0 || plan.restoreOpeningSwipe) && plan.node.activeSwipeIndex !== path.at(-1)!.activeSwipeIndex) restoreMessageSnapshot(plan.node.id);
-            if ('stat_data' in plan.variables && getEffectiveMvuSettings(state).settings['mvu.update_chat'] === true) {
-                const projection = mvuChatProjection(plan.variables);
-                const chat = getScopedVariables('chat', { chatId: state.activeChatId });
-                for (const key of ['display_data', 'delta_data']) if (!(key in projection)) delete chat[key];
-                replaceScopedVariables({ ...chat, ...projection }, 'chat', { chatId: state.activeChatId });
+        if (plan.node.id === path.at(-1)?.id || state.isGenerating) {
+            if (plan.node.id === path.at(-1)?.id) {
+                if ((plan.node.floor > 0 || plan.restoreOpeningSwipe) && plan.node.activeSwipeIndex !== path.at(-1)!.activeSwipeIndex) restoreMessageSnapshot(plan.node.id);
+                if ('stat_data' in plan.variables && getEffectiveMvuSettings(state).settings['mvu.update_chat'] === true) {
+                    const projection = mvuChatProjection(plan.variables);
+                    const chat = getScopedVariables('chat', { chatId: state.activeChatId });
+                    for (const key of ['display_data', 'delta_data']) if (!(key in projection)) delete chat[key];
+                    replaceScopedVariables({ ...chat, ...projection }, 'chat', { chatId: state.activeChatId });
+                }
             }
             captureMessageSnapshot(plan.node.id);
         }

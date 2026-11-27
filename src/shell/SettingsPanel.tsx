@@ -14,11 +14,14 @@ import { SettingsDisclosure, SettingsSection } from './SettingsPrimitives';
 import { pluginSettingsDestinations, settingsCategories, settingsCategoryForField, settingsFieldLabels, storyToolDestinations, type PluginSettingsDestination, type SettingsCategory } from './settings-presentation';
 import type { StreamDisplayMode } from '../pipeline/streaming-message';
 import { NativePluginManager } from '../plugins/native/PluginManager';
+import { PersonaSettings } from './PersonaSettings';
 import { nativeAppUpdates } from '../core/native-runtime';
 import { checkAppUpdate, showCurrentReleaseNotes } from '../core/app-update';
 import { DiagnosticLogPanel } from './DiagnosticLogPanel';
 import { StoryModelProfilesBar } from './StoryModelProfilesBar';
 import app from '../../package.json';
+
+const INLINE_HELP_FIELDS = new Set(['api.chat_completion_source', 'api.custom_url', 'mvu.mode']);
 
 type SettingsPanelProps = {
     advancedTools?: ReactNode; dataTools?: ReactNode; onOpenPersona?: (anchor: HTMLElement) => void;
@@ -28,7 +31,7 @@ type SettingsPanelProps = {
 export function SettingsPanel(props: SettingsPanelProps) {
     return <SettingsDraftProvider><SettingsPanelContent {...props} /></SettingsDraftProvider>;
 }
-function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenAppearance, onOpenAssets, initialCategory = 'connection' }: SettingsPanelProps) {
+function SettingsPanelContent({ advancedTools, dataTools, onOpenAppearance, onOpenAssets, initialCategory = 'connection' }: SettingsPanelProps) {
     const workspace = workspaceStore.useStore();
     const { fields, setValues: setSchemaValues } = useSettingsEditor();
     const draft = settingsDraftStore.useStore();
@@ -56,7 +59,9 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
     const searchInput = useRef<HTMLInputElement>(null);
     const categoryLabel = settingsCategories.find(item => item.id === category)!;
     const ids = Object.keys(fields);
-    const renderFields = (fieldIds: string[]) => <SchemaFormRenderer fieldIds={fieldIds} fieldOverrides={settingsFieldLabels} ungrouped showDescriptions />;
+    const renderFields = (fieldIds: string[], inlineIds = INLINE_HELP_FIELDS) => (
+        <SchemaFormRenderer fieldIds={fieldIds} fieldOverrides={settingsFieldLabels} ungrouped inlineHelpIds={inlineIds} />
+    );
     // Dedicated editors now own identity, theme and saved connection profiles; hide their raw keys.
     const searchable = Object.values(fields).filter(field => !field.id.startsWith('ui.') && !['mvu.profile', 'api.connection_profiles', 'api.active_profile'].includes(field.id));
     const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
@@ -99,51 +104,56 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
             </button>)}
             {!resultCount && <p className="ttm-settings-note">试试“密钥”“插件权限”“应答格式”或“预加载”。</p>}
         </div> : <div className="ttm-settings-category" key={category} data-guide={category === 'plugins' ? undefined : category} data-direction={direction}>
-            <header className="ttm-settings-category-heading"><h3>{categoryLabel.label}</h3><p>{categoryLabel.description}</p>{category !== 'plugins' && <small>修改后点击底部保存。关闭面板会保留本次草稿；刷新页面前请先保存。</small>}</header>
+            <header className="ttm-settings-category-heading"><h3>{categoryLabel.label}</h3><p>{categoryLabel.description}</p></header>
             {category === 'connection' && <>
-                <SettingsSection title="剧情模型" description="可保存多个不同中转或官方渠道并一键切换；未单独调整的参数自动沿用默认合理配置。">
+                <SettingsSection title="剧情模型">
                     <StoryModelProfilesBar />
                     {renderFields(['api.chat_completion_source', 'api.custom_url', 'api.key', 'api.model'])}
                 </SettingsSection>
-                <SettingsSection title="回复与上下文" description="按模型能力设置生成参数；选用导入的预设时，可能带入该预设的参数。">
+                <SettingsSection title="生成参数与上下文">
                     {renderFields(['sampler.temperature', 'sampler.max_tokens', 'sampler.context_max_tokens'])}
-                    <p className="ttm-settings-note">推荐容量：上下文 262,144、回复上限 16,384、世界书占比 50%、额外变量解析回复上限 8,192 Token。</p>
-                    <button type="button" className="ttm-btn-secondary" onClick={() => {
-                        setSchemaValues(Object.fromEntries(['sampler.context_max_tokens', 'sampler.max_tokens', 'lorebook.budget_percent', 'mvu.max_tokens']
-                            .map(id => [id, fields[id].defaultValue])));
-                        setStatusBanner('推荐容量已填入草稿，点击底部保存后生效。');
-                    }}>使用推荐容量</button>
+                    <div className="ttm-settings-inline-bar">
+                        <span>推荐：上下文 262K · 回复上限 16K · 世界书 50%</span>
+                        <button type="button" className="ttm-mini-btn" onClick={() => {
+                            setSchemaValues(Object.fromEntries(['sampler.context_max_tokens', 'sampler.max_tokens', 'lorebook.budget_percent', 'mvu.max_tokens']
+                                .map(id => [id, fields[id].defaultValue])));
+                            setStatusBanner('推荐容量已填入草稿，点击底部保存后生效。');
+                        }}>填入推荐容量</button>
+                    </div>
+                    <SettingsDisclosure title="采样与推理高级参数">{renderFields(ids.filter(id => id.startsWith('sampler.') && !['sampler.temperature', 'sampler.max_tokens', 'sampler.context_max_tokens'].includes(id)))}</SettingsDisclosure>
                 </SettingsSection>
-                <button type="button" className="ttm-settings-link" onClick={() => navigate('story')}>配置额外模型解析<Icon name="arrow" width={17} height={17} /></button>
-                <SettingsDisclosure title="采样与推理的高级参数">{renderFields(ids.filter(id => id.startsWith('sampler.') && !['sampler.temperature', 'sampler.max_tokens', 'sampler.context_max_tokens'].includes(id)))}</SettingsDisclosure>
+                <button type="button" className="ttm-settings-link" onClick={() => navigate('story')}>前往「故事运行」配置额外变量解析<Icon name="arrow" width={17} height={17} /></button>
             </>}
             {category === 'story' && <>
                 <MvuSettingsPanel />
-                <SettingsDisclosure title="正则管理（全局 / 预设 / 故事）"><RegexManagerPanel /></SettingsDisclosure>
-                <SettingsDisclosure title="酒馆助手脚本管理（全局 / 预设 / 故事）"><ScriptManagerPanel /></SettingsDisclosure>
-                <SettingsSection title="作者互动页面" description="封面、状态栏和交互按钮依赖这些能力。优先遵循故事作者的说明。">{renderFields(['helper.render_depth', 'sandbox.enable_html_frames'])}</SettingsSection>
+                <SettingsSection title="互动页面、脚本与正则">
+                    {renderFields(['sandbox.enable_html_frames', 'helper.render_depth'])}
+                    <SettingsDisclosure title="酒馆助手脚本管理（全局 / 预设 / 故事）"><ScriptManagerPanel /></SettingsDisclosure>
+                    <SettingsDisclosure title="正则管理（全局 / 预设 / 故事）"><RegexManagerPanel /></SettingsDisclosure>
+                </SettingsSection>
                 <SettingsDisclosure title="世界书触发与语义检索">
                     {renderFields(ids.filter(id => id.startsWith('lorebook.')))}
                     {renderFields(['vectors.enabled'])}<VectorConnectionFields />
                 </SettingsDisclosure>
             </>}
             {category === 'reading' && <>
-                {onOpenAppearance && <SettingsSection title="外观包">
-                    <button type="button" className="ttm-settings-link" onClick={onOpenAppearance}>浏览外观包<Icon name="chevron" width={16} height={16} /></button>
-                </SettingsSection>}
-                <SettingsSection title="回复生成时的呈现方式" description="流式输出开关用于模型请求；显示方式按当前故事保存，不改变作者正则、脚本或原始回复。">
+                <SettingsSection title="回复呈现与外观">
                     {renderFields(['api.stream'])}
-                    <label className="ttm-asset-field-label" htmlFor="settings-stream-mode">流式显示方式</label><select id="settings-stream-mode" className="ttm-select-input" value={draft.streamModes[workspace.activeCharacterId] ?? workspace.streamDisplayModes[workspace.activeCharacterId] ?? 'auto'} onChange={event => {
-                        const mode = event.target.value as StreamDisplayMode;
-                        settingsDraftStore.setState(next => { if (mode === (workspace.streamDisplayModes[workspace.activeCharacterId] ?? 'auto')) delete next.streamModes[workspace.activeCharacterId]; else next.streamModes[workspace.activeCharacterId] = mode; });
-                    }}>
-                        <option value="auto">自动识别正文与作者页面</option><option value="segmented">分段显示正文与组件</option><option value="document">等待整段作者页面</option>
-                    </select>
-                    <p className="ttm-settings-note">推荐自动识别。普通正文逐步显示；需要完整内容的作者页面等待生成完成后呈现。若某个故事显示异常，可手动选择等待整段作者页面。</p>
+                    <div className="ttm-field-card">
+                        <div className="ttm-field-top"><label className="ttm-field-title" htmlFor="settings-stream-mode">流式显示方式</label></div>
+                        <p className="ttm-field-desc">按当前故事保存，推荐「自动识别」；页面渲染异常时可切换为等待整段作者页面。</p>
+                        <select id="settings-stream-mode" className="ttm-select-input" value={draft.streamModes[workspace.activeCharacterId] ?? workspace.streamDisplayModes[workspace.activeCharacterId] ?? 'auto'} onChange={event => {
+                            const mode = event.target.value as StreamDisplayMode;
+                            settingsDraftStore.setState(next => { if (mode === (workspace.streamDisplayModes[workspace.activeCharacterId] ?? 'auto')) delete next.streamModes[workspace.activeCharacterId]; else next.streamModes[workspace.activeCharacterId] = mode; });
+                        }}>
+                            <option value="auto">自动识别正文与作者页面</option><option value="segmented">分段显示正文与组件</option><option value="document">等待整段作者页面</option>
+                        </select>
+                    </div>
+                    {onOpenAppearance && <button type="button" className="ttm-settings-link" onClick={onOpenAppearance}>前往外观工作台与外观包<Icon name="chevron" width={16} height={16} /></button>}
                 </SettingsSection>
             </>}
-            {category === 'profile' && <SettingsSection title="头像、称呼与个人特征" description="称呼对应故事中的 {{user}}，外貌、性格等用于补充故事中的自己。故事专属资料优先，未设置时使用全局默认，两份不会叠加。">
-                {onOpenPersona && <button type="button" className="ttm-btn-secondary" onClick={event => onOpenPersona(event.currentTarget)}>编辑个人资料</button>}
+            {category === 'profile' && <SettingsSection title="头像、称呼与个人特征">
+                <PersonaSettings key={workspace.activeCharacterId} onSaved={() => setStatusBanner('个人资料已保存。')} />
             </SettingsSection>}
             {category === 'data' && <>
                 <SettingsSection title="导入内容" description="在对应列表的更多菜单中查看详情或删除；删除故事时可选择是否一并删除附带世界书。">
@@ -153,8 +163,6 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
             {category === 'sync' && <LanSyncPanel />}
             {category === 'plugins' && <>
                 <NativePluginManager initialSection={pluginDestination} />
-                <SettingsDisclosure title="酒馆助手脚本管理（全局 / 预设 / 故事）"><ScriptManagerPanel /></SettingsDisclosure>
-                <SettingsDisclosure title="正则管理（全局 / 预设 / 故事）"><RegexManagerPanel /></SettingsDisclosure>
                 <SettingsDisclosure title="酒馆兼容扩展"><ExtensionManager /></SettingsDisclosure>
             </>}
             {category === 'advanced' && <>
@@ -180,5 +188,5 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenPersona, onOpenA
 
 function VectorConnectionFields() {
     const { values, fields } = useSettingsEditor();
-    return values['vectors.enabled'] ? <SchemaFormRenderer fieldIds={Object.keys(fields).filter(id => id.startsWith('vectors.') && id !== 'vectors.enabled')} fieldOverrides={settingsFieldLabels} ungrouped showDescriptions /> : null;
+    return values['vectors.enabled'] ? <SchemaFormRenderer fieldIds={Object.keys(fields).filter(id => id.startsWith('vectors.') && id !== 'vectors.enabled')} fieldOverrides={settingsFieldLabels} ungrouped inlineHelpIds={new Set<string>()} /> : null;
 }

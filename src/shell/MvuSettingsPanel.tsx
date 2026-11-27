@@ -29,18 +29,20 @@ export function MvuSettingsPanel() {
         summary = `${inherited ? '沿用剧情连接' : selected ? `方案「${selected}」` : '独立连接'} · ${connection.api.model || '尚未填写模型名称'}`;
     } catch (error) { connectionError = error instanceof Error ? error.message : String(error); }
     const source = String(connectionSettings['mvu.source'] ?? '与插头相同');
-    const fields = (fieldIds: string[], disabled = false) => <SchemaFormRenderer fieldIds={fieldIds} fieldOverrides={settingsFieldLabels} ungrouped showDescriptions disabled={disabled} displayValues={disabled ? connectionSettings : undefined} />;
+    const fields = (fieldIds: string[], disabled = false) => <SchemaFormRenderer fieldIds={fieldIds} fieldOverrides={settingsFieldLabels} ungrouped inlineHelpIds={new Set(['mvu.mode'])} disabled={disabled} displayValues={disabled ? connectionSettings : undefined} />;
     const profileFields = ['source', 'protocol', 'url', 'key', 'model', 'provider', 'auth_type', 'provider_api', 'thinking', 'context_window', 'temperature', 'frequency_penalty', 'presence_penalty', 'top_p', 'top_k', 'max_tokens', 'headers', 'include_body', 'exclude_body', 'prompt_strategy', 'preset', 'random_header', 'format', 'disable_thinking', 'pseudo_stream'];
     const editProfile = () => setSchemaValues({ ...Object.fromEntries(profileFields.map(id => [`mvu.${id}`, connectionSettings[`mvu.${id}`]])), 'mvu.profile': '' });
     const profileCovered = new Set(profileFields.map(id => `mvu.${id}`));
     const taskFields = ['mvu.prompt_strategy', ...(connectionSettings['mvu.prompt_strategy'] === '使用其他预设' ? ['mvu.preset'] : []), 'mvu.history', 'mvu.max_tokens', 'mvu.request_mode', 'mvu.attempts', 'mvu.min_chars', 'mvu.trigger', 'mvu.whitelist', 'mvu.blacklist', 'mvu.task'];
 
-    return <SettingsSection title="变量更新 · MVU" description="用于更新人物状态、物品、数值和关系。这里修改全局默认；故事自带的作者配置有优先权。">
+    return <SettingsSection title="变量更新 · MVU">
         {fields(['mvu.mode'])}
-        <div className="ttm-settings-effective"><strong>保存后的运行方式</strong><span>{extra ? '使用额外模型解析' : '随剧情回复更新'}</span>
-            {override.更新方式 !== undefined && <small>更新方式由当前故事的作者配置指定；上方全局默认仍会保存，供未覆盖此项的故事使用。</small>}
-            {override.额外模型解析配置?.启用自动请求 !== undefined && <small>自动请求由当前故事指定为{effective.settings['mvu.automatic'] ? '开启' : '关闭'}。</small>}
-        </div>
+        {(override.更新方式 !== undefined || override.额外模型解析配置?.启用自动请求 !== undefined || extra) && (
+            <div className="ttm-settings-effective"><strong>当前生效</strong><span>{extra ? '使用额外模型解析' : '随剧情回复更新'}</span>
+                {override.更新方式 !== undefined && <small>更新方式由当前故事的作者配置指定；上方全局默认仍会保存，供未覆盖此项的故事使用。</small>}
+                {override.额外模型解析配置?.启用自动请求 !== undefined && <small>自动请求由当前故事指定为{effective.settings['mvu.automatic'] ? '开启' : '关闭'}。</small>}
+            </div>
+        )}
         {effective.warnings.map(warning => <p className="ttm-settings-error" role="status" key={warning}>{warning}</p>)}
         {extra && <>
             {fields(['mvu.automatic'])}
@@ -64,7 +66,7 @@ export function MvuSettingsPanel() {
             {fields(['mvu.format', 'mvu.random_header'], !!selected)}
             <SettingsDisclosure title="保存与管理解析连接方案"><ModelConnectionManager section="profiles" /></SettingsDisclosure>
             <SettingsDisclosure title="解析任务、长度与重试">
-                {taskFields.map(id => <SchemaFormRenderer key={id} fieldIds={[id]} fieldOverrides={settingsFieldLabels} ungrouped showDescriptions
+                {taskFields.map(id => <SchemaFormRenderer key={id} fieldIds={[id]} fieldOverrides={settingsFieldLabels} ungrouped inlineHelpIds={new Set<string>()}
                     disabled={!!selected && profileCovered.has(id)} displayValues={selected ? connectionSettings : undefined} />)}
                 <p className="ttm-settings-note">方案可覆盖提示词来源等参数。若要更改方案参数，先选择“编辑这份方案”，修改后以同名保存。</p>
             </SettingsDisclosure>
@@ -74,7 +76,6 @@ export function MvuSettingsPanel() {
                 {fields(['mvu.profiles'])}
             </SettingsDisclosure>
         </>}
-        {!extra && <p className="ttm-settings-note">变量更新内容随剧情回复返回，不会单独发起额外解析请求。将更新方式改为“使用额外模型解析”后，可在这里设置独立 API 地址和密钥。</p>}
         <SettingsDisclosure title="通知与作者兼容选项">{fields(['mvu.notify_loading', 'mvu.notify_initialized', 'mvu.notify_error', 'mvu.notify_analysis', 'mvu.update_chat', 'mvu.sendas_assistant'])}</SettingsDisclosure>
     </SettingsSection>;
 }

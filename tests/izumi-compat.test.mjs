@@ -61,10 +61,18 @@ async function loadTestBundle() {
                 'export { workspaceStore } from "./src/store/workspace/state.ts";',
                 'export { selectPreset, updatePresetPrompt } from "./src/store/workspace/library-actions.ts";',
                 'export { requestNativeResource } from "./src/compatibility/native-resource-host.ts";',
-                'export { saveLegacyChat } from "./src/store/workspace/message-edits.ts";',
+                'export { setHelperChatMessages, saveLegacyChat } from "./src/store/workspace/message-edits.ts";',
+                'export { sendUserMessageAndGenerate, isGenerationPreparing } from "./src/store/workspace/generation.ts";',
+                'export { setStoryRuntimeLoading } from "./src/core/sync/activity.ts";',
+                'export { schemaRegistryStore } from "./src/registry/schema-registry.ts";',
+                'export { tavernEventBus } from "./src/sandbox/event-bus.ts";',
                 'export { assetCatalog, requestAsset } from "./src/compatibility/asset-host.ts";',
                 'export { installHostFetch } from "./src/compatibility/host-fetch.ts";',
                 'export { authorDocument } from "./src/compatibility/author-document.ts";',
+                'export { commitPromptVariableChanges } from "./src/store/workspace/prompt-commit.ts";',
+                'export { createPromptAssemblyInput, TemplateInputChangedError } from "./src/store/workspace/prompt.ts";',
+                'export { assemblePromptPipeline } from "./src/pipeline/prompt-assembler.ts";',
+                'export { TemplateRuntime } from "./src/pipeline/template-runtime.ts";',
             ].join('\n'),
             resolveDir: process.cwd(),
             loader: 'ts',
@@ -332,6 +340,467 @@ test('native preset codec, settings/presets HTTP APIs, and chat swipe_info/topLe
         assert.match(frameEntrySource, /function repaintMessageBlock[\s\S]*?disposeRowBody\(rowEl\)[\s\S]*?populateMessageBody\(rowEl,/);
         assert.doesNotMatch(frameEntrySource, /function repaintMessageBlock[\s\S]*?rowEl\.innerHTML\s*=/);
         assert.match(frameEntrySource, /stageOrFn:\s*FormatterStage\s*\|\s*FormatterHookFn/);
+    } finally {
+        await cleanup();
+    }
+});
+
+test('setHelperChatMessages allows Izumi advice transfer during generation preparation while blocking structural or streaming-phase mutations', async () => {
+    installMemoryLocalStorage();
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn, delay, ...args) => {
+        const timer = realSetTimeout(fn, delay, ...args);
+        if (typeof delay === 'number' && delay >= 60_000) timer?.unref?.();
+        return timer;
+    });
+    const prevWindow = globalThis.window;
+    const { mod, cleanup } = await loadTestBundle();
+    try {
+        const {
+            workspaceStore,
+            setStoryRuntimeLoading,
+            setHelperChatMessages,
+            sendUserMessageAndGenerate,
+            isGenerationPreparing,
+            tavernEventBus,
+            schemaRegistryStore,
+        } = mod;
+        Object.defineProperty(globalThis, 'window', {
+            configurable: true,
+            value: { dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+        });
+        setStoryRuntimeLoading(false);
+        await new Promise(resolve => realSetTimeout(resolve, 0));
+        delete globalThis.window;
+        const prevCustomUrl = schemaRegistryStore.getState().values['api.custom_url'];
+        schemaRegistryStore.setState(draft => { draft.values['api.custom_url'] = ''; });
+        const charId = 'char_izumi_prep';
+        const chatId = 'chat_izumi_prep';
+        workspaceStore.setState({
+            activeCharacterId: charId,
+            activeChatId: chatId,
+            activeLeafId: 'msg-0',
+            isGenerating: false,
+            sessionKind: 'character',
+            characters: [{
+                id: charId,
+                name: 'Izumi',
+                avatar: 'izumi.png',
+                characterVersion: '',
+                description: '',
+                personality: '',
+                scenario: '',
+                systemPrompt: '',
+                firstMessage: 'Swipe 0 text',
+                alternateGreetings: [],
+                mesExample: '',
+                postHistoryInstructions: '',
+                creatorNotes: '',
+                tags: [],
+                regexScripts: [],
+                cardScripts: [],
+                extensions: {},
+            }],
+            userName: 'Konata',
+            messages: [
+                {
+                    id: 'msg-0',
+                    chatId,
+                    parentId: null,
+                    floor: 0,
+                    role: 'assistant',
+                    speakerName: 'Izumi',
+                    content: 'Swipe 0 text',
+                    swipes: ['Swipe 0 text', 'Swipe 1 text'],
+                    swipeIds: ['s0', 's1'],
+                    activeSwipeIndex: 0,
+                    reasoning: '',
+                    createdAt: 1000,
+                    updatedAt: 1000,
+                    extra: {},
+                },
+            ],
+            chatMetadata: {},
+        });
+
+        let sawPreparing = false;
+        let sawStreamingError = false;
+        const offStart = tavernEventBus.on('generation_started', async () => {
+            sawPreparing = isGenerationPreparing();
+            assert.equal(sawPreparing, true);
+            await setHelperChatMessages([
+                {
+                    message_id: 0,
+                    message: 'Swipe 0 text\n<advice>moved</advice>',
+                    swipes: ['Swipe 0 text\n<advice>moved</advice>', 'Swipe 1 text'],
+                },
+                {
+                    message_id: 1,
+                    message: '就按照最新的advice说的来吧',
+                    extra: { izumi_advice: { sourceFloor: 0 } },
+                    swipes: ['就按照最新的advice说的来吧'],
+                },
+            ], { refresh: 'none' });
+
+            await assert.rejects(
+                setHelperChatMessages([{ message_id: 0, swipe_id: 1 }], { refresh: 'none' }),
+                /生成期间不能修改其他消息或改变分支结构/,
+            );
+            await assert.rejects(
+                setHelperChatMessages([
+                    { message_id: 0, message: 'x', swipes: ['x', 'Mutated inactive swipe'] },
+                ], { refresh: 'none' }),
+                /生成期间不能修改其他消息或改变分支结构/,
+            );
+            await assert.rejects(
+                setHelperChatMessages([{ message_id: 1, role: 'system' }], { refresh: 'none' }),
+                /生成期间不能修改其他消息或改变分支结构/,
+            );
+            await assert.rejects(
+                setHelperChatMessages([{ message_id: 1, is_hidden: true }], { refresh: 'none' }),
+                /生成期间不能修改其他消息或改变分支结构/,
+            );
+        });
+        let checkedStreaming = false;
+        const offToken = tavernEventBus.on('generation_stream_token', async () => {
+            if (checkedStreaming) return;
+            checkedStreaming = true;
+            if (typeof globalThis.window === 'undefined') {
+                Object.defineProperty(globalThis, 'window', {
+                    configurable: true,
+                    value: { dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+                });
+            }
+            assert.equal(isGenerationPreparing(), false);
+            try {
+                await setHelperChatMessages([{ message_id: 0, message: 'mutated during stream' }], { refresh: 'none' });
+            } catch (error) {
+                if (/生成期间不能修改其他消息或改变分支结构/.test(String(error))) sawStreamingError = true;
+            }
+        });
+
+        try {
+            await sendUserMessageAndGenerate('在背后悄悄看着她俩');
+            await new Promise(resolve => setTimeout(resolve, 20));
+        } finally {
+            offStart();
+            offToken();
+        }
+
+        assert.equal(sawPreparing, true);
+        assert.equal(checkedStreaming, true);
+        assert.equal(sawStreamingError, true);
+        const path = workspaceStore.getState().messages;
+        assert.equal(path[0].content, 'Swipe 0 text\n<advice>moved</advice>');
+        assert.equal(path[0].swipes[1], 'Swipe 1 text');
+        assert.equal(path[1].content, '就按照最新的advice说的来吧');
+        assert.deepEqual(path[1].extra?.helperSwipeInfo?.[0]?.izumi_advice, { sourceFloor: 0 });
+        schemaRegistryStore.setState(draft => { draft.values['api.custom_url'] = prevCustomUrl; });
+    } finally {
+        globalThis.setTimeout = realSetTimeout;
+        if (prevWindow === undefined) delete globalThis.window;
+        else Object.defineProperty(globalThis, 'window', { configurable: true, value: prevWindow });
+        await cleanup();
+    }
+});
+
+test('commitPromptVariableChanges allows non-structural in-place edits only while preparing non-template generation prompts', async () => {
+    installMemoryLocalStorage();
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn, ms, ...args) => {
+        const timer = realSetTimeout(fn, ms, ...args);
+        if (typeof ms === 'number' && ms >= 60_000) timer.unref?.();
+        return timer;
+    });
+    const prevWindow = globalThis.window;
+    const { mod, cleanup } = await loadTestBundle();
+    try {
+        const {
+            workspaceStore,
+            setStoryRuntimeLoading,
+            setHelperChatMessages,
+            sendUserMessageAndGenerate,
+            isGenerationPreparing,
+            commitPromptVariableChanges,
+            createPromptAssemblyInput,
+            TemplateInputChangedError,
+            tavernEventBus,
+            schemaRegistryStore,
+        } = mod;
+        Object.defineProperty(globalThis, 'window', {
+            configurable: true,
+            value: { dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+        });
+        setStoryRuntimeLoading(false);
+        await new Promise(resolve => realSetTimeout(resolve, 0));
+        delete globalThis.window;
+        const prevCustomUrl = schemaRegistryStore.getState().values['api.custom_url'];
+        schemaRegistryStore.setState(draft => { draft.values['api.custom_url'] = ''; });
+        const charId = 'char_izumi_commit';
+        const chatId = 'chat_izumi_commit';
+        const presetId = 'preset_izumi_commit';
+        workspaceStore.setState({
+            activeCharacterId: charId,
+            activeChatId: chatId,
+            activePresetId: presetId,
+            presets: [{
+                id: presetId,
+                name: 'Izumi',
+                promptSlots: [],
+                regexScripts: [],
+                rawData: {},
+            }],
+            activeLeafId: 'msg-0',
+            isGenerating: false,
+            sessionKind: 'character',
+            characters: [{
+                id: charId,
+                name: 'Izumi',
+                avatar: 'izumi.png',
+                characterVersion: '',
+                description: '',
+                personality: '',
+                scenario: '',
+                systemPrompt: '',
+                firstMessage: 'Opening text',
+                alternateGreetings: [],
+                mesExample: '',
+                postHistoryInstructions: '',
+                creatorNotes: '',
+                tags: [],
+                regexScripts: [],
+                cardScripts: [],
+                extensions: {},
+            }],
+            userName: 'Konata',
+            messages: [
+                {
+                    id: 'msg-0',
+                    chatId,
+                    parentId: null,
+                    floor: 0,
+                    role: 'assistant',
+                    speakerName: 'Izumi',
+                    content: 'Opening text',
+                    swipes: ['Opening text', 'Alt opening'],
+                    swipeIds: ['s0', 's1'],
+                    activeSwipeIndex: 0,
+                    reasoning: '',
+                    createdAt: 1000,
+                    updatedAt: 1000,
+                    extra: {},
+                },
+            ],
+            chatMetadata: {},
+        });
+
+        const baseAssembled = {
+            messages: [],
+            activatedLorebookEntries: [],
+            nextTimedStates: {},
+            variableChanges: { izumi_checked: true },
+            globalVariableChanges: {},
+            tokenUsage: { system: 0, lorebook: 0, history: 0, total: 0, budgetRemaining: 1000 },
+            droppedHistoryCount: 0,
+        };
+
+        let verifiedInPrep = false;
+        const offStart = tavernEventBus.on('generation_started', async () => {
+            assert.equal(isGenerationPreparing(), true);
+            const expectedBeforeTransfer = createPromptAssemblyInput();
+            await setHelperChatMessages([
+                {
+                    message_id: 0,
+                    message: 'Opening text\n<advice>继续</advice>',
+                    swipes: ['Opening text\n<advice>继续</advice>', 'Alt opening'],
+                },
+                {
+                    message_id: 1,
+                    message: '就按照最新的advice说的来吧',
+                    extra: { izumi_advice: { sourceFloor: 0 } },
+                    swipes: ['就按照最新的advice说的来吧'],
+                },
+            ], { refresh: 'none' });
+
+            // Non-template generation commit succeeds despite in-place content mutation.
+            commitPromptVariableChanges(baseAssembled, expectedBeforeTransfer);
+
+            // Render tasks must still fail when message content changed under them.
+            assert.throws(
+                () => commitPromptVariableChanges(baseAssembled, {
+                    ...expectedBeforeTransfer,
+                    templateTask: { type: 'render', messageId: 'msg-0', source: 'Opening text' },
+                }),
+                TemplateInputChangedError,
+            );
+
+            // Structural/metadata changes must still fail even during generation preparation.
+            const wrongSwipe = structuredClone(expectedBeforeTransfer);
+            wrongSwipe.messages[0].activeSwipeIndex = 1;
+            assert.throws(() => commitPromptVariableChanges(baseAssembled, wrongSwipe), TemplateInputChangedError);
+
+            const wrongRole = structuredClone(expectedBeforeTransfer);
+            wrongRole.messages[1].role = 'system';
+            assert.throws(() => commitPromptVariableChanges(baseAssembled, wrongRole), TemplateInputChangedError);
+
+            const wrongLength = structuredClone(expectedBeforeTransfer);
+            wrongLength.messages.pop();
+            assert.throws(() => commitPromptVariableChanges(baseAssembled, wrongLength), TemplateInputChangedError);
+
+            verifiedInPrep = true;
+        });
+
+        try {
+            await sendUserMessageAndGenerate('继续');
+            await new Promise(resolve => realSetTimeout(resolve, 20));
+        } finally {
+            offStart();
+        }
+        assert.equal(verifiedInPrep, true);
+
+        // Outside generation preparation, any content mismatch must still fail commit.
+        assert.equal(isGenerationPreparing(), false);
+        const expectedOutside = createPromptAssemblyInput();
+        await setHelperChatMessages([{ message_id: 0, message: 'Modified outside prep' }], { refresh: 'none' });
+        assert.throws(() => commitPromptVariableChanges(baseAssembled, expectedOutside), TemplateInputChangedError);
+
+        schemaRegistryStore.setState(draft => { draft.values['api.custom_url'] = prevCustomUrl; });
+    } finally {
+        globalThis.setTimeout = realSetTimeout;
+        if (prevWindow === undefined) delete globalThis.window;
+        else Object.defineProperty(globalThis, 'window', { configurable: true, value: prevWindow });
+        await cleanup();
+    }
+});
+
+test('assemblePromptPipeline syncs in-place advice transfer after WORLD_INFO_ACTIVATED while preserving pre-transfer scan hits', async () => {
+    installMemoryLocalStorage();
+    const { mod, cleanup } = await loadTestBundle();
+    try {
+        const { assemblePromptPipeline, TemplateRuntime } = mod;
+        const messages = [
+            {
+                id: 'msg-0',
+                chatId: 'chat-sync',
+                parentId: null,
+                floor: 0,
+                role: 'assistant',
+                speakerName: 'Izumi',
+                content: 'Opening text',
+                swipes: ['Opening text'],
+                swipeIds: ['s0'],
+                activeSwipeIndex: 0,
+                reasoning: '',
+                createdAt: 1000,
+                updatedAt: 1000,
+                extra: {},
+            },
+            {
+                id: 'msg-1',
+                chatId: 'chat-sync',
+                parentId: 'msg-0',
+                floor: 1,
+                role: 'user',
+                speakerName: 'Konata',
+                content: '继续',
+                swipes: ['继续'],
+                swipeIds: ['s1'],
+                activeSwipeIndex: 0,
+                reasoning: '',
+                createdAt: 2000,
+                updatedAt: 2000,
+                extra: {},
+            },
+        ];
+        const liveMessages = structuredClone(messages);
+        const input = {
+            character: {
+                id: 'char-sync',
+                name: 'Izumi',
+                avatar: '',
+                characterVersion: '',
+                description: '',
+                personality: '',
+                scenario: '',
+                systemPrompt: '',
+                firstMessage: 'Opening text',
+                alternateGreetings: [],
+                mesExample: '',
+                postHistoryInstructions: '',
+                creatorNotes: '',
+                tags: [],
+                regexScripts: [],
+                cardScripts: [],
+                extensions: {},
+            },
+            userName: 'Konata',
+            chatId: 'chat-sync',
+            maxContextTokens: 8192,
+            maxResponseTokens: 1024,
+            preset: {
+                id: 'preset-sync',
+                name: 'Izumi',
+                promptSlots: [
+                    { identifier: 'worldInfoAfter', name: 'WI', role: 'system', enabled: true, injectionOrder: 1 },
+                    { identifier: 'chatHistory', name: 'History', role: 'system', enabled: true, injectionOrder: 2 },
+                ],
+                regexScripts: [],
+                rawData: {},
+            },
+            lorebooks: [
+                {
+                    id: 'book-sync',
+                    name: 'izumi-book',
+                    entries: [
+                        {
+                            uid: 1,
+                            keys: ['继续'],
+                            secondaryKeys: [],
+                            content: 'Worldbook hint triggered before advice transfer',
+                            comment: 'continue-rule',
+                            world: 'izumi-book',
+                            position: 'after_char',
+                            enabled: true,
+                            disabled: false,
+                            constant: false,
+                            selective: false,
+                            selectiveLogic: 'AND_ANY',
+                            order: 100,
+                            depth: 4,
+                            role: 'system',
+                            extensions: {},
+                        },
+                    ],
+                },
+            ],
+            messages,
+            globalRegexScripts: [],
+        };
+
+        const runtime = new TemplateRuntime(input, {
+            hasEvent: name => name === 'world_info_activated',
+            liveMessages: () => liveMessages,
+            event: async name => {
+                if (name !== 'world_info_activated') return;
+                liveMessages[0].content = 'Opening text\n<advice>继续</advice>';
+                liveMessages[0].swipes[0] = 'Opening text\n<advice>继续</advice>';
+                liveMessages[1].content = '就按照最新的advice说的来吧';
+                liveMessages[1].swipes[0] = '就按照最新的advice说的来吧';
+            },
+        });
+
+        const assembled = await assemblePromptPipeline(input, runtime);
+        assert.equal(assembled.activatedLorebookEntries.some(entry => entry.comment === 'continue-rule'), true);
+        const contents = assembled.messages.map(m => m.content);
+        assert.equal(contents.some(text => text.includes('<advice>继续</advice>')), true);
+        assert.equal(contents.some(text => text === '就按照最新的advice说的来吧'), true);
+        assert.equal(contents.some(text => text === '继续'), false);
+
+        // Structural changes in liveMessages must not be synced in-place.
+        liveMessages[0].activeSwipeIndex = 1;
+        liveMessages[0].content = 'Should be ignored';
+        assert.equal(runtime.syncInPlaceMessageContent(), false);
+        assert.equal(input.messages[0].content, 'Opening text\n<advice>继续</advice>');
     } finally {
         await cleanup();
     }

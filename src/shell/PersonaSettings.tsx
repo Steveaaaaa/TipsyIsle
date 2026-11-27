@@ -16,15 +16,13 @@ export function PersonaSettings({ onSaved }: { onSaved: () => void }) {
         character: { name: (local ?? global)?.name ?? state.userName, image: (local ?? global)?.image ?? '', description: local?.description ?? '' },
     }));
     return <div className="ttm-persona-settings">
-        <p className="ttm-asset-help">设置对话中的称呼、头像，以及希望融入故事的个人特征。称呼对应 {'{{user}}'}，个人特征用于补充你在故事中的形象。</p>
-        <div className="ttm-settings-effective"><strong>当前故事使用</strong><span>{local ? '故事专属资料' : global ? '全局默认资料' : '尚未设置资料'}</span>
-            <small>{local ? `「${storyIdentity(character).name}」已设置专属资料，不会叠加全局人设。` : '未设置专属资料的故事使用全局默认；作者设定了主角身份，也可以补充个人特征。'}</small>
+        <div className="ttm-settings-effective"><strong>当前生效</strong><span>{local ? '故事专属资料' : global ? '全局默认资料' : '尚未设置资料'}</span>
+            <small>{local ? `「${storyIdentity(character).name}」优先使用故事专属资料，不与全局人设叠加。` : '称呼对应 {{user}}；未设置专属资料的故事沿用全局默认。'}</small>
         </div>
         <fieldset className="ttm-scope-options" disabled={state.isGenerating || state.helperGenerationCount > 0}><legend>编辑哪份资料</legend>
             <label><input type="radio" name="persona-scope" checked={scope === 'global'} onChange={() => setScope('global')} />全局默认</label>
             <label><input type="radio" name="persona-scope" disabled={!character.id} checked={scope === 'character'} onChange={() => setScope('character')} />当前故事专属</label>
         </fieldset>
-        <p className="ttm-asset-help">{scope === 'character' ? `保存后仅在「${storyIdentity(character).name}」中使用，整份替代全局资料；个人特征留空时也不会套用全局人设。` : `所有故事默认使用这份资料；为某个故事单独设置后，该故事使用自己的资料。${local ? '修改这里不会影响当前故事已保存的专属资料。' : ''}`}</p>
         <PersonaEditor key={`${scope}:${character.id}`} initial={drafts[scope]} onDraft={value => setDrafts(previous => ({ ...previous, [scope]: value }))} disabled={state.isGenerating || state.helperGenerationCount > 0}
             saveLabel={scope === 'character' ? '保存此故事的资料' : '保存全局默认资料'}
             onSave={value => { savePlayerPersona(value, scope === 'character' ? character.id : undefined); onSaved(); }} />

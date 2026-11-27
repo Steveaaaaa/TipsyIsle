@@ -24,6 +24,10 @@
 .ttm-appearance-dialog:not([open]) { display: none; }
 .ttm-appearance-dialog > .ttm-asset-dialog-heading { flex: 0 0 auto; }
 .ttm-appearance-dialog > .ttm-asset-dialog-content { display: flex; flex: 1; padding: 0; min-height: 0; overflow: hidden; }
+.ttm-appearance-panel { display: none; }
+.ttm-appearance-panel > .ttm-skin-workbench { flex: 1; min-height: 0; }
+.ttm-appearance-inline-header { min-height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 10px 18px; border-bottom: 1px solid var(--ti-border); flex-shrink: 0; }
+.ttm-appearance-inline-header h2 { font-size: 16px; font-weight: 600; margin: 0; }
 .ttm-skin-workbench { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(290px, .8fr) minmax(0, 1.2fr); grid-template-rows: minmax(0, 1fr) auto; }
 .ttm-skin-editor { display: flex; flex-direction: column; border-inline-end: 1px solid var(--ti-border); min-width: 0; min-height: 0; }
 .ttm-skin-tabs { flex-shrink: 0; display: flex; justify-content: space-between; gap: 4px; padding: 8px 16px 0; border-bottom: 1px solid var(--ti-border); }

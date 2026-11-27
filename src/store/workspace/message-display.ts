@@ -63,7 +63,7 @@ export function getMessageStreamPreview(node: ChatMessageNode) {
     }
     const temporary = state.nativeToolPreview?.id === node.id ? state.nativeToolPreview : undefined;
     const content = temporary?.content ?? node.content;
-    const thinking = !content && !!(temporary?.reasoning ?? state.streamingReasoning);
+    const thinking = !content.trim() && !!(temporary?.reasoning ?? state.streamingReasoning);
     const terminal = node.extra?.tipsy_generation_terminal as { swipe: number; phase: 'error' | 'stopped'; detail: string } | undefined;
     const ended = terminal?.swipe === node.activeSwipeIndex ? terminal : node.extra?.tipsy_generation_incomplete && !state.isGenerating && !state.helperGenerationCount
         ? { phase: 'stopped' as const, detail: '', swipe: node.activeSwipeIndex } : undefined;

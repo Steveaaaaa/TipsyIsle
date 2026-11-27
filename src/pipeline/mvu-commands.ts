@@ -369,7 +369,14 @@ export function formatMvuMessageContent(content: string, hasMvuData: boolean): s
 export async function settleMvuWithoutScripts(before: Record<string, any>, text: string,
     warning: (command: MvuCommand, error: unknown) => void): Promise<Record<string, any>> {
     const next = structuredClone(normalizeMvuVariables(before).variables);
-    const plan = readMvuCommands(text);
+    const hadMvuData = Object.hasOwn(before, 'stat_data');
+    let plan: MvuCommandPlan;
+    try {
+        plan = readMvuCommands(text);
+    } catch (error) {
+        if (!hadMvuData) return next;
+        throw error;
+    }
     if (!plan.commands.length) return next;
     next.stat_data ??= {};
     if (!object(next.stat_data)) throw new Error('MVU stat_data 必须为对象');

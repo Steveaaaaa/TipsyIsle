@@ -71,7 +71,7 @@ function FilePick({ title, extensions, pick, pickMany, onError, disabled }: { ti
         }} /></>;
 }
 
-export function ThemeStudioPanel({ open, showPackages, device, onClose }: { open: boolean; showPackages: boolean; device: Device; onClose: () => void }) {
+export function ThemeStudioPanel({ open, showPackages, device, inline = false, onClose }: { open: boolean; showPackages: boolean; device: Device; inline?: boolean; onClose: () => void }) {
     const saved = appearanceStore.useStore();
     const savedDevice = appearanceDevice.useStore();
     const savedTheme = themeEngineStore.useStore();
@@ -224,8 +224,8 @@ export function ThemeStudioPanel({ open, showPackages, device, onClose }: { open
     };
     const editWidget = (change: (widget: Widget) => void) => edit(draft => { const widget = draft.widgets.find(item => item.id === selected); if (widget) change(widget); });
 
-    if (!open) return null;
-    return <><AnchoredDialog title="外观工作台" anchor={document.body} centered className="ttm-appearance-dialog" closeDisabled={busy} onClose={() => { retainedDraft.current = dirty; onClose(); }}>
+    if (!inline && !open) return null;
+    const workbench = (
         <div className="ttm-skin-workbench" data-pane={pane} aria-busy={busy}>
             <div className="ttm-skin-editor">
                 <nav className="ttm-skin-tabs" aria-label="外观工作台功能">{(Object.keys(tabs) as (keyof typeof tabs)[]).map(key => <button type="button" key={key} aria-current={tab === key ? 'page' : undefined} onClick={() => { setTab(key); setPane('edit'); }}>{tabs[key]}</button>)}</nav>
@@ -330,7 +330,7 @@ export function ThemeStudioPanel({ open, showPackages, device, onClose }: { open
                     <label><span className="ttm-skin-visually-hidden">预览页面</span><select value={page} onChange={event => setPage(event.target.value as PreviewPage)}>{(Object.keys(pages) as PreviewPage[]).map(id => <option key={id} value={id}>{pages[id]}</option>)}</select></label>
                     <button type="button" className="ttm-btn-secondary" aria-pressed={compare} onClick={() => setCompare(!compare)}>{compare ? '查看草稿' : '对照已保存'}</button>
                 </div>
-                <AppearancePreview skin={displaySkin} css={previewCss} device={previewDevice} page={page} layout={compare ? savedDevice.layouts[previewDevice] : editableLayout} reading={compare ? savedReading : reading} onSelect={onSelect} />
+                {open && <AppearancePreview skin={displaySkin} css={previewCss} device={previewDevice} page={page} layout={compare ? savedDevice.layouts[previewDevice] : editableLayout} reading={compare ? savedReading : reading} onSelect={onSelect} />}
             </div>
             <footer className="ttm-skin-footer">
                 <div className="ttm-skin-mobile-switch"><button type="button" className="ttm-btn-secondary" onClick={() => setPane(pane === 'edit' ? 'preview' : 'edit')}>{pane === 'edit' ? '查看预览' : '返回编辑'}</button></div>
@@ -342,7 +342,18 @@ export function ThemeStudioPanel({ open, showPackages, device, onClose }: { open
                 <button type="button" className="ttm-btn-primary" disabled={!dirty || busy} onClick={save}>{saving ? '正在保存' : '保存外观'}</button>
             </footer>
         </div>
-    </AnchoredDialog>
+    );
+    return <>
+        {inline ? (
+            <section id="ttm-appearance-panel" data-ti-shell="appearance" aria-label="外观工作台" className={`ttm-appearance-panel${open ? ' is-mobile-active' : ''}`}>
+                <header className="ttm-appearance-inline-header"><h2 data-ti-type="heading">外观工作台</h2></header>
+                {open && workbench}
+            </section>
+        ) : (
+            <AnchoredDialog title="外观工作台" anchor={document.body} centered className="ttm-appearance-dialog" closeDisabled={busy} onClose={() => { retainedDraft.current = dirty; onClose(); }}>
+                {workbench}
+            </AnchoredDialog>
+        )}
     {pendingDelete && <AnchoredDialog title="删除外观包" anchor={pendingDelete.anchor} compact centered fitContent closeDisabled={packBusy} onClose={() => setPendingDelete(undefined)}>
         <div className="ttm-skin-delete-confirm">
             <p>确定从本机移除「{pendingDelete.entry.name}」？{saved.activePackId === pendingDelete.entry.id && '它正在使用，删除后会恢复默认外观。'}</p>

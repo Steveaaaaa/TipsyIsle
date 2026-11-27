@@ -88,6 +88,41 @@ async function readRecentMessages(
     }
 }
 
+const HAN_CHAR_RE = /\p{Script=Han}/u;
+const PREV_CHAR_BOUNDARY = new Set([...'和与跟被把向对让看见问找叫拉抱小阿']);
+const NEXT_CHAR_BOUNDARY = new Set([...'说道问笑看望轻低点摇走站坐转抬伸拉握抱的也却便就正把被向对和与在从着了']);
+const GROUP_OR_COREF_PRONOUN_RE = /她俩|她们|他俩|他们|两人|二人|姐妹|兄弟|少女|女孩|男孩|她|他/;
+
+function textMatchesAlias(text: string, alias: string, singleCharOwners: Map<string, number>): boolean {
+    if (!alias) return false;
+    if (alias.length >= 2) return text.includes(alias);
+    if (alias.length === 1 && HAN_CHAR_RE.test(alias) && singleCharOwners.get(alias) === 1) {
+        let from = 0;
+        while (from < text.length) {
+            const idx = text.indexOf(alias, from);
+            if (idx === -1) return false;
+            const prev = idx > 0 ? text[idx - 1] : '';
+            const next = idx + 1 < text.length ? text[idx + 1] : '';
+            if (
+                (!prev || !HAN_CHAR_RE.test(prev) || PREV_CHAR_BOUNDARY.has(prev)) &&
+                (!next || !HAN_CHAR_RE.test(next) || NEXT_CHAR_BOUNDARY.has(next))
+            ) {
+                return true;
+            }
+            from = idx + 1;
+        }
+    }
+    return false;
+}
+
+async function logDiagnostic(api: { log?: (message: string) => Promise<void> }, message: string) {
+    try {
+        await api.log?.(message);
+    } catch {
+        // Best-effort plugin diagnostic log.
+    }
+}
+
 async function readUserFocus(
     api: { story: Pick<PluginApi['story'], 'visualSources'> },
     recentMessages: readonly RecentMessage[],
@@ -97,19 +132,53 @@ async function readUserFocus(
         const userPrompt = latestUser?.text.trim().slice(0, 300) ?? '';
         if (!userPrompt) return { userPrompt: '', targetAliases: [] };
         const sources = await api.story.visualSources();
-        const targetAliases = new Set<string>();
-        for (const ch of sources.characters ?? []) {
-            const allNames = [ch.name, ...ch.aliases].filter((a) => a.length >= 2);
-            if (allNames.some((alias) => userPrompt.includes(alias))) {
-                for (const alias of allNames) targetAliases.add(alias);
+        const characters = sources.characters ?? [];
+        const singleCharOwners = new Map<string, number>();
+        for (const ch of characters) {
+            for (const alias of [ch.name, ...ch.aliases]) {
+                if (alias.length === 1 && HAN_CHAR_RE.test(alias)) {
+                    singleCharOwners.set(alias, (singleCharOwners.get(alias) ?? 0) + 1);
+                }
             }
         }
-        if (!targetAliases.size) {
-            for (const person of sources.people) {
-                if (person.length >= 2 && userPrompt.includes(person)) targetAliases.add(person);
+        const collectAliases = (text: string, maxCharacters = Infinity): string[] => {
+            const found = new Set<string>();
+            let matchedChars = 0;
+            for (const ch of characters) {
+                const allNames = [ch.name, ...ch.aliases].filter((a) => a.trim().length >= 1);
+                if (allNames.some((alias) => textMatchesAlias(text, alias, singleCharOwners))) {
+                    matchedChars++;
+                    for (const alias of allNames) {
+                        if (alias.length >= 2 || singleCharOwners.get(alias) === 1) found.add(alias);
+                    }
+                    if (matchedChars >= maxCharacters) break;
+                }
+            }
+            if (!found.size) {
+                for (const person of sources.people) {
+                    if (person.length >= 2 && text.includes(person)) {
+                        found.add(person);
+                        if (found.size >= maxCharacters) break;
+                    }
+                }
+            }
+            return [...found];
+        };
+
+        let targetAliases = collectAliases(userPrompt);
+        if (!targetAliases.length && GROUP_OR_COREF_PRONOUN_RE.test(userPrompt)) {
+            const priorAssistant = [...recentMessages]
+                .reverse()
+                .filter((m) => m.settled && !m.hidden && m.role === 'assistant' && m.text.trim() && (latestUser ? m.floor < latestUser.floor : true));
+            for (const msg of priorAssistant.slice(0, 2)) {
+                const resolved = collectAliases(narrative(msg.text), 3);
+                if (resolved.length) {
+                    targetAliases = resolved;
+                    break;
+                }
             }
         }
-        return { userPrompt, targetAliases: [...targetAliases] };
+        return { userPrompt, targetAliases };
     } catch {
         return { userPrompt: '', targetAliases: [] };
     }
@@ -134,16 +203,16 @@ async function canAutoIllustrate(
     currentFloor: number | undefined,
     hasExplicit: boolean,
     recentMessages: readonly RecentMessage[] = [],
-): Promise<{ allowed: boolean; remainingDaily: number }> {
+): Promise<{ allowed: boolean; remainingDaily: number; reason?: string }> {
     if (hasExplicit) return { allowed: true, remainingDaily: Infinity };
-    if (api.settings.pacing === 'markers_only') return { allowed: false, remainingDaily: 0 };
+    if (api.settings.pacing === 'markers_only') return { allowed: false, remainingDaily: 0, reason: '仅卡片标记模式' };
 
     const device = await api.storage.read('device');
     const usage = (device.values.dailyUsage ?? {}) as { day?: string; count?: number };
     const limit = typeof api.settings.daily_limit === 'number' ? api.settings.daily_limit : 24;
     const usedToday = usage.day === localDay() && typeof usage.count === 'number' ? usage.count : 0;
     const remainingDaily = Math.max(0, limit - usedToday);
-    if (remainingDaily <= 0) return { allowed: false, remainingDaily: 0 };
+    if (remainingDaily <= 0) return { allowed: false, remainingDaily: 0, reason: `已达每日上限（${usedToday}/${limit}）` };
 
     const gap = pacingGap(api.settings.pacing);
     if (gap <= 0 || typeof currentFloor !== 'number') {
@@ -197,7 +266,7 @@ async function canAutoIllustrate(
                 ? priorAssistant.filter((m) => m.floor > latestRef).length
                 : Math.max(0, Math.floor((currentFloor - latestRef) / 2) - 1);
         if (intervening < gap) {
-            return { allowed: false, remainingDaily: 0 };
+            return { allowed: false, remainingDaily: 0, reason: `受节律间隔限制（需间隔 ${gap} 轮，当前已隔 ${intervening} 轮）` };
         }
     }
 
@@ -256,12 +325,18 @@ export default definePlugin({
 
         if (event.paragraphCount > 4) {
             const selected = shots(event.settledText, false, { markersOnly, ...focus });
-            if (selected.length < 2) return;
+            if (selected.length < 2) {
+                await logDiagnostic(api, `流式阶段二（${event.paragraphCount} 段）未命中第二镜头`);
+                return;
+            }
             const secondShot = selected[1];
             const hasExplicit = selected.some((item) => !!item.explicitPrompt);
             if (api.settings.pacing === 'restrained' && !hasExplicit) return;
             const gate = await canAutoIllustrate(api, event.route, event.draft.floor, hasExplicit, recentMessages);
-            if (!gate.allowed) return;
+            if (!gate.allowed) {
+                await logDiagnostic(api, `流式阶段二跳过显影：${gate.reason ?? '节律或上限限制'}`);
+                return;
+            }
             const replyText = narrative(event.settledText).replace(/\s+/g, ' ').trim();
             await api.jobs.schedule(
                 buildJobInput(event.route, event.draft.messageId, event.draft.swipeId, secondShot, 1, event.draft.floor, undefined, event.generationId, {
@@ -270,6 +345,7 @@ export default definePlugin({
                     replyText,
                 }),
             );
+            await logDiagnostic(api, `流式抢跑命中第 ${secondShot.index + 1} 段（评分 ${secondShot.score}），已排入暗房显影`);
             await api.replyMedia.developing({
                 slotId: 'shot-1',
                 label: secondShot.part.slice(0, 80) || '暗房显影中…',
@@ -283,10 +359,16 @@ export default definePlugin({
         }
 
         const shot = shots(event.settledText, true, { markersOnly, ...focus })[0];
-        if (!shot) return;
+        if (!shot) {
+            await logDiagnostic(api, `流式阶段一（${event.paragraphCount} 段）未命中高置信镜头，等待全文保存后评估`);
+            return;
+        }
 
         const gate = await canAutoIllustrate(api, event.route, event.draft.floor, !!shot.explicitPrompt, recentMessages);
-        if (!gate.allowed) return;
+        if (!gate.allowed) {
+            await logDiagnostic(api, `流式阶段一跳过显影：${gate.reason ?? '节律或上限限制'}`);
+            return;
+        }
 
         const replyText = narrative(event.settledText).replace(/\s+/g, ' ').trim();
         await api.jobs.schedule(
@@ -296,6 +378,7 @@ export default definePlugin({
                 replyText,
             }),
         );
+        await logDiagnostic(api, `流式抢跑命中第 ${shot.index + 1} 段（评分 ${shot.score}），已排入暗房显影`);
 
         await api.replyMedia.developing({
             slotId: 'shot-0',
@@ -325,7 +408,10 @@ export default definePlugin({
         const recentMessages = await readRecentMessages(api);
         const focus = await readUserFocus(api, recentMessages);
         let selected = shots(text, false, { markersOnly, ...focus });
-        if (!selected.length) return;
+        if (!selected.length) {
+            await logDiagnostic(api, `第 ${message.floor} 楼全文未命中视觉镜头（焦点词：${focus.targetAliases.slice(0, 4).join('、') || '无'}）`);
+            return;
+        }
 
         const hasExplicit = selected.some((item) => !!item.explicitPrompt);
         if (api.settings.pacing === 'restrained' && !hasExplicit) {
@@ -333,7 +419,10 @@ export default definePlugin({
         }
 
         const gate = await canAutoIllustrate(api, route, message.floor, hasExplicit, recentMessages);
-        if (!gate.allowed) return;
+        if (!gate.allowed) {
+            await logDiagnostic(api, `第 ${message.floor} 楼跳过自动显影：${gate.reason ?? '节律或上限限制'}`);
+            return;
+        }
 
         let existingSlots: ReplyMediaItem[] = [];
         try {
@@ -348,6 +437,7 @@ export default definePlugin({
         const replyText = narrative(text).replace(/\s+/g, ' ').trim();
         let scheduledAuto = 0;
         let scheduledAnyAutoCandidate = false;
+        let scheduledSlots = 0;
         for (const [index, shot] of selected.entries()) {
             const existing = existingSlots.find((item) => item.slotId === `shot-${index}`);
             if (existing && (existing.status === 'ready' || existing.status === 'developing')) {
@@ -362,10 +452,15 @@ export default definePlugin({
                     replyText,
                 }),
             );
+            scheduledSlots++;
+            await logDiagnostic(api, `第 ${message.floor} 楼命中第 ${shot.index + 1} 段（评分 ${shot.score}），已排入暗房显影`);
             if (!shot.explicitPrompt) {
                 scheduledAuto++;
                 scheduledAnyAutoCandidate = true;
             }
+        }
+        if (!scheduledSlots && existingSlots.some((item) => item.status === 'ready' || item.status === 'developing')) {
+            await logDiagnostic(api, `第 ${message.floor} 楼已有显影槽位，跳过重复排程`);
         }
 
         if (scheduledAnyAutoCandidate && !hasExplicit) {

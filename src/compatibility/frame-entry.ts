@@ -615,6 +615,7 @@ const residentTemplates = new ResidentTemplateHost({
     takeWorldInfoActivations: () => { const entries = [...externalWorldInfo.values()]; externalWorldInfo.clear(); return entries; },
     event: emit,
     hasEvent: name => !!listeners.get(canonicalEvent(name))?.length,
+    liveMessages: () => snapshot?.messages,
     globals: { $, console, toastr: Object.fromEntries(['info', 'success', 'warning', 'error'].map(level => [level,
         (message: string, title?: string) => notify(`${title ? title + '：' : ''}${message}`, level)])) },
     mutated: () => scheduleTemplateSave(),
@@ -2202,7 +2203,14 @@ async function settle(text: string, before: Record<string, any>, emitEnded: bool
             variableScopes: { ...snapshot.scopes, chat: macroChat, message: next, global: macroGlobals },
             onSetVariable: () => replaceVariables(macroChat, { type: 'chat' }),
             onSetGlobalVariable: () => replaceVariables(macroGlobals, { type: 'global' }) });
-        const plan = readMvuCommands(processedText);
+        let plan: ReturnType<typeof readMvuCommands>;
+        try {
+            plan = readMvuCommands(processedText);
+        } catch (error) {
+            if (hadMvuData || strict) throw error;
+            diagnostic('MVU 变量解析', error, '', 'warning');
+            plan = { commands: [], patches: new WeakMap() };
+        }
         if (!hadMvuData && !plan.commands.length) {
             delete next.stat_data;
             await flush();

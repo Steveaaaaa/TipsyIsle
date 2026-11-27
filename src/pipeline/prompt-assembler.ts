@@ -279,7 +279,9 @@ async function assemble(input: AssemblePromptInput, templates: TemplateRuntime, 
     if (worldSettings.overflow_alert && scanResult.budgetOverflowed) templates.warnings.add(`世界书预算提示：本轮预算 ${globalBudget} Tokens（上下文的 ${worldSettings.context_percentage}%${worldSettings.budget_cap > 0 ? `，另设 ${worldSettings.budget_cap} Tokens 上限` : ''}），保留 ${activatedEntries.length} 条，部分内容未纳入本轮提示词。可在「参数与连接」调整世界书预算占比。`);
     templates.activationClosed = true;
     await templates.emitWorldInfoActivated(activatedEntries);
+    templates.syncInPlaceMessageContent();
     await templates.hostEvent('generate_before_combine_prompts');
+    templates.syncInPlaceMessageContent();
     const beforeCharEntries = overrides?.world_info_before !== undefined ? [] : activatedEntries.filter((e) => e.position === 'before_char');
     const afterCharEntries = activatedEntries.filter(
         (e) => overrides?.world_info_after === undefined && (e.position === 'after_char' || !e.position),

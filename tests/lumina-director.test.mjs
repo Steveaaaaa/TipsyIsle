@@ -2097,3 +2097,114 @@ test('QuickJS VM allocates mobile-safe CPU quotas for background jobs and extrac
         revived: ['二阶堂希罗'],
     });
 });
+
+test('浮光 captures observational slice-of-life user focus with plural pronouns and logs decisions', async () => {
+    const bundle = await build({
+        entryPoints: ['examples/plugins/lumina-director/main.ts'],
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+        write: false,
+    });
+    const { default: plugin } = await import(
+        `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`
+    );
+
+    const userPrompt = '在背后悄悄看着她俩坐在神社走廊下交谈，看她们什么时候发现我来了';
+    const replyProse = [
+        '午后的日头正毒，柏油路上的热浪一直顺着石阶往上涌，直到跨进水瀬神社的鸟居，老樟树的树荫才勉强把那股燥热挡在外面。',
+        '你顺着偏屋侧面的小径绕过来，鞋底踩在碎石子上发出极轻的摩擦声。屋门大敞着，穿堂风从廊下灌进来，带着老木头被晒透后的干燥气味，还有一点淡淡的草莓糖浆甜味。',
+        '你停在偏屋走廊内侧的拉门阴影里，把鞋脱在玄关台阶旁，安静看着廊下交谈的两人。',
+    ].join('\n\n');
+
+    const early = shots(replyProse, true, { userPrompt, targetAliases: ['水瀬澪', '澪', '水瀬汐', '汐'] });
+    assert.equal(early.length, 1);
+    const settled = shots(replyProse, false, { userPrompt, targetAliases: ['水瀬澪', '澪', '水瀬汐', '汐'] });
+    assert.equal(settled.length, 1);
+
+    const route = { chatId: 'summer', routeId: 'r1' };
+    const history = [
+        {
+            floor: 2,
+            role: 'assistant',
+            settled: true,
+            hidden: false,
+            text: '水瀬澪跪坐在神社偏屋的木廊上吃着刨冰，水瀬汐坐在她身旁轻声交谈。',
+            ref: { messageId: 'm2', swipeId: 's0', revision: 'rev2' },
+        },
+        {
+            floor: 3,
+            role: 'user',
+            settled: true,
+            hidden: false,
+            text: userPrompt,
+            ref: { messageId: 'm3', swipeId: 's0', revision: 'rev3' },
+        },
+        {
+            floor: 4,
+            role: 'assistant',
+            settled: true,
+            hidden: false,
+            text: replyProse,
+            ref: { messageId: 'm4', swipeId: 's0', revision: 'rev4' },
+        },
+    ];
+    const scheduled = [];
+    const developing = [];
+    const logs = [];
+    const api = {
+        context: { route },
+        settings: { enabled: true, saved_only: false, pacing: 'balanced', daily_limit: 24, presentation_mode: 'auto' },
+        story: {
+            visualSources: async () => ({
+                characterId: 'summer',
+                layoutMode: 'novel-reader',
+                people: ['水瀬 澪', '水瀬 汐'],
+                profiles: {},
+                gallery: [],
+                characters: [
+                    { name: '水瀬 澪', aliases: ['水瀬澪', '澪'], traits: '黑发', references: [] },
+                    { name: '水瀬 汐', aliases: ['水瀬汐', '汐'], traits: '蓝发', references: [] },
+                ],
+            }),
+            readMessages: async () => ({ messages: history, nextBefore: null }),
+            getMessage: async (ref) => history.find((m) => m.ref.messageId === ref.messageId) ?? null,
+        },
+        media: { stats: async () => ({ bytes: 0, items: 0, totalLimit: 1e9, maxItems: 2048 }) },
+        storage: {
+            read: async () => ({ version: 0, values: {} }),
+            readAt: async () => ({ version: 0, values: {} }),
+            patch: async () => {},
+        },
+        jobs: {
+            schedule: async (input) => { scheduled.push(input); return `job-${scheduled.length}`; },
+        },
+        replyMedia: {
+            developing: async (item) => { developing.push(item); },
+        },
+        log: async (msg) => { logs.push(msg); },
+    };
+
+    await plugin.onReplyCheckpoint(api, {
+        id: 'cp-summer',
+        generationId: 'gen-summer',
+        route,
+        draft: { messageId: 'm4', swipeId: 's0', floor: 4 },
+        settledText: replyProse.split('\n\n').slice(0, 2).join('\n\n'),
+        paragraphCount: 2,
+        kind: 'normal',
+    });
+    assert.equal(scheduled.length, 1);
+    assert.equal(developing.length, 1);
+    assert.ok(logs.some((msg) => msg.includes('流式抢跑命中')));
+
+    scheduled.length = 0;
+    logs.length = 0;
+    await plugin.onReplySaved(api, {
+        id: 'rs-summer',
+        reply: history[2].ref,
+        kind: 'normal',
+    });
+    assert.equal(scheduled.length, 1);
+    assert.ok(logs.some((msg) => msg.includes('第 4 楼命中')));
+});

@@ -31,7 +31,7 @@ const help = (title: string, description: string): Partial<SchemaFieldDescriptor
 export const settingsFieldLabels: Record<string, Partial<SchemaFieldDescriptor>> = {
     'api.connection_profiles': help('已保存模型渠道', '可保存多个不同中转或官方渠道，并一起记录推理强度、提示词后处理与原厂 System 通道。'),
     'api.active_profile': help('当前模型渠道', '快速在不同已保存的模型渠道之间切换。'),
-    'api.chat_completion_source': help('接口协议', '按服务商提供的协议选择。安装版支持 OpenAI 兼容和 Google Gemini (AI Studio)；Claude、Vertex AI 和 OpenAI Responses 仍需要本地网页版。'),
+    'api.chat_completion_source': help('接口协议', '按服务商提供的接口类型选择。中转站与兼容接口选「OpenAI / 兼容接口」；OpenAI Responses、Claude、Gemini、DeepSeek、OpenRouter 均可直连。'),
     'api.custom_url': help('API 地址', '填写服务商提供的基础地址，例如 https://api.example.com/v1，不必填写密钥或模型名称。'),
     'api.model': help('模型名称', '填写地址和密钥后，可获取服务商的模型列表并选择；也可以直接填写模型 ID。'),
     'api.key': help('API Key · 密钥', '填写所选服务商提供的密钥。该连接用于生成剧情；额外解析也可以沿用此连接。'),

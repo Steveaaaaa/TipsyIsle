@@ -181,3 +181,50 @@ export function suggestConnectionProfileName(values: Record<string, unknown>): s
     if (model) return model;
     return source || '默认渠道';
 }
+
+export const PROFILE_OWNED_SETTING_KEYS = [
+    'api.chat_completion_source',
+    'api.custom_url',
+    'api.key',
+    'api.model',
+    'sampler.reasoning_effort',
+    'sampler.prompt_post_processing',
+    'sampler.use_sysprompt',
+] as const;
+
+export function findMatchingConnectionProfile(
+    profiles: readonly StoryConnectionProfile[],
+    values: Record<string, unknown>,
+): StoryConnectionProfile | undefined {
+    const source = String(values['api.chat_completion_source'] ?? DEFAULT_CONNECTION_PROFILE_VALUES.source).trim()
+        || DEFAULT_CONNECTION_PROFILE_VALUES.source;
+    const baseUrl = typeof values['api.custom_url'] === 'string' ? values['api.custom_url'].trim() : '';
+    const model = typeof values['api.model'] === 'string' ? values['api.model'].trim() : '';
+    const apiKey = typeof values['api.key'] === 'string' ? values['api.key'] : '';
+    if (!baseUrl && !model) return undefined;
+    return profiles.find(profile =>
+        profile.source === source &&
+        profile.baseUrl === baseUrl &&
+        profile.model === model &&
+        profile.apiKey === apiKey,
+    );
+}
+
+export function syncActiveProfileInSettingsPatch(
+    currentValues: Record<string, unknown>,
+    patch: Record<string, unknown>,
+): Record<string, unknown> {
+    const merged = { ...currentValues, ...patch };
+    const activeId = String(merged['api.active_profile'] ?? '').trim();
+    if (!activeId || 'api.connection_profiles' in patch) return patch;
+    if (!PROFILE_OWNED_SETTING_KEYS.some(key => key in patch)) return patch;
+    const profiles = parseConnectionProfiles(merged['api.connection_profiles']);
+    const active = profiles.find(item => item.id === activeId);
+    if (!active) return patch;
+    const updated = profileFromSettings(active.name, merged, active.id);
+    const nextProfiles = upsertConnectionProfile(profiles, updated);
+    return {
+        ...patch,
+        'api.connection_profiles': serializeConnectionProfiles(nextProfiles),
+    };
+}

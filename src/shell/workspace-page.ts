@@ -1,6 +1,6 @@
 const pageKey = 'tipsy:workspace-page';
 
-export type WorkspaceTab = 'characters' | 'chat' | 'inspector' | 'free';
+export type WorkspaceTab = 'characters' | 'chat' | 'theme' | 'inspector' | 'free';
 export type AppearancePage = 'editor' | 'packages' | false;
 
 interface WorkspacePage {
@@ -13,7 +13,7 @@ interface WorkspacePage {
 export function readWorkspacePage(activeChatId: string | null): WorkspacePage {
     try {
         const saved = JSON.parse(localStorage.getItem(pageKey) ?? 'null');
-        if (saved?.tab === 'characters' || saved?.tab === 'chat' || saved?.tab === 'inspector' || saved?.tab === 'free') {
+        if (saved?.tab === 'characters' || saved?.tab === 'chat' || saved?.tab === 'theme' || saved?.tab === 'inspector' || saved?.tab === 'free') {
             const chatId = activeChatId && saved.chatId === activeChatId ? activeChatId : null;
             return {
                 tab: saved.tab,

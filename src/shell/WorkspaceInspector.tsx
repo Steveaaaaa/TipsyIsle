@@ -82,12 +82,13 @@ export function WorkspaceInspector({
         >
             <div className="ttm-inspector-heading"><h2 data-ti-type="heading">设置与工具</h2><div className="ttm-inspector-heading-actions">
                 {tab === 'schema-settings' && <button type="button" className="ttm-btn-ghost ttm-inspector-guide" title="重新开始使用引导" disabled={generating} onClick={onReplayGuide}><Icon name="book" width={17} height={17} />使用引导</button>}
-                <button type="button" className="ttm-icon-btn" aria-label="关闭侧面板" onClick={onClose}><Icon name="close" /></button>
+                <button type="button" className="ttm-icon-btn ttm-inspector-close" aria-label="关闭侧面板" onClick={onClose}><Icon name="close" /></button>
             </div></div>
             {(tab === 'prompt-tree' || tab === 'variables') && <button type="button" className="ttm-btn-ghost" onClick={() => onTabChange('schema-settings')}><Icon name="chevron" width={14} height={14} style={{ transform: 'rotate(180deg)' }} />返回设置</button>}
             <nav className="ttm-inspector-tabs" aria-label="工具分类">
                 <button
                     type="button"
+                    className="ttm-inspector-appearance-tab"
                     onClick={onOpenAppearance}
                 >
                     外观

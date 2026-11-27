@@ -2,6 +2,7 @@ import { platformFetch } from './native-runtime';
 import { diagnosticErrorKind, diagnosticOperation, diagnosticTransport } from './diagnostics';
 import { geminiReplyAdapter, requestGeminiCompletion } from './gemini-completion';
 import { claudeReplyAdapter, requestClaudeCompletion } from './claude-completion';
+import { openAiResponsesReplyAdapter, requestOpenAiResponsesCompletion } from './openai-responses-completion';
 import { isGeminiSource } from './gemini-endpoint';
 import { encodeSnapshots, decodeSnapshot, usesImmutableStorySnapshot } from './snapshot-codec';
 import { copySyncState, SYNC_KEY, type SyncState } from './sync/protocol';
@@ -117,16 +118,30 @@ export async function streamLlmCompletion(req: StreamCompletionRequest): Promise
         detail = diagnosticTransport(flavor, req.baseUrl);
         const nativeGemini = flavor === 'tauri-native' && !req.provider && isGeminiSource(req.source);
         const nativeClaude=flavor==='tauri-native'&&!req.provider&&['claude','anthropic'].includes(req.source);
-        if (flavor !== 'local-gateway' && !nativeGemini && !nativeClaude && (req.provider || isGeminiSource(req.source) || ['claude', 'anthropic', 'vertexai', 'openai-responses'].includes(req.source))) {
+        const nativeResponses = flavor === 'tauri-native' && !req.provider && req.source === 'openai-responses';
+        if (flavor !== 'local-gateway' && !nativeGemini && !nativeClaude && !nativeResponses && (req.provider || isGeminiSource(req.source) || ['claude', 'anthropic', 'vertexai', 'openai-responses'].includes(req.source))) {
             throw new Error(flavor === 'tauri-native'
-                ? '安装版暂不支持此连接方式。请选择 OpenAI 兼容或 Google Gemini (AI Studio)，或在电脑上用 npm start 打开本地网页版。'
+                ? '当前客户端不支持 Google Cloud 本机环境凭证或本机网关账号授权，请改用 API Key 直连协议（OpenAI 兼容、OpenAI Responses、Claude 或 Gemini）。'
                 : '当前网页未连接模型网关。请用 npm start 打开本地网页版，或改用浏览器可直连的 OpenAI 兼容接口。');
         }
         stage = '发送请求';
-        const response = nativeClaude ? await requestClaudeCompletion(req) : nativeGemini ? await requestGeminiCompletion(req) : await requestChatCompletion(req, flavor === 'local-gateway');
+        const response = nativeClaude
+            ? await requestClaudeCompletion(req)
+            : nativeGemini
+              ? await requestGeminiCompletion(req)
+              : nativeResponses
+                ? await requestOpenAiResponsesCompletion(req)
+                : await requestChatCompletion(req, flavor === 'local-gateway');
         httpStatus = response.status;
         stage = !response.ok ? 'HTTP 响应' : req.stream === false ? '读取回复' : '读取回复流';
-        const result = await readCompletionResponse(response, req, nativeClaude ? claudeReplyAdapter() : nativeGemini ? geminiReplyAdapter() : undefined);
+        const adapter = nativeClaude
+            ? claudeReplyAdapter()
+            : nativeGemini
+              ? geminiReplyAdapter()
+              : nativeResponses
+                ? openAiResponsesReplyAdapter()
+                : undefined;
+        const result = await readCompletionResponse(response, req, adapter);
         report('成功', { stage, httpStatus, detail });
         return result;
     } catch (error) {
@@ -185,29 +200,81 @@ async function requestChatCompletion(req: StreamCompletionRequest, gateway: bool
     });
 }
 
+function extractBalancedJsonObjects(buffer: string, inArray: boolean, arrayStarted: boolean): {
+    objects: string[];
+    rest: string;
+    arrayStarted: boolean;
+    finished: boolean;
+} {
+    const objects: string[] = [];
+    let idx = 0;
+    let started = arrayStarted;
+    let finished = false;
+    const len = buffer.length;
+
+    const skipWs = () => { while (idx < len && /\s/.test(buffer[idx])) idx++; };
+
+    if (inArray && !started) {
+        skipWs();
+        if (idx < len) {
+            if (buffer[idx] !== '[') throw new Error('LLM 接口返回了无法解析的流式数据');
+            started = true;
+            idx++;
+        }
+    }
+
+    while (idx < len && !finished) {
+        skipWs();
+        if (idx >= len) break;
+        if (inArray) {
+            if (buffer[idx] === ',') { idx++; continue; }
+            if (buffer[idx] === ']') { idx++; finished = true; break; }
+        }
+        if (buffer[idx] !== '{') throw new Error('LLM 接口返回了无法解析的流式数据');
+
+        const start = idx;
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+        let complete = false;
+
+        for (; idx < len; idx++) {
+            const ch = buffer[idx];
+            if (inString) {
+                if (escaped) escaped = false;
+                else if (ch === '\\') escaped = true;
+                else if (ch === '"') inString = false;
+                continue;
+            }
+            if (ch === '"') inString = true;
+            else if (ch === '{') depth++;
+            else if (ch === '}' && --depth === 0) {
+                idx++;
+                objects.push(buffer.slice(start, idx));
+                complete = true;
+                break;
+            }
+        }
+        if (!complete) {
+            idx = start;
+            break;
+        }
+    }
+
+    return { objects, rest: buffer.slice(idx), arrayStarted: started, finished };
+}
+
+function isSingleNonStreamingPacket(parsed: Record<string, any>, adapted: boolean): boolean {
+    if (parsed.type === 'message' && Array.isArray(parsed.content)) return true;
+    if (Array.isArray(parsed.output) && typeof parsed.type !== 'string') return true;
+    if (!adapted && Array.isArray(parsed.choices) && parsed.choices.some((choice: any) => choice?.message && !choice?.delta)) return true;
+    return false;
+}
+
 async function readCompletionResponse(response: Response, req: StreamCompletionRequest, adapt?: ReturnType<typeof geminiReplyAdapter>): Promise<CompletionResult> {
     if (!response.ok || !response.body) {
         const errText = await response.text().catch(() => response.statusText);
         throw new Error(`LLM 请求失败 (${response.status}): ${errText.slice(0, 240)}`);
-    }
-
-    const readJson = (raw: any): CompletionResult => {
-        const payload = adapt ? adapt(raw, false) : raw;
-        if (payload?.error) throw new Error(`LLM 接口错误：${getCompletionError(payload.error)}`);
-        const choices = Array.isArray(payload?.choices) ? [...payload.choices].sort((a, b) => (a.index ?? 0) - (b.index ?? 0)) : [];
-        const candidates = choices.filter(choice => choice.message).map(choice => candidateFrom(choice.message));
-        if (!candidates.length && !req.requireReplyText) throw new Error('LLM 接口未返回回复消息');
-        const first = withCandidates(candidates, req, choices[0]?.finish_reason);
-        if (first.tool_calls?.length) req.onToolCall?.();
-        req.onToken(first.content, first.reasoning);
-        return first;
-    };
-
-    const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
-    if (contentType.includes('application/json') || contentType.split(';')[0].endsWith('+json')) {
-        const raw = await response.json();
-        req.signal?.throwIfAborted();
-        return readJson(raw);
     }
 
     const reader = response.body.getReader();
@@ -219,22 +286,16 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
     let finished = false;
     let receivedMessage = false;
     let finishReason: string | undefined;
-    let responseFormat: 'sse' | 'json' | undefined = contentType.includes('text/event-stream') ? 'sse' : undefined;
+    const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+    let responseFormat: 'sse' | 'json-array' | 'json-object' | undefined = contentType.includes('text/event-stream') ? 'sse' : undefined;
+    let arrayStarted = false;
     let reasoningSignature = '';
     const toolCalls = new Map<number, CompletionToolCall>();
     const alternatives = new Map<number, CompletionCandidate & { tools: Map<number, CompletionToolCall> }>();
 
-    const dispatch = () => {
-        if (!eventData.length || finished) return;
-        const dataStr = eventData.join('\n').trim();
-        eventData = [];
-        if (!dataStr) return;
-        if (dataStr === '[DONE]') { finished = true; return; }
-        let parsed: Record<string, any>;
-        try { parsed = JSON.parse(dataStr); }
-        catch { throw new Error('LLM 接口返回了无法解析的流式数据'); }
-        if (!parsed || typeof parsed !== 'object') throw new Error('LLM 接口返回了无效的流式数据');
-        if (adapt) parsed = adapt(parsed, true);
+    const processPacket = (rawParsed: Record<string, any>, streamingChunk: boolean) => {
+        if (!rawParsed || typeof rawParsed !== 'object') throw new Error('LLM 接口返回了无效的流式数据');
+        const parsed = adapt ? adapt(rawParsed, streamingChunk) : rawParsed;
         if (parsed.error) throw new Error(`LLM 接口错误：${getCompletionError(parsed.error)}`);
         const choice = parsed.choices?.find((choice: any) => !choice.index);
         for (const item of parsed.choices ?? []) if (item.index > 0) {
@@ -277,6 +338,54 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
             req.onToken(contentPiece, reasoningPiece);
         }
     };
+
+    const readJson = (raw: any): CompletionResult => {
+        if (Array.isArray(raw)) {
+            for (const packet of raw) {
+                if (!packet || typeof packet !== 'object') throw new Error('LLM 接口返回了无效的流式数据');
+                processPacket(packet, true);
+            }
+        } else {
+            const payload = adapt ? adapt(raw, false) : raw;
+            if (payload?.error) throw new Error(`LLM 接口错误：${getCompletionError(payload.error)}`);
+            const choices = Array.isArray(payload?.choices) ? [...payload.choices].sort((a, b) => (a.index ?? 0) - (b.index ?? 0)) : [];
+            const candidates = choices.filter(choice => choice.message).map(choice => candidateFrom(choice.message));
+            if (!candidates.length && !req.requireReplyText) throw new Error('LLM 接口未返回回复消息');
+            const first = withCandidates(candidates, req, choices[0]?.finish_reason);
+            if (first.tool_calls?.length) req.onToolCall?.();
+            req.onToken(first.content, first.reasoning);
+            return first;
+        }
+        if (!receivedMessage && !req.requireReplyText) throw new Error('LLM 接口未返回回复消息');
+        const first = { content: fullContent, reasoning: fullReasoning, ...(reasoningSignature ? { reasoning_signature: reasoningSignature } : {}),
+            ...(toolCalls.size ? { tool_calls: [...toolCalls.entries()].sort(([a], [b]) => a - b).map(([, value]) => value) } : {}) };
+        const candidates = [first, ...[...alternatives].sort(([a], [b]) => a - b).map(([, { tools, ...value }]) => ({ ...value,
+            ...(tools.size ? { tool_calls: [...tools].sort(([a], [b]) => a - b).map(([, tool]) => tool) } : {}) }))];
+        return withCandidates(candidates, req, finishReason);
+    };
+
+    if (req.stream === false && (contentType.includes('application/json') || contentType.split(';')[0].endsWith('+json'))) {
+        try {
+            reader.releaseLock();
+            const raw = await response.json();
+            req.signal?.throwIfAborted();
+            return readJson(raw);
+        } finally {
+            try { await response.body?.cancel(); } catch { /* Preserve the original error. */ }
+        }
+    }
+
+    const dispatch = () => {
+        if (!eventData.length || finished) return;
+        const dataStr = eventData.join('\n').trim();
+        eventData = [];
+        if (!dataStr) return;
+        if (dataStr === '[DONE]') { finished = true; return; }
+        let parsed: Record<string, any>;
+        try { parsed = JSON.parse(dataStr); }
+        catch { throw new Error('LLM 接口返回了无法解析的流式数据'); }
+        processPacket(parsed, true);
+    };
     const acceptLine = (line: string) => {
         if (!line) { dispatch(); return; }
         if (line.startsWith('data:')) {
@@ -290,14 +399,31 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
             const { done, value } = await reader.read();
             req.signal?.throwIfAborted();
             buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
-            // Some relays return JSON without labeling it as JSON.
+            // Some relays mislabel SSE or stream JSON arrays/NDJSON without alt=sse.
             if (!responseFormat) {
                 const first = buffer.trimStart()[0];
                 if (!first && !done) continue;
-                responseFormat = first === '{' ? 'json' : 'sse';
+                responseFormat = first === '[' ? 'json-array' : first === '{' ? 'json-object' : 'sse';
             }
-            if (responseFormat === 'json') {
-                if (done) return readJson(JSON.parse(buffer));
+            if (responseFormat === 'json-array' || responseFormat === 'json-object') {
+                const extracted = extractBalancedJsonObjects(buffer, responseFormat === 'json-array', arrayStarted);
+                buffer = extracted.rest;
+                arrayStarted = extracted.arrayStarted;
+                for (const rawObj of extracted.objects) {
+                    let parsed: Record<string, any>;
+                    try { parsed = JSON.parse(rawObj); }
+                    catch { throw new Error('LLM 接口返回了无法解析的流式数据'); }
+                    const streamingChunk = responseFormat === 'json-array' || !isSingleNonStreamingPacket(parsed, !!adapt);
+                    processPacket(parsed, streamingChunk);
+                }
+                if (extracted.finished) { finished = true; break; }
+                if (done) {
+                    const trailing = buffer.trim();
+                    if (trailing && !(responseFormat === 'json-array' && trailing === ']')) {
+                        throw new Error('LLM 接口返回了无法解析的流式数据');
+                    }
+                    break;
+                }
                 continue;
             }
             // Keep a trailing CR until the next chunk so a split CRLF remains one separator.

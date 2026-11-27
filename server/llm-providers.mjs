@@ -234,6 +234,9 @@ function requestOptions(payload, model, signal) {
           mode: parameters.tool_choice === 'required' || typeof parameters.tool_choice === 'object' ? 'ANY' : parameters.tool_choice.toUpperCase(),
           ...(parameters.tool_choice?.function?.name ? { allowedFunctionNames: [parameters.tool_choice.function.name] } : {}) } };
         if (['none', 'off'].includes(level)) body.config.thinkingConfig = { thinkingBudget: 0 };
+        else if (!body.config.thinkingConfig && /(?:^|[\s_\-\]/])(?:gemini-(?:2\.5|[3-9]|[1-9]\d)|gemini-(?:flash|pro)(?:-lite)?-latest|gemini-[\w.-]*thinking|gemma-?4)/i.test(model.id ?? '')) {
+          body.config.thinkingConfig = { includeThoughts: true };
+        }
         const { generationConfig, safetySettings, ...overrides } = includeBody;
         Object.assign(body.config, generationConfig);
         body.config.safetySettings = safetySettings ?? body.config.safetySettings ?? defaultGoogleSafetySettings(model.api);

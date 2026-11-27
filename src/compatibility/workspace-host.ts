@@ -122,7 +122,7 @@ function snapshot(): CompatSnapshot {
         const dependencies = [routeCount, variableState.global, variableState.preset[state.activePresetId], variableState.character[card.id], variableState.chat[state.activeChatId], variableState.message[node.id],
             card, preset, globalRules, variableState.extension.EjsTemplate, books, state.userName, state.activeChatId, boundary, state.templateRenderRevision,
             !!node.extra?.tipsy_generation_incomplete && (state.isGenerating || state.helperGenerationCount > 0),
-            !node.content && !!state.streamingReasoning, state.nativeToolPreview?.id === node.id ? state.nativeToolPreview : undefined, content];
+            !node.content.trim() && !!state.streamingReasoning, state.nativeToolPreview?.id === node.id ? state.nativeToolPreview : undefined, content];
         const old = messageCache.get(node.id);
         if (old?.node === node && old.dependencies.every((value, i) => value === dependencies[i])) return old.value;
         const formatted = formatMessageForDisplay(node);

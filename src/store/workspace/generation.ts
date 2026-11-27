@@ -54,9 +54,11 @@ let activeAbortController: AbortController | null = null;
 
 let generationNotificationMessage: string | undefined;
 let extensionGenerationPreparation: AbortController | undefined;
+let generationPreparationController: AbortController | undefined;
 
 export function getGenerationNotificationMessage() { return generationNotificationMessage; }
 export function canAppendDuringGenerationPreparation() { return !!extensionGenerationPreparation && !extensionGenerationPreparation.signal.aborted; }
+export function isGenerationPreparing() { return !!generationPreparationController && !generationPreparationController.signal.aborted; }
 
 export function stopActiveGeneration(): void {
     if (activeAbortController) {
@@ -356,6 +358,7 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
         }
         const sent = userText?.trim() ? appendChatMessage('user', userText.trim()) : undefined;
         const pendingMessage = sent ?? getActiveChatMessages().at(-1);
+        generationPreparationController = controller;
         if (pendingMessage) {
             generationNotificationMessage = pendingMessage.id;
             await messageNotification(pendingMessage.id);
@@ -392,7 +395,9 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
             return '';
         }
         ({ assembled, assemblyInput, nativeContributions } = await prepareStoryPrompt(prepared, generationType, controller));
+        if (generationPreparationController === controller) generationPreparationController = undefined;
     } catch (error) {
+        if (generationPreparationController === controller) generationPreparationController = undefined;
         if (!controller.signal.aborted) recordDiagnostic('生成', '故事续写', '失败', { stage: '准备提示词与故事状态', code: diagnosticErrorKind(error) });
         generationNotificationMessage = undefined;
         if (originalLeaf) {
@@ -544,6 +549,7 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
         captureMessageSnapshot(placeholderId);
         if (completed) sealBranchPoint(true);
         generationNotificationMessage = undefined;
+        if (generationPreparationController === controller) generationPreparationController = undefined;
         const readyStory = readNativeStory(), readyReply = readyStory.path.at(-1);
         const reply = completed && readyReply?.id === placeholderId && settled(readyReply) ? messageRef(readyReply) : undefined;
         workspaceStore.setState(draft => {

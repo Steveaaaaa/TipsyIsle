@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSettingsEditor } from './settings-draft';
+import { isNativeRuntime } from '../core/native-runtime';
 import type { SchemaFieldDescriptor } from '../types';
 import { ModelNameInput } from './ModelNameInput';
 
@@ -11,11 +12,12 @@ export interface SchemaFormRendererProps {
     fieldOverrides?: Record<string, Partial<SchemaFieldDescriptor>>;
     ungrouped?: boolean;
     showDescriptions?: boolean;
+    inlineHelpIds?: ReadonlySet<string>;
     disabled?: boolean;
     displayValues?: Record<string, unknown>;
 }
 
-export function SchemaFormRenderer({ compactMobile = false, filterGroup, excludeGroups = [], fieldIds, fieldOverrides = {}, ungrouped = false, showDescriptions = false, disabled = false, displayValues }: SchemaFormRendererProps) {
+export function SchemaFormRenderer({ compactMobile = false, filterGroup, excludeGroups = [], fieldIds, fieldOverrides = {}, ungrouped = false, showDescriptions = false, inlineHelpIds, disabled = false, displayValues }: SchemaFormRendererProps) {
     const { fields, groupsOrder, values } = useSettingsEditor();
     const [expandedAdvancedGroups, setExpandedAdvancedGroups] = useState<Record<string, boolean>>({});
     const [activeHelpId, setActiveHelpId] = useState<string | null>(null);
@@ -27,9 +29,12 @@ export function SchemaFormRenderer({ compactMobile = false, filterGroup, exclude
     const selected = (fieldIds ? fieldIds.map(id => fields[id]).filter(Boolean) : Object.values(fields))
         .map(field => ({ ...field, ...fieldOverrides[field.id] }));
     const visibleGroups = groupsOrder.filter(group => (!filterGroup || group === filterGroup) && !excludeGroups.includes(group));
-    const renderField = (field: SchemaFieldDescriptor) => <SchemaFieldItem key={field.id} field={field} value={displayValues?.[field.id] ?? values[field.id]} disabled={disabled}
-        settings={displayValues ?? values}
-        helpExpanded={showDescriptions || activeHelpId === field.id} onToggleHelp={() => setActiveHelpId(activeHelpId === field.id ? null : field.id)} />;
+    const renderField = (field: SchemaFieldDescriptor) => {
+        const inline = inlineHelpIds ? inlineHelpIds.has(field.id) : showDescriptions;
+        return <SchemaFieldItem key={field.id} field={field} value={displayValues?.[field.id] ?? values[field.id]} disabled={disabled}
+            settings={displayValues ?? values} ungrouped={ungrouped}
+            helpExpanded={inline || activeHelpId === field.id} onToggleHelp={() => setActiveHelpId(activeHelpId === field.id ? null : field.id)} />;
+    };
 
     if (ungrouped) return <fieldset className="ttm-settings-fields" disabled={disabled}>{selected.map(renderField)}</fieldset>;
 
@@ -89,14 +94,22 @@ interface SchemaFieldItemProps {
     helpExpanded: boolean;
     onToggleHelp: () => void;
     disabled?: boolean;
+    ungrouped?: boolean;
     settings: Record<string, unknown>;
 }
 
-function SchemaFieldItem({ field, value, helpExpanded, onToggleHelp, disabled, settings }: SchemaFieldItemProps) {
+function SchemaFieldItem({ field, value, helpExpanded, onToggleHelp, disabled, ungrouped = false, settings }: SchemaFieldItemProps) {
     const { setValue: setSchemaValue } = useSettingsEditor();
     const resolvedValue = value ?? field.defaultValue;
     const [secretVisible, setSecretVisible] = useState(false);
-    const describedBy = field.description && (helpExpanded || field.mobileWeight === 'essential') ? `ttm-help-${field.id}` : undefined;
+    const describedBy = field.description && (helpExpanded || (!ungrouped && field.mobileWeight === 'essential')) ? `ttm-help-${field.id}` : undefined;
+    const native = isNativeRuntime();
+    const visibleOptions = (field.options || []).filter(opt => {
+        if (!native || String(resolvedValue ?? '') === String(opt.value)) return true;
+        if (field.id === 'api.chat_completion_source' && opt.value === 'vertexai') return false;
+        if (field.id === 'mvu.source' && opt.value === '更多') return false;
+        return true;
+    });
 
     return (
         <div className="ttm-field-card" data-setting-id={field.id}>
@@ -214,7 +227,7 @@ function SchemaFieldItem({ field, value, helpExpanded, onToggleHelp, disabled, s
                     value={String(resolvedValue ?? '')}
                     onChange={(e) => setSchemaValue(field.id, e.target.value)}
                 >
-                    {(field.options || []).map((opt) => (
+                    {visibleOptions.map((opt) => (
                         <option key={String(opt.value)} value={String(opt.value)}>
                             {opt.label}
                         </option>

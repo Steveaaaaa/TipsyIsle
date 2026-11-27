@@ -36,6 +36,7 @@ import { globalRegexes } from '../store/global-regex-store';
 import { PersonaSettings } from './PersonaSettings';
 import { useReadingMode } from './useReadingMode';
 import { AnchoredDialog } from './AnchoredDialog';
+import { SettingsDisclosure } from './SettingsPrimitives';
 import { WorkspacePresetPanel, WorkspaceWorldbookPanel } from './WorkspaceAssetPanels';
 import {
     attachReplyIllustration, getActiveCharacter, getActiveChatMessages, getActiveLorebooks, getActivePersona,
@@ -80,13 +81,25 @@ export function AdaptiveWorkspaceApp() {
     const skinDevice = appearanceDevice.useStore();
     const skin = skinDevice.paused ? undefined : savedSkin ?? undefined;
     const [appearanceOpen, setAppearanceOpen] = useState<AppearancePage>(false);
+    const [mobileAppearanceMode, setMobileAppearanceMode] = useState<'editor' | 'packages'>('editor');
     const skinCss = useMemo(() => skin ? compileAppearance(skin) : '', [skin]);
     const appName = textOf(skin, 'name') || defaultText.name;
     useLayoutEffect(() => { applyAppearanceStyle(document, skinCss); }, [skinCss]);
     useEffect(() => { document.title = textOf(skin, 'window') || (skin ? appName : '微醺屿 · TipsyIsle'); }, [appName, skin]);
     useEffect(() => {
         const recover = (event: KeyboardEvent) => {
-            if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'u') { event.preventDefault(); pauseAppearance(true); setAppearanceOpen('editor'); }
+            if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'u') {
+                event.preventDefault();
+                pauseAppearance(true);
+                if (window.matchMedia('(max-width: 1024px)').matches) {
+                    setMobileAppearanceMode('editor');
+                    setAppearanceOpen(false);
+                    setInspectorOpen(false);
+                    setMobileTab('theme');
+                } else {
+                    setAppearanceOpen('editor');
+                }
+            }
         };
         window.addEventListener('keydown', recover);
         return () => window.removeEventListener('keydown', recover);
@@ -187,8 +200,33 @@ export function AdaptiveWorkspaceApp() {
     useEffect(() => {
         if (workspaceReady && (inspectorVisible && inspectorTab === 'prompt-tree' || assetDialog?.kind === 'lorebook' && lorebookHitsOpen)) return observePromptInspector();
     }, [workspaceReady, inspectorVisible, inspectorTab, lorebookHitsOpen, assetDialog?.kind]);
+    const openAppearance = useCallback((mode: 'editor' | 'packages' = 'editor') => {
+        if (compactLayout) {
+            restoreReadingControls();
+            setMobileAppearanceMode(mode);
+            setAppearanceOpen(false);
+            setNightShelf(false);
+            setInspectorOpen(false);
+            setHistoryOpen(false);
+            setToolsOpen(false);
+            setStoryConversationAnchor(undefined);
+            setMobileTab('theme');
+        } else {
+            setAppearanceOpen(mode);
+        }
+    }, [compactLayout, restoreReadingControls]);
+    useEffect(() => {
+        if (compactLayout && appearanceOpen) {
+            setMobileAppearanceMode(appearanceOpen);
+            setAppearanceOpen(false);
+            setMobileTab('theme');
+        } else if (!compactLayout && mobileTab === 'theme') {
+            setMobileTab('chat');
+            setAppearanceOpen(mobileAppearanceMode);
+        }
+    }, [compactLayout, appearanceOpen, mobileTab, mobileAppearanceMode]);
     const openInspector = (tab: InspectorTab | 'theme-studio') => {
-        if (tab === 'theme-studio') { setAppearanceOpen('packages'); return; }
+        if (tab === 'theme-studio') { openAppearance('packages'); return; }
         restoreReadingControls();
         setInspectorTab(tab);
         setInspectorOpen(true);
@@ -254,8 +292,8 @@ export function AdaptiveWorkspaceApp() {
     const showNightShelf = compactLayout ? mobileTab === 'free' : nightShelf;
     const visibleChatId = showingHome || showingNightEmpty ? null : state.activeChatId || null;
     useLayoutEffect(() => {
-        if (workspaceReady) rememberWorkspacePage({ tab: mobileTab, chatId: visibleChatId, appearance: appearanceOpen, nightShelf });
-    }, [workspaceReady, mobileTab, visibleChatId, appearanceOpen, nightShelf]);
+        if (workspaceReady) rememberWorkspacePage({ tab: mobileTab, chatId: visibleChatId, appearance: compactLayout ? (mobileTab === 'theme' ? mobileAppearanceMode : false) : appearanceOpen, nightShelf });
+    }, [workspaceReady, mobileTab, visibleChatId, compactLayout, mobileAppearanceMode, appearanceOpen, nightShelf]);
     const freeTitle = state.freeChat?.title || (state.messages.length ? freeChatName : '新对话');
     useEffect(() => { if (workspaceReady && !hasStory) setStoryRuntimeLoading(false); }, [workspaceReady, hasStory]);
     const activeStoryIdentity = storyIdentity(activeCharacter);
@@ -339,11 +377,29 @@ export function AdaptiveWorkspaceApp() {
         const restored = workspaceStore.getState();
         const hasConversation = restored.sessionKind === 'free' ? !!restored.activeChatId : !!getActiveCharacter(restored).id;
         const page = readWorkspacePage(hasConversation ? restored.activeChatId : null);
+        const isCompact = window.matchMedia('(max-width: 1024px)').matches;
         setHomeOpen(page.chatId === null);
         setNightShelf(page.nightShelf);
-        setMobileTab(page.tab);
-        setInspectorOpen(page.tab === 'inspector');
-        setAppearanceOpen(current => current || page.appearance);
+        if (isCompact) {
+            if (page.tab === 'theme' || page.appearance) {
+                setMobileAppearanceMode(page.appearance || 'editor');
+                setMobileTab('theme');
+                setAppearanceOpen(false);
+            } else {
+                setMobileTab(page.tab);
+                setAppearanceOpen(false);
+            }
+            setInspectorOpen(page.tab === 'inspector');
+        } else {
+            if (page.tab === 'theme') {
+                setMobileTab('chat');
+                setAppearanceOpen(current => current || page.appearance || 'editor');
+            } else {
+                setMobileTab(page.tab);
+                setAppearanceOpen(current => current || page.appearance);
+            }
+            setInspectorOpen(page.tab === 'inspector');
+        }
         setWorkspaceReady(true);
     }, []);
     useEffect(() => {
@@ -430,8 +486,7 @@ export function AdaptiveWorkspaceApp() {
                     {mvuPrimaryBook && <MvuCharacterSettingsEditor key={`${activeCharacter.id}:${mvuPrimaryBook.id}`} book={mvuPrimaryBook} disabled={state.isGenerating || state.helperGenerationCount > 0} />}
     </>;
     const dataTools = <>
-                    <details className="ttm-asset-text-section ttm-data-management">
-                            <summary>测试数据管理</summary>
+                    <SettingsDisclosure title="清空测试数据">
                             <p className="ttm-asset-help">删除所有导入的角色卡、世界书、预设、会话和变量，回到空馆藏。保留个人资料（昵称、头像、人设）、模型连接与外观设置，不创建备份。</p>
                             <button type="button" className="ttm-btn-secondary" disabled={clearing || importing || switchingCharacter !== null || state.isGenerating || state.helperGenerationCount > 0}
                                 onClick={() => {
@@ -439,7 +494,7 @@ export function AdaptiveWorkspaceApp() {
                                     setClearing(true);
                                     void runUiAction('清空测试内容', clearImportedWorkspace, undefined).finally(() => setClearing(false));
                                 }}>{clearing ? '正在清空…' : '一键清空测试内容'}</button>
-                    </details>
+                    </SettingsDisclosure>
 
     </>;
 
@@ -496,7 +551,7 @@ export function AdaptiveWorkspaceApp() {
     const widgetAction = (action: Widget['action'], anchor: HTMLElement) => {
         if (action === 'routes' && hasStory) openStoryRoutes(undefined, anchor);
         if (action === 'settings') openInspector('schema-settings');
-        if (action === 'appearance') setAppearanceOpen('editor');
+        if (action === 'appearance') openAppearance('editor');
     };
     const shellParts = (area: Area): ReactNode => placed[area].map(id => {
         const widget = widgets.get(id);
@@ -516,7 +571,7 @@ export function AdaptiveWorkspaceApp() {
         switch (part) {
             case 'focus': return button(() => setSidebarCollapsed(value => !value), { iconOnly: area === 'top', className: area === 'top' ? 'ttm-icon-btn ttm-focus-button' : undefined, pressed: sidebarCollapsed, label: sidebarCollapsed ? '显示馆藏' : '专注阅读' });
             case 'settings': return button(() => openInspector('schema-settings'), { className: area === 'top' ? 'ttm-btn-ghost' : undefined });
-            case 'appearance': return button(() => setAppearanceOpen('editor'));
+            case 'appearance': return button(() => openAppearance('editor'));
             case 'sidebar-settings': return button(() => openInspector('schema-settings'), { label: '设置' });
             case 'routes': return button(anchor => openStoryRoutes(undefined, anchor), { iconOnly: area === 'conversation', disabled: !hasStory, title: `${partText(skin, part)}，共 ${branchOptions.length} 条` });
             case 'profile': return button(setPersonaAnchor, { iconOnly: area === 'conversation', className: area === 'conversation' ? 'ttm-profile-entry ttm-icon-btn' : undefined });
@@ -535,8 +590,8 @@ export function AdaptiveWorkspaceApp() {
             case 'retry-analysis': return button(() => void runUiAction('重新解析变量', () => reprocessLastMvuMessage(true), ''), { disabled: generating || lastMessage?.role !== 'assistant' });
             default: {
                 const tab = navTabs[part];
-                const active = tab === 'theme' ? !!appearanceOpen : mobileTab === tab || tab === 'chat' && mobileTab === 'free';
-                return button(() => { if (tab === 'theme') setAppearanceOpen('editor'); else if (tab === 'inspector') openInspector('schema-settings'); else if (tab === 'characters') showLibrary(); else if (hasChat) resumeConversation(); else showHome(); },
+                const active = tab === 'theme' ? (compactLayout ? mobileTab === 'theme' : !!appearanceOpen) : mobileTab === tab || tab === 'chat' && mobileTab === 'free';
+                return button(() => { if (tab === 'theme') openAppearance('editor'); else if (tab === 'inspector') openInspector('schema-settings'); else if (tab === 'characters') showLibrary(); else if (hasChat) resumeConversation(); else showHome(); },
                     { className: active ? 'is-active' : '', current: active ? 'page' : undefined });
             }
         }
@@ -664,11 +719,13 @@ export function AdaptiveWorkspaceApp() {
                     </div>
                 </main>
 
+                {compactLayout && <ThemeStudioPanel inline open={mobileTab === 'theme'} showPackages={mobileAppearanceMode === 'packages'} device={device} onClose={closeInspector} />}
+
                 <WorkspaceInspector tab={inspectorTab} onTabChange={setInspectorTab} mobileActive={mobileTab === 'inspector'} visible={inspectorVisible}
                     state={state} activeMessages={activeMessages} activeCharacter={activeCharacter} activePreset={activePreset}
                     hasStory={hasStory} generating={generating} settingsDestination={settingsDestination}
                     advancedTools={advancedTools} dataTools={dataTools} onOpenPersona={setPersonaAnchor} onReplayGuide={replayGuide}
-                    onClose={closeInspector} onOpenAppearance={() => setAppearanceOpen('editor')} onOpenAppearancePackages={() => openInspector('theme-studio')}
+                    onClose={closeInspector} onOpenAppearance={() => openAppearance('editor')} onOpenAppearancePackages={() => openInspector('theme-studio')}
                     onOpenAsset={openAsset} onShowCharacters={showLibrary} />
             </div>
 
@@ -762,8 +819,8 @@ export function AdaptiveWorkspaceApp() {
             </nav>
             </div></div>
             {guide === 'welcome' && <GuideWelcome appName={appName} art={<ShellArt skin={skin} id="welcome" fallback={<img className="ttm-home-mark" src="/icons/192x192.png" alt="" />} />} onStart={() => setGuide('tour')} onSkip={() => setGuide(null)} />}
-            <ThemeStudioPanel open={!!appearanceOpen} showPackages={appearanceOpen === 'packages'} device={device} onClose={() => setAppearanceOpen(false)} />
-            {(savedSkin || localPlacement) && !skinDevice.paused && <button type="button" className="ttm-skin-rescue" aria-label="停用自定义外观" title="停用自定义外观" onClick={() => { pauseAppearance(true); setAppearanceOpen('editor'); }}><Icon name="palette" width={17} height={17} /></button>}
+            {!compactLayout && <ThemeStudioPanel open={!!appearanceOpen} showPackages={appearanceOpen === 'packages'} device={device} onClose={() => setAppearanceOpen(false)} />}
+            {(savedSkin || localPlacement) && !skinDevice.paused && <button type="button" className="ttm-skin-rescue" aria-label="停用自定义外观" title="停用自定义外观" onClick={() => { pauseAppearance(true); openAppearance('editor'); }}><Icon name="palette" width={17} height={17} /></button>}
         </div>
     );
 }

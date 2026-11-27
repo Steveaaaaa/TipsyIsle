@@ -82,6 +82,7 @@ export function VirtualChatStream({
     const branchEpoch = workspaceStore.useStore(state => state.branchEpoch);
     const isGenerating = workspaceStore.useStore(state => state.isGenerating);
     const helperGenerationCount = workspaceStore.useStore(state => state.helperGenerationCount);
+    const streamingReasoning = workspaceStore.useStore(state => state.streamingReasoning);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const introductionRef = useRef<HTMLDivElement | null>(null);
     const [introductionHeight, setIntroductionHeight] = useState(0);
@@ -364,7 +365,7 @@ export function VirtualChatStream({
                             <div className="ttm-msg-body ttm-msg-bubble">
                                 {freeChat ? <>
                                     {node.reasoning && <details className="ttm-reasoning-drawer"><summary>思考过程</summary><p>{node.reasoning}</p></details>}
-                                    {node.extra?.tipsy_generation_incomplete && !formatted ? <GenerationActivity phase="waiting" /> : <MessageProse source={formatted} />}
+                                    {node.extra?.tipsy_generation_incomplete && !formatted.trim() ? <GenerationActivity phase={streamingReasoning ? 'thinking' : 'waiting'} /> : <MessageProse source={formatted} />}
                                 </> : streaming ? <StreamingMessage preview={streaming} renderComponents /> : blocks.map((block, idx) => block.type === 'markdown' ? <MessageProse key={`${node.id}_prose_${idx}`} source={block.content} /> : (
                                     <SandboxFrame
                                         key={`${node.id}_${branchEpoch}_sbx_${idx}`}

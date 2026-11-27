@@ -87,19 +87,29 @@ async function conversation(req: StreamCompletionRequest) {
 }
 
 function thinkingConfig(model: string, level: unknown): JsonObject | undefined {
-    if (typeof level !== 'string' || !['off', 'none', 'minimal', 'low', 'medium', 'high', 'max', 'xhigh'].includes(level)) return;
-    const disabled = level === 'off' || level === 'none';
     const id = model.toLowerCase();
-    if (/^(?:gemini-(?:[3-9]|[1-9]\d)|gemini-flash(?:-lite)?-latest|gemma-?4)/.test(id)) {
+    const isModernThinking = /(?:^|[\s_\-\]])(?:gemini-(?:[3-9]|[1-9]\d)|gemini-(?:flash|pro)(?:-lite)?-latest|gemma-?4)/i.test(id);
+    const isGemini25 = /(?:^|[\s_\-\]])gemini-2\.5-/i.test(id);
+    const isExplicitThinking = /(?:^|[\s_\-\]])gemini-[\w.-]*thinking/i.test(id);
+    const normalized = typeof level === 'string' ? level.trim().toLowerCase() : '';
+    if (!normalized || normalized === 'auto' || normalized === 'default') {
+        if (isModernThinking || isGemini25 || isExplicitThinking) return { includeThoughts: true };
+        return;
+    }
+    if (!['off', 'none', 'minimal', 'low', 'medium', 'high', 'max', 'xhigh'].includes(normalized)) return;
+    const disabled = normalized === 'off' || normalized === 'none';
+    if (isModernThinking) {
         const pro = id.includes('-pro');
-        const thinkingLevel = disabled || level === 'minimal' ? (pro ? 'LOW' : 'MINIMAL')
-            : level === 'low' ? 'LOW' : level === 'medium' && !pro ? 'MEDIUM' : 'HIGH';
+        const thinkingLevel = disabled || normalized === 'minimal' ? (pro ? 'LOW' : 'MINIMAL')
+            : normalized === 'low' ? 'LOW' : normalized === 'medium' && !pro ? 'MEDIUM' : 'HIGH';
         return { includeThoughts: !disabled, thinkingLevel };
     }
-    if (!id.startsWith('gemini-2.5-')) return;
-    const minimum = id.includes('-pro') ? 128 : id.includes('-lite') ? 512 : 0;
-    const thinkingBudget = disabled || level === 'minimal' ? minimum : level === 'low' ? 2048 : level === 'medium' ? 8192 : id.includes('-pro') ? 32768 : 24576;
-    return { includeThoughts: !disabled, thinkingBudget };
+    if (isGemini25) {
+        const minimum = id.includes('-pro') ? 128 : id.includes('-lite') ? 512 : 0;
+        const thinkingBudget = disabled || normalized === 'minimal' ? minimum : normalized === 'low' ? 2048 : normalized === 'medium' ? 8192 : id.includes('-pro') ? 32768 : 24576;
+        return { includeThoughts: !disabled, thinkingBudget };
+    }
+    if (isExplicitThinking) return { includeThoughts: !disabled };
 }
 
 export async function requestGeminiCompletion(req: StreamCompletionRequest): Promise<Response> {
@@ -146,6 +156,7 @@ export async function requestGeminiCompletion(req: StreamCompletionRequest): Pro
     excludeRequestFields(body, req.excludeBody);
     const headers = geminiHeaders(req.apiKey, req.includeHeaders);
     if (!headers.has('content-type')) headers.set('content-type', 'application/json');
+    if (streaming && !headers.has('accept')) headers.set('accept', 'text/event-stream');
     req.signal?.throwIfAborted();
     return platformFetch(endpoint.href, { method: 'POST', headers, body: JSON.stringify(body), signal: req.signal });
 }
@@ -154,8 +165,15 @@ interface GeminiReply {
     error?: unknown;
     promptFeedback?: { blockReason?: string };
     candidates?: { index?: number; finishReason?: string; finishMessage?: string; content?: { parts?: {
-        text?: string; thought?: boolean; thoughtSignature?: string; functionCall?: { id?: string; name?: string; args?: JsonObject };
+        text?: string; thought?: boolean | string; thoughtSignature?: string; functionCall?: { id?: string; name?: string; args?: JsonObject };
     }[] } }[];
+}
+
+function mapGeminiFinishReason(reason?: string): string | undefined {
+    if (!reason || reason === 'FINISH_REASON_UNSPECIFIED') return;
+    if (reason === 'MAX_TOKENS') return 'length';
+    if (reason === 'STOP') return 'stop';
+    return reason.toLowerCase();
 }
 
 export function geminiReplyAdapter() {
@@ -170,14 +188,19 @@ export function geminiReplyAdapter() {
             if (reason && !['FINISH_REASON_UNSPECIFIED', 'STOP', 'MAX_TOKENS'].includes(reason)) {
                 throw new Error(`Gemini 已停止生成（${reason}）${candidate.finishMessage ? `：${candidate.finishMessage}` : ''}`);
             }
+            const finishReason = mapGeminiFinishReason(reason);
             const parts = candidate.content?.parts ?? [];
             const message: { content: string; reasoning_content: string; reasoning_signature?: string; tool_calls: (CompletionToolCall & { index?: number })[] }
                 = { content: '', reasoning_content: '', tool_calls: [] };
             for (const part of parts) {
                 if (part.thought) {
-                    message.reasoning_content += part.text ?? '';
-                    if (part.thoughtSignature) message.reasoning_signature = part.thoughtSignature;
-                } else message.content += part.text ?? '';
+                    message.reasoning_content += typeof part.text === 'string' ? part.text : (typeof part.thought === 'string' ? part.thought : '');
+                } else if (typeof part.text === 'string') {
+                    message.content += part.text;
+                }
+                if (part.thoughtSignature && !part.functionCall) {
+                    message.reasoning_signature = part.thoughtSignature;
+                }
                 if (part.functionCall?.name) {
                     const call = part.functionCall;
                     message.tool_calls.push({ id: call.id || `gemini_${crypto.randomUUID()}`, type: 'function',
@@ -185,8 +208,12 @@ export function geminiReplyAdapter() {
                         ...(part.thoughtSignature ? { thought_signature: part.thoughtSignature } : {}), ...(streaming ? { index: toolIndex++ } : {}) });
                 }
             }
-            if (!message.content && !message.reasoning_content && !message.reasoning_signature && !message.tool_calls.length) return [];
-            return [{ index: candidate.index ?? index, ...(streaming ? { delta: message } : { message }) }];
+            if (!message.content && !message.reasoning_content && !message.reasoning_signature && !message.tool_calls.length && !finishReason) return [];
+            return [{
+                index: candidate.index ?? index,
+                ...(finishReason ? { finish_reason: finishReason } : {}),
+                ...(streaming ? { delta: message } : { message }),
+            }];
         });
         return { choices };
     };

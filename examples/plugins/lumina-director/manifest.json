@@ -5,7 +5,7 @@
   "name": "浮光",
   "publisher": "微醺屿",
   "description": "无感沉浸式叙事视觉导演：自动提取角色视觉档案、跨分支连续性场记、流式抢跑暗房显影、向量场景闪回与随滚剧场舞台。",
-  "version": "1.2.11",
+  "version": "1.2.12",
   "hostApi": "1.2.0",
   "storageVersion": 1,
   "permissions": [

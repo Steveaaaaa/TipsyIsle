@@ -76,7 +76,7 @@ async function availableConnections(): Promise<Connection[]> {
         }
     } catch { /* Incomplete settings do not remove the other connections. */ }
     const flavor = await detectRuntimeFlavor();
-    return items.filter(item => flavor === 'local-gateway' || flavor==='tauri-native' && !item.provider && ['makersuite','gemini','anthropic','claude'].includes(item.source) || !item.provider && !['claude', 'anthropic', 'makersuite', 'gemini', 'vertexai', 'openai-responses'].includes(item.source));
+    return items.filter(item => flavor === 'local-gateway' || flavor==='tauri-native' && !item.provider && ['makersuite','gemini','anthropic','claude','openai-responses'].includes(item.source) || !item.provider && !['claude', 'anthropic', 'makersuite', 'gemini', 'vertexai', 'openai-responses'].includes(item.source));
 }
 export async function connectionChoices() { return (await availableConnections()).map(connectionSummary); }
 export async function authorizedConnection(id: string, kind: ModelKind, grants: string[]) {

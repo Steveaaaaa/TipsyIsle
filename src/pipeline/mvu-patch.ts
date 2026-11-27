@@ -32,6 +32,31 @@ function arrayIndex(parent: any[], key: string, insert = false): number {
 export function readMvuPatches(text: string): MvuPatch[] {
     return readMvuPatchBlocks(text).flatMap(block => block.patches);
 }
+function normalizeMvuPatchBlock(rawText: string): MvuPatch[] {
+    const content = rawText.trim().replace(/^```(?:json5?|ya?ml)?\s*/i, '').replace(/\s*```$/, '').trim();
+    if (!content || /^(?:\s|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/|#[^\r\n]*)*$/.test(content)) return [];
+    const parsed = parseMvuStructuredValue(rawText);
+    if (parsed === null || parsed === undefined) return [];
+    const value = mvuJsonValue(parsed);
+    if (Array.isArray(value)) {
+        if (value.length > 4096) throw new Error('JSONPatch 必须是操作数组（最多 4096 项）');
+        return value as MvuPatch[];
+    }
+    if (value && typeof value === 'object') {
+        const record = value as Record<string, unknown>;
+        if (!Object.keys(record).length) return [];
+        if (typeof record.op === 'string' && typeof record.path === 'string') return [record as MvuPatch];
+        for (const key of ['json_patch', 'patches', 'patch', 'operations']) {
+            const nested = record[key];
+            if (Array.isArray(nested)) {
+                if (nested.length > 4096) throw new Error('JSONPatch 必须是操作数组（最多 4096 项）');
+                return nested as MvuPatch[];
+            }
+        }
+    }
+    throw new Error('JSONPatch 必须是操作数组（最多 4096 项）');
+}
+
 export function readMvuPatchBlocks(text: string): Array<{ start: number; patches: MvuPatch[] }> {
     const blocks = findUpdateMarkupBlocks(text, 'patch');
     const tokens = scanUpdateMarkup(text).tokens.filter(token => token.name === 'patch');
@@ -40,8 +65,7 @@ export function readMvuPatchBlocks(text: string): Array<{ start: number; patches
     const result: Array<{ start: number; patches: MvuPatch[] }> = [];
     for (const block of blocks) {
         if (block.discarded) continue;
-        const patches: MvuPatch[] = mvuJsonValue(parseMvuStructuredValue(text.slice(block.contentStart, block.contentEnd)));
-        if (!Array.isArray(patches) || patches.length > 4096) throw new Error('JSONPatch 必须是操作数组（最多 4096 项）');
+        const patches = normalizeMvuPatchBlock(text.slice(block.contentStart, block.contentEnd));
         allPatches.push(...patches);
         if (allPatches.length > 4096) throw new Error('单条消息的 JSONPatch 操作超过 4096 项');
         result.push({ start: block.start, patches });

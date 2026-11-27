@@ -200,7 +200,11 @@ export function NativePluginManager({ initialSection = 'overview' }: { initialSe
                 if (isNativeRuntime()) act(async () => { const file = await pickNativePlugin(); if (file) await inspect(file); });
                 else fileInput.current?.click();
             }}><Icon name="upload" width={16} height={16} />导入插件</button>
-            <button type="button" className="ttm-btn-secondary" aria-expanded={connectionsOpen} disabled={working || !ready || !!review || !!grant} onClick={() => setConnectionsOpen(open => !open)}><Icon name="cpu" width={16} height={16} />专用模型连接</button>
+            <button type="button" className="ttm-btn-secondary" aria-expanded={connectionsOpen} disabled={working || !ready || !!review || !!grant} onClick={() => setConnectionsOpen(open => {
+                const next = !open;
+                if (!next) focus(selected ? heading : listHeading);
+                return next;
+            })}><Icon name={connectionsOpen ? 'plugin' : 'cpu'} width={16} height={16} />{connectionsOpen ? '返回插件列表' : '专用模型连接'}</button>
             <input ref={fileInput} type="file" hidden accept=".tipsy-plugin" onChange={event => {
                 const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
                 if (file) act(() => inspect(file));
@@ -211,7 +215,10 @@ export function NativePluginManager({ initialSection = 'overview' }: { initialSe
         {working && <p role="status" className="ttm-settings-note">正在处理插件，请稍候…</p>}
         {!ready && !loadError && <p role="status" className="ttm-settings-note">正在读取已安装插件…</p>}
         {!ready && loadError && <button type="button" className="ttm-btn-secondary" disabled={working} onClick={() => act(initializeNativePlugins)}>重试读取</button>}
-        {connectionsOpen && <div className="ttm-native-review"><h4 tabIndex={-1} ref={reviewHeading}>插件专用模型连接</h4><p className="ttm-settings-note">添加后，可以在每个插件的「权限」里单独授权。</p><PluginConnections run={act} working={working} /></div>}
+        {connectionsOpen && <div className="ttm-native-review">
+            <button type="button" className="ttm-btn-ghost ttm-native-back" onClick={() => { setConnectionsOpen(false); focus(selected ? heading : listHeading); }}><Icon name="chevron" width={15} height={15} />{selected ? `返回「${selected.manifest.name}」` : '返回插件列表'}</button>
+            <h4 tabIndex={-1} ref={reviewHeading}>插件专用模型连接</h4><p className="ttm-settings-note">添加后，可以在每个插件的「权限」里单独授权。</p><PluginConnections run={act} working={working} />
+        </div>}
         {review && <div className="ttm-native-review">
             <div><h4 tabIndex={-1} ref={reviewHeading}>{review.current ? '检查插件更新' : '检查新插件'} · {review.pkg.manifest.name}</h4>
                 <p className="ttm-settings-note">{review.pkg.manifest.publisher} · {review.current ? `${review.current.manifest.version} → ` : ''}{review.pkg.manifest.version}</p></div>

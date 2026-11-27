@@ -52,6 +52,7 @@ export interface TemplateRuntimeHooks {
     macroLikes?(text: string, context: { message_id?: number; role?: 'user' | 'assistant' | 'system' }): string;
     event?(name: string, ...args: any[]): Promise<void>;
     hasEvent?(name: string): boolean;
+    liveMessages?(): readonly ChatMessageNode[] | undefined;
     takeWorldInfoActivations?(): any[];
     echo?(text: string): void;
     globals?: Record<string, any>;
@@ -246,6 +247,44 @@ export class TemplateRuntime {
     }
     async emitWorldInfoActivated(entries: LorebookEntry[]): Promise<void> {
         if (this.hooks.hasEvent?.('world_info_activated')) await this.hostEvent('world_info_activated', entries.map(entry => this.legacyEntry(entry)));
+    }
+    /** Refresh prompt-assembly message text after non-structural in-place edits during generation events. */
+    syncInPlaceMessageContent(): boolean {
+        if (this.input.templatePreview || this.input.templateTask || !this.hooks.liveMessages) return false;
+        const live = this.hooks.liveMessages();
+        const messages = this.input.messages;
+        if (!live || live.length !== messages.length) return false;
+        for (let i = 0; i < messages.length; i++) {
+            const current = live[i];
+            const target = messages[i];
+            if (!current || current.id !== target.id || current.activeSwipeIndex !== target.activeSwipeIndex
+                || current.role !== target.role || current.speakerName !== target.speakerName
+                || !!current.isHidden !== !!target.isHidden) {
+                return false;
+            }
+        }
+        let changed = false;
+        for (let i = 0; i < messages.length; i++) {
+            const current = live[i];
+            const target = messages[i];
+            if (current.content === target.content) continue;
+            const previousContent = target.content;
+            target.content = current.content;
+            const swipeIndex = target.activeSwipeIndex;
+            if (Array.isArray(target.swipes) && swipeIndex >= 0 && swipeIndex < target.swipes.length) {
+                const previousSwipe = target.swipes[swipeIndex];
+                target.swipes[swipeIndex] = typeof previousSwipe === 'string'
+                    ? current.content
+                    : { ...previousSwipe, content: current.content };
+            }
+            if (this.input.interceptedHistory) {
+                for (const item of this.input.interceptedHistory) {
+                    if (item.messageId === target.id && item.content === previousContent) item.content = current.content;
+                }
+            }
+            changed = true;
+        }
+        return changed;
     }
     async prepareExternalWorldInfo(): Promise<void> {
         const selected = new Set(this.input.vectorActivations ?? []);

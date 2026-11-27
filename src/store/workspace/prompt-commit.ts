@@ -13,6 +13,7 @@ import { persistWorkspace, commitWorkspaceMutation } from './storage';
 import { getActiveChatMessages } from './queries';
 import { captureMessageSnapshot } from './branches';
 import { validateHelperVariableWrite, saveHelperVariables } from './story-variables';
+import { isGenerationPreparing } from './generation';
 
 /** Shared commit for template-requested writes; return-only Helper generations use the same scope semantics. */
 export function commitPromptVariableChanges(assembled: AssembledPromptResult, expected?: AssemblePromptInput): void {
@@ -26,12 +27,14 @@ export function commitPromptVariableChanges(assembled: AssembledPromptResult, ex
         if (!same(normalizeTemplateFeatures(readExtensionVariables(scopedVariableStore.getState().extension, 'EjsTemplate')), normalizeTemplateFeatures(expected.templateFeatures))) throw new TemplateInputChangedError('模板执行期间插件设置已改变，请重试操作');
         if (!same(state.templateInjections, expected.templateInjections ?? [])) throw new TemplateInputChangedError('模板执行期间注入状态已变化，请重试操作');
         if (!same(state.templateActivations, expected.templateActivations ?? [])) throw new TemplateInputChangedError('模板执行期间世界书动态激活状态已变化，请重试操作');
+        const allowInPlaceGenerationContent = !expected.templateTask && isGenerationPreparing();
         const path = getActiveChatMessages(state);
         if (state.activeChatId !== expected.chatId || state.activeCharacterId !== expected.character.id || state.activePresetId !== expected.preset.id ||
             path.length !== expected.messages.length || path.some((node, index) => {
                 const before = expected.messages[index];
-                return node.id !== before.id || node.activeSwipeIndex !== before.activeSwipeIndex || node.content !== before.content
-                    || node.role !== before.role || node.speakerName !== before.speakerName || node.isHidden !== before.isHidden;
+                return node.id !== before.id || node.activeSwipeIndex !== before.activeSwipeIndex
+                    || (!allowInPlaceGenerationContent && node.content !== before.content)
+                    || node.role !== before.role || node.speakerName !== before.speakerName || Boolean(node.isHidden) !== Boolean(before.isHidden);
             })) throw new TemplateInputChangedError('模板执行期间角色、预设、消息或分支已改变，请重试生成');
         if (!same(getActiveLorebooks(state), expected.lorebooks) || expected.lorebookCatalog && !same(getAvailableWorldbooks(state), expected.lorebookCatalog) ||
             expected.characterWorldbooks && !same(getCharacterWorldbooks(getActiveCharacter(state), state), expected.characterWorldbooks) ||

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+    PROFILE_OWNED_SETTING_KEYS,
     defaultParametersForSource,
+    findMatchingConnectionProfile,
     parseConnectionProfiles,
     profileFromSettings,
     removeConnectionProfile,
@@ -9,144 +11,209 @@ import {
     suggestConnectionProfileName,
     upsertConnectionProfile,
 } from '../core/model-profiles';
-import { useSettingsEditor } from '../registry/settings-draft';
-
-const REASONING_LABELS: Record<string, string> = {
-    auto: '自动', low: '轻量', medium: '均衡', high: '深度', max: '极限',
-};
-const POST_PROCESS_LABELS: Record<string, string> = {
-    auto: '跟随预设', none: '无', merge: '合并同角色', merge_tools: '合并同角色(工具)',
-    semi: 'Semi-strict', semi_tools: 'Semi-strict(工具)', strict: 'Strict', strict_tools: 'Strict(工具)', single: '单条用户消息',
-};
-const SYSPROMPT_LABELS: Record<string, string> = {
-    auto: '跟随预设(默认开)', on: '开启', off: '关闭(全转User)',
-};
+import { settingsDraftStore, useSettingsEditor } from '../registry/settings-draft';
+import { saveSettingsEdits, setStatusBanner, workspaceStore } from '../store/workspace-store';
 
 export function StoryModelProfilesBar() {
+    const workspace = workspaceStore.useStore();
+    const draft = settingsDraftStore.useStore();
     const { values, editing, setValues } = useSettingsEditor();
     const profiles = useMemo(() => parseConnectionProfiles(values['api.connection_profiles']), [values]);
     const activeId = String(values['api.active_profile'] ?? '');
     const activeProfile = useMemo(() => profiles.find(item => item.id === activeId), [profiles, activeId]);
-    const [nameInput, setNameInput] = useState(activeProfile?.name ?? '');
+    const matchedProfile = useMemo(
+        () => activeProfile ? undefined : findMatchingConnectionProfile(profiles, values),
+        [activeProfile, profiles, values],
+    );
+    const effectiveProfile = activeProfile ?? matchedProfile;
+    const selectedProfileId = effectiveProfile?.id ?? '';
+
+    const [namingMode, setNamingMode] = useState<'closed' | 'create' | 'rename'>('closed');
+    const [nameInput, setNameInput] = useState('');
+    const [busy, setBusy] = useState(false);
     const [feedback, setFeedback] = useState('');
 
     useEffect(() => {
-        setNameInput(activeProfile?.name ?? '');
-    }, [activeProfile?.id, activeProfile?.name]);
+        if (namingMode === 'rename') setNameInput(effectiveProfile?.name ?? '');
+    }, [namingMode, effectiveProfile?.name]);
+
+    const commitImmediate = async (patch: Record<string, unknown>, message: string) => {
+        setFeedback('');
+        if (!editing) {
+            setValues(patch);
+            setFeedback(message);
+            return;
+        }
+        if (workspace.isGenerating || workspace.helperGenerationCount > 0) {
+            setValues(patch);
+            setFeedback('当前正在生成回复，已写入草稿；生成结束后点底部保存生效。');
+            return;
+        }
+        setBusy(true);
+        try {
+            await saveSettingsEdits(patch, {}, {});
+            settingsDraftStore.setState(state => {
+                for (const key of Object.keys(patch)) delete state.values[key];
+            });
+            setFeedback(message);
+            setStatusBanner(message);
+        } catch (error) {
+            setFeedback(error instanceof Error ? error.message : String(error));
+        } finally {
+            setBusy(false);
+        }
+    };
 
     const selectProfile = (id: string) => {
-        setFeedback('');
+        setNamingMode('closed');
         if (!id) {
-            setValues({ 'api.active_profile': '' });
-            setNameInput('');
+            void commitImmediate({ 'api.active_profile': '' }, '已切换为手动直连，保留当前填写的地址与模型。');
             return;
         }
         const target = profiles.find(item => item.id === id);
         if (!target) return;
-        setValues(settingsPatchFromProfile(target));
-        setNameInput(target.name);
-        setFeedback(editing ? `已载入渠道「${target.name}」到草稿，点击底部保存后生效。` : `已切换到渠道「${target.name}」。`);
+        void commitImmediate(settingsPatchFromProfile(target), `已切换到渠道「${target.name}」，连接参数已立即生效。`);
     };
 
-    const saveProfile = (asNew: boolean) => {
-        const label = nameInput.trim() || suggestConnectionProfileName(values);
-        const targetId = asNew ? undefined : activeProfile?.id;
+    const saveProfile = (asNew: boolean, customLabel?: string) => {
+        const label = (customLabel ?? nameInput).trim() || suggestConnectionProfileName(values);
+        const targetId = asNew ? undefined : effectiveProfile?.id;
         const created = profileFromSettings(label, values, targetId);
         const nextProfiles = upsertConnectionProfile(profiles, created);
-        const stored = nextProfiles.find(item => item.name === created.name) ?? created;
-        setValues({
-            ...settingsPatchFromProfile(stored),
-            'api.connection_profiles': serializeConnectionProfiles(nextProfiles),
-        });
-        setNameInput(stored.name);
-        setFeedback(editing
-            ? `已将渠道「${stored.name}」写入草稿（含推理强度、后处理与原厂 System 通道），点击底部保存生效。`
-            : `已保存渠道「${stored.name}」。`);
+        const stored = nextProfiles.find(item => item.id === created.id || item.name === created.name) ?? created;
+        setNamingMode('closed');
+        void commitImmediate(
+            {
+                ...settingsPatchFromProfile(stored),
+                'api.connection_profiles': serializeConnectionProfiles(nextProfiles),
+            },
+            asNew ? `已保存新渠道「${stored.name}」并立即接管当前连接。` : `已更新渠道「${stored.name}」。`,
+        );
     };
 
     const startFreshChannel = () => {
+        setNamingMode('closed');
         const defaults = defaultParametersForSource(String(values['api.chat_completion_source'] ?? 'openai'));
-        setValues({
-            'api.active_profile': '',
-            'api.chat_completion_source': defaults.source,
-            'api.custom_url': defaults.baseUrl,
-            'api.key': '',
-            'api.model': defaults.model,
-            'sampler.reasoning_effort': defaults.reasoningEffort,
-            'sampler.prompt_post_processing': defaults.promptPostProcessing,
-            'sampler.use_sysprompt': defaults.useSystemPrompt,
-        });
-        setNameInput('');
-        setFeedback('已填入当前协议的默认合理参数，填写地址与密钥后即可存为新渠道。');
+        void commitImmediate(
+            {
+                'api.active_profile': '',
+                'api.chat_completion_source': defaults.source,
+                'api.custom_url': defaults.baseUrl,
+                'api.key': '',
+                'api.model': defaults.model,
+                'sampler.reasoning_effort': defaults.reasoningEffort,
+                'sampler.prompt_post_processing': defaults.promptPostProcessing,
+                'sampler.use_sysprompt': defaults.useSystemPrompt,
+            },
+            '已切回空白直连，填写地址与密钥后可存为新渠道。',
+        );
     };
 
     const deleteCurrent = () => {
-        if (!activeProfile) return;
-        const nextProfiles = removeConnectionProfile(profiles, activeProfile.id);
-        setValues({
-            'api.connection_profiles': serializeConnectionProfiles(nextProfiles),
-            'api.active_profile': '',
-        });
-        setNameInput('');
-        setFeedback(editing ? `已将渠道「${activeProfile.name}」从草稿移除，点击底部保存生效。` : `已删除渠道「${activeProfile.name}」。`);
+        if (!effectiveProfile) return;
+        const nextProfiles = removeConnectionProfile(profiles, effectiveProfile.id);
+        setNamingMode('closed');
+        void commitImmediate(
+            {
+                'api.connection_profiles': serializeConnectionProfiles(nextProfiles),
+                'api.active_profile': '',
+            },
+            `已删除渠道「${effectiveProfile.name}」，保留当前连接参数。`,
+        );
     };
 
-    const reasoning = String(values['sampler.reasoning_effort'] ?? 'auto');
-    const postProcess = String(values['sampler.prompt_post_processing'] ?? 'auto');
-    const useSysPrompt = String(values['sampler.use_sysprompt'] ?? 'auto');
+    const openNaming = (mode: 'create' | 'rename') => {
+        setFeedback('');
+        setNameInput(mode === 'rename' ? (effectiveProfile?.name ?? '') : suggestConnectionProfileName(values));
+        setNamingMode(mode);
+    };
+
+    const hasDraftChannelEdits = Boolean(
+        effectiveProfile && PROFILE_OWNED_SETTING_KEYS.some(key => key in draft.values),
+    );
 
     return (
-        <div className="ttm-profile-bar" aria-label="模型渠道管理">
-            <div className="ttm-profile-bar-row">
-                <label className="ttm-profile-bar-field" htmlFor="story-model-profile-select">
-                    <span>已保存渠道</span>
-                    <select
-                        id="story-model-profile-select"
-                        className="ttm-select-input"
-                        value={activeProfile?.id ?? ''}
-                        onChange={event => selectProfile(event.target.value)}
-                    >
-                        <option value="">手动配置（未关联渠道）</option>
-                        {profiles.map(profile => (
-                            <option key={profile.id} value={profile.id}>
-                                {profile.name}（{profile.model || profile.source}）
-                            </option>
-                        ))}
-                    </select>
-                </label>
-                <label className="ttm-profile-bar-field" htmlFor="story-model-profile-name">
-                    <span>渠道名称</span>
+        <div className="ttm-profile-bar" aria-label="模型渠道管理" aria-busy={busy}>
+            <div className="ttm-profile-bar-header">
+                <label className="ttm-field-title" htmlFor="story-model-profile-select">当前连接渠道</label>
+                <span className={`ttm-profile-status${effectiveProfile ? ' is-active' : ''}`}>
+                    {effectiveProfile ? `已接管 · ${effectiveProfile.name}` : profiles.length ? '未绑定渠道' : '尚未保存渠道'}
+                </span>
+            </div>
+            <div className="ttm-profile-bar-main">
+                <select
+                    id="story-model-profile-select"
+                    className="ttm-select-input"
+                    disabled={busy}
+                    value={selectedProfileId}
+                    onChange={event => selectProfile(event.target.value)}
+                >
+                    <option value="">手动直连（不关联已保存渠道）</option>
+                    {profiles.map(profile => (
+                        <option key={profile.id} value={profile.id}>
+                            {profile.name} · {profile.model || profile.source}
+                        </option>
+                    ))}
+                </select>
+            </div>
+            <div className="ttm-profile-bar-actions">
+                {effectiveProfile ? (
+                    <>
+                        {hasDraftChannelEdits && (
+                            <button type="button" className="ttm-mini-btn is-accent" disabled={busy} onClick={() => saveProfile(false, effectiveProfile.name)}>
+                                更新到「{effectiveProfile.name}」
+                            </button>
+                        )}
+                        <button type="button" className="ttm-mini-btn" disabled={busy} onClick={() => openNaming('rename')}>
+                            重命名
+                        </button>
+                        <button type="button" className="ttm-mini-btn" disabled={busy} onClick={() => openNaming('create')}>
+                            另存新渠道
+                        </button>
+                        <button type="button" className="ttm-mini-btn" disabled={busy} onClick={startFreshChannel}>
+                            新建空白连接
+                        </button>
+                        <button type="button" className="ttm-mini-btn" disabled={busy} onClick={deleteCurrent}>
+                            删除渠道
+                        </button>
+                    </>
+                ) : (
+                    <>
+                        <button type="button" className="ttm-mini-btn" disabled={busy} onClick={() => openNaming('create')}>
+                            保存当前连接为渠道
+                        </button>
+                        {profiles.length > 0 && (
+                            <button type="button" className="ttm-mini-btn is-accent" disabled={busy} onClick={() => selectProfile(profiles[0].id)}>
+                                启用「{profiles[0].name}」
+                            </button>
+                        )}
+                    </>
+                )}
+            </div>
+            {namingMode !== 'closed' && (
+                <div className="ttm-profile-name-row">
                     <input
                         id="story-model-profile-name"
                         className="ttm-text-input"
                         type="text"
-                        placeholder="留空则按模型名自动命名"
+                        placeholder="输入渠道名称（留空则按模型名命名）"
                         value={nameInput}
+                        disabled={busy}
                         onChange={event => setNameInput(event.target.value)}
                     />
-                </label>
-            </div>
-            <div className="ttm-profile-bar-actions">
-                {activeProfile && (
-                    <button type="button" className="ttm-mini-btn" onClick={() => saveProfile(false)}>
-                        更新当前渠道
+                    <button
+                        type="button"
+                        className="ttm-mini-btn is-accent"
+                        disabled={busy}
+                        onClick={() => saveProfile(namingMode === 'create')}
+                    >
+                        {namingMode === 'rename' ? '确认改名' : '保存并接管'}
                     </button>
-                )}
-                <button type="button" className="ttm-mini-btn" onClick={() => saveProfile(true)}>
-                    存为新渠道
-                </button>
-                <button type="button" className="ttm-mini-btn" onClick={startFreshChannel}>
-                    新建默认渠道
-                </button>
-                {activeProfile && (
-                    <button type="button" className="ttm-mini-btn" onClick={deleteCurrent}>
-                        删除渠道
+                    <button type="button" className="ttm-mini-btn" disabled={busy} onClick={() => setNamingMode('closed')}>
+                        取消
                     </button>
-                )}
-            </div>
-            <p className="ttm-settings-note">
-                渠道一并保存：推理强度（{REASONING_LABELS[reasoning] ?? reasoning}）· 后处理（{POST_PROCESS_LABELS[postProcess] ?? postProcess}）· 原厂 System 通道（{SYSPROMPT_LABELS[useSysPrompt] ?? useSysPrompt}），可在下方「采样与推理的高级参数」调整后更新。
-            </p>
+                </div>
+            )}
             {feedback && <p className="ttm-profile-bar-feedback" role="status">{feedback}</p>}
         </div>
     );

@@ -1,16 +1,29 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 
 async function loadModule(entryPoint) {
+    const cacheDir = path.resolve('node_modules/.cache');
+    await fs.mkdir(cacheDir, { recursive: true });
+    const bundleFile = path.join(cacheDir, `helper-compat-${crypto.randomUUID()}.mjs`);
     const bundle = await build({
         entryPoints: [entryPoint],
         bundle: true,
         write: false,
         format: 'esm',
         platform: 'node',
+        packages: 'external',
     });
-    return import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+    await fs.writeFile(bundleFile, bundle.outputFiles[0].text, 'utf8');
+    try {
+        return await import(pathToFileURL(bundleFile).href);
+    } finally {
+        await fs.rm(bundleFile, { force: true });
+    }
 }
 
 const {
@@ -32,6 +45,9 @@ const {
     shouldEmitGlobalGenerationStopped,
     shouldRemoveOnceInjectionsOnIframeGenerationEnded,
 } = await loadModule('src/compatibility/helper-generation-policy.ts');
+
+const { readMvuPatchBlocks } = await loadModule('src/pipeline/mvu-patch.ts');
+const { readMvuCommands, settleMvuWithoutScripts } = await loadModule('src/pipeline/mvu-commands.ts');
 
 test('resolveProxyPresets returns empty list when no proxy or connection url is configured', () => {
     assert.deepEqual(resolveProxyPresets({}), []);
@@ -205,4 +221,28 @@ test('helper generation policy isolates generateRaw and silent background tasks 
     assert.equal(shouldEmitGlobalGenerationStopped(false), true);
     assert.equal(shouldRemoveOnceInjectionsOnIframeGenerationEnded(true), false);
     assert.equal(shouldRemoveOnceInjectionsOnIframeGenerationEnded(false), true);
+});
+
+test('MVU JSONPatch parser tolerates empty/comment/object blocks and skips non-MVU invalid blocks cleanly', async () => {
+    for (const emptyBody of ['', '\n  \n', '```json\n```', '// 无需更新', '/* no changes */', '# comment', 'null', '{}']) {
+        const blocks = readMvuPatchBlocks(`<UpdateVariable><JSONPatch>${emptyBody}</JSONPatch></UpdateVariable>`);
+        assert.equal(blocks.length, 1);
+        assert.deepEqual(blocks[0].patches, []);
+    }
+
+    const single = readMvuCommands('<UpdateVariable><JSONPatch>{"op":"replace","path":"/a","value":2}</JSONPatch></UpdateVariable>');
+    assert.equal(single.commands.length, 1);
+    assert.equal(single.commands[0].type, 'set');
+
+    const wrapped = readMvuCommands('<UpdateVariable><JSONPatch>{"json_patch":[{"op":"replace","path":"/a","value":3}]}</JSONPatch></UpdateVariable>');
+    assert.equal(wrapped.commands.length, 1);
+    assert.equal(wrapped.commands[0].args[1], '3');
+
+    const nonMvu = await settleMvuWithoutScripts({}, '正文内容<UpdateVariable><JSONPatch>无变化</JSONPatch></UpdateVariable>', () => {});
+    assert.deepEqual(nonMvu, {});
+
+    await assert.rejects(
+        settleMvuWithoutScripts({ stat_data: { a: 1 } }, '<UpdateVariable><JSONPatch>"not an array"</JSONPatch></UpdateVariable>', () => {}),
+        /JSONPatch 必须是操作数组（最多 4096 项）/,
+    );
 });
