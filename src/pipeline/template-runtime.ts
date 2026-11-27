@@ -1,6 +1,5 @@
 import { filterMvuWorldbooks } from './mvu-worldbooks';
 import { worldinfoHash } from './worldinfo-hash';
-import ejs from 'ejs';
 import _ from 'lodash';
 import { parse as parseYaml } from 'yaml';
 import { evaluateMacros, applyRegexScripts, orderedRegexScripts } from './macro-regex-engine';
@@ -28,7 +27,6 @@ import { normalizeLorebook } from './normalizer';
 import type { AssembledChatMessage } from '../types';
 import type { LorebookScanEvent, LorebookScanOptions } from './lorebook-scanner';
 
-export const hasTemplate = (text: string) => /<%[\s\S]*?%>/.test(text);
 type CompiledTemplate = (this: unknown, data: Record<string, any>, sandbox?: TemplateSandbox) => string | Promise<string>;
 const cache = new Map<string, CompiledTemplate>();
 const safePath = (key: string) => !_.toPath(key).some((part: string) => ['__proto__', 'prototype', 'constructor'].includes(part));

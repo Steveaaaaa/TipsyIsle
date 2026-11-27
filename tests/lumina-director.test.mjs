@@ -4,8 +4,8 @@ import { build } from 'esbuild';
 import { zipSync } from 'fflate';
 import { supportedHostApi } from '../packages/plugin-sdk/package-format.mjs';
 
-const bundle=await build({stdin:{contents:`export * from './src/plugins/native/vm-protocol';export * from './src/plugins/native/image-protocol';export * from './src/plugins/native/checkpoints';export * from './src/plugins/native/card-visual-index';export * from './src/plugins/native/latent-film';export * from './src/plugins/native/reply-media-schema';export * from './src/plugins/native/sandbox-media-bridge';export * from './src/sandbox/sandbox-media-shim';export * from './src/compatibility/media-geometry';export * from './src/compatibility/film-surface';export * from './src/pipeline/streaming-message';export * from './src/pipeline/macro-regex-engine';export * from './examples/plugins/lumina-director/tension-gate';export * from './examples/plugins/lumina-director/visual-bible';export * from './examples/plugins/lumina-director/continuity-ledger';export * from './examples/plugins/lumina-director/shot-director';export * from './src/core/claude-completion';`,resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',write:false,banner:{js:`import { createRequire as __cr } from 'node:module'; const require = __cr(${JSON.stringify(process.cwd() + '/package.json')});`}});
-const {vmLimits,workflow,novelRequest,novelImage,imageRequest,buildCardVisualIndex,latentFilm,developPreview,updateJobPreview,clearLatentForGeneration,replyMediaItemSchema,sandboxMediaStore,setSandboxMountedMedia,clearSandboxMountedMedia,getSandboxMountedKeys,findSandboxParagraphAnchor,filmGeometry,createFilmSurface,createStreamPlan,StreamProjector,extractHtmlSandboxBlocks,isEmptySlotPlaceholder,shots,extractExplicitPrompt,extractShotFromReply,closedParagraphs,visualBible,isAbsentOrMentionOnly,extractVisualTraits,continuity,extractDeceasedFromText,extractDeceasedFromMvu,filterLedgerForShot,mergeLedger,pruneLedgerForFloor,direct,claudeReplyAdapter}=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
+const bundle=await build({stdin:{contents:`export * from './src/plugins/native/vm-protocol';export * from './src/plugins/native/image-protocol';export * from './src/plugins/native/checkpoints';export * from './src/plugins/native/card-visual-index';export * from './src/plugins/native/latent-film';export * from './src/plugins/native/reply-media-schema';export * from './src/plugins/native/sandbox-media-bridge';export * from './src/plugins/native/prose-anchor';export * from './src/sandbox/sandbox-media-shim';export * from './src/compatibility/media-geometry';export * from './src/compatibility/film-surface';export * from './src/compatibility/block-reconcile';export * from './src/pipeline/streaming-message';export * from './src/pipeline/macro-regex-engine';export * from './examples/plugins/lumina-director/tension-gate';export * from './examples/plugins/lumina-director/visual-bible';export * from './examples/plugins/lumina-director/continuity-ledger';export * from './examples/plugins/lumina-director/shot-director';export * from './src/core/claude-completion';`,resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',write:false,banner:{js:`import { createRequire as __cr } from 'node:module'; const require = __cr(${JSON.stringify(process.cwd() + '/package.json')});`}});
+const {vmLimits,workflow,novelRequest,novelImage,imageRequest,buildCardVisualIndex,extractWorldVisualBaseline,latentFilm,developPreview,updateJobPreview,clearLatentForGeneration,replyMediaItemSchema,sandboxMediaStore,setSandboxMountedMedia,clearSandboxMountedMedia,getSandboxMountedKeys,locateAnchor,mountMediaSlot,hasSubstantialOuterProse,findSandboxParagraphAnchor,isInteractiveWidgetDocument,filmGeometry,createFilmSurface,blockContentKey,computeKeptBlockIndices,createStreamPlan,StreamProjector,extractHtmlSandboxBlocks,isEmptySlotPlaceholder,shots,extractExplicitPrompt,extractShotFromReply,closedParagraphs,visualBible,isAbsentOrMentionOnly,extractVisualTraits,continuity,extractDeceasedFromText,extractDeceasedFromMvu,filterLedgerForShot,mergeLedger,pruneLedgerForFloor,direct,extractDirectorJson,claudeReplyAdapter}=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
 test('1.2 negotiates all three generations without lending new permissions to old manifests',()=>{
     for(const api of ['1.0.0','1.1.0','1.2.0'])assert.equal(supportedHostApi({hostApi:api,permissions:[]}),api);
     assert.equal(supportedHostApi({hostApi:'1.1.0',permissions:['jobs.run']}),null);
@@ -2207,4 +2207,433 @@ test('浮光 captures observational slice-of-life user focus with plural pronoun
     });
     assert.equal(scheduled.length, 1);
     assert.ok(logs.some((msg) => msg.includes('第 4 楼命中')));
+});
+
+test('extractWorldVisualBaseline, portrait tension-gate, director JSON/fallback, widget isolation, and template unwrapping work generally across card types', async () => {
+    // 1. Modern Japanese slice-of-life card with a local shrine keeps modern era & anti-ancient negative constraints
+    const modernSummerCard = {
+        id: 'card-summer',
+        name: '何人驻足的夏天',
+        description: '',
+        scenario: '',
+        tags: [],
+        firstMessage: '七月二十一日，星期日。若叶穿着淡蓝色T恤和白色短裤，电视早间新闻在播今日高温，她转身往门口走。',
+        alternateGreetings: [],
+        regexScripts: [],
+        characterBook: {
+            id: 'wb-summer',
+            name: 'wb',
+            entries: [{
+                uid: 1,
+                keys: [],
+                secondaryKeys: [],
+                content: '南方靠海小镇，木质偏屋与水瀬神社，电车与商店街并存，2024年炎热暑假。',
+                comment: '世界观',
+                enabled: true,
+                disabled: false,
+            }],
+        },
+        extensions: {},
+    };
+    const modernIdx = buildCardVisualIndex(modernSummerCard, [modernSummerCard.characterBook], null);
+    assert.match(modernIdx.inferredStyle ?? '', /modern contemporary Japanese setting/i);
+    assert.match(modernIdx.worldContext ?? '', /南方靠海小镇/);
+
+    // Ancient xianxia card stays historical eastern painterly style
+    const wuxiaBaseline = extractWorldVisualBaseline({
+        id: 'card-wuxia',
+        name: '破剑茶寮',
+        description: '大宋江湖武林与修仙宗门交锋，侠客一袭青衫佩剑。',
+        scenario: '',
+        tags: [],
+        firstMessage: '',
+        alternateGreetings: [],
+        regexScripts: [],
+    }, []);
+    assert.match(wuxiaBaseline.inferredStyle, /historical eastern setting/i);
+
+    // 2. Portrait focus ("看着她俩的侧脸") skips empty environmental checkpoint and picks character paragraph once present
+    const envOnlyChunk = '你踩着碎石走上木廊，木板在脚下发出轻微的声响。屋檐下的阴影里还留着早晨的凉意，但这股凉意正被午后的热浪飞快地蚕食。';
+    const charPara = '汐没再多说什么，转身拉开拉门，侧脸在走廊光影里显得格外安静，而澪轻轻拉住她的袖口。';
+    const focusOpts = { userPrompt: '嘻嘻，看着她俩的侧脸', targetAliases: ['水瀬汐', '汐', '水瀬澪', '澪'] };
+    assert.equal(shots(`${envOnlyChunk}\n\n`, true, focusOpts).length, 0);
+    const fullPicked = shots(`${envOnlyChunk}\n\n${charPara}`, false, focusOpts);
+    assert.equal(fullPicked.length, 1);
+    assert.equal(fullPicked[0].index, 1);
+
+    // 3. visualBible resolves characters from replyContext when paragraph uses pronouns and userPrompt used plural pronouns
+    const bibleRes = visualBible(
+        [],
+        '她转身拉开门，侧脸安静。',
+        {},
+        ['水瀬 汐', '水瀬 澪'],
+        {},
+        [
+            { name: '水瀬 汐', aliases: ['水瀬汐', '汐'], traits: '蓝色长发', references: [] },
+            { name: '水瀬 澪', aliases: ['水瀬澪', '澪'], traits: '黑色长发', references: [] },
+        ],
+        '',
+        `嘻嘻，看着她俩的侧脸\n\n水瀬汐站在廊下，水瀬澪坐在她身旁。`,
+    );
+    assert.equal(bibleRes.actors.length, 2);
+
+    // 4. extractDirectorJson handles <think> + prose + fenced JSON, and fallback enforces style + era + portrait framing
+    const parsedJson = extractDirectorJson('<think>分析场景时代与构图...</think>\n好的，结果如下：\n```json\n{"caption":"廊下侧颜","prompt":"anime girl side profile","aspectRatio":"3:2","palette":["#1b2230","#e8c391"],"actors":[]}\n```');
+    assert.equal(parsedJson?.caption, '廊下侧颜');
+
+    const logs = [];
+    const fallbackPlan = await direct(
+        { models: { start: async () => '' }, tasks: { await: async () => ({ status: 'failed' }) } },
+        [],
+        {
+            scene: envOnlyChunk,
+            layoutMode: 'tipsy-bubble',
+            actors: [{ name: '水瀬 汐', prompt: '水瀬 汐, slender, long blue hair, school uniform' }],
+            ledger: {},
+            prior: '',
+            framing: 'wide establishing shot',
+            userPrompt: '嘻嘻，看着她俩的侧脸',
+            worldContext: modernIdx.worldContext,
+            inferredStyle: modernIdx.inferredStyle,
+            onDiagnostic: (msg) => logs.push(msg),
+        },
+    );
+    assert.match(fallbackPlan.prompt, /modern contemporary Japanese setting/i);
+    assert.match(fallbackPlan.prompt, /side profile view/i);
+    assert.match(fallbackPlan.negativePrompt ?? '', /ancient costume, historical robes/i);
+    assert.ok(logs.some((l) => l.includes('内置场景风格兜底')));
+
+    // 5. extractHtmlSandboxBlocks unwraps outer <div class="tipsy-template-message"> before splitting ```html bottom widgets
+    const templatedWithWidget = `<div class="tipsy-template-message">\n\n第一段正文在木廊上展开。\n\n第二段主角汐轻轻转身。\n\n\`\`\`html\n<div class="scene-cover"><button>详情</button></div>\n\`\`\`\n</div>`;
+    const blocks = extractHtmlSandboxBlocks(templatedWithWidget);
+    assert.equal(blocks[0]?.type, 'markdown');
+    assert.match(blocks[0]?.content ?? '', /第一段正文/);
+    assert.equal(blocks.at(-1)?.type, 'html');
+    assert.match(blocks.at(-1)?.content ?? '', /scene-cover/);
+
+    // 6. isInteractiveWidgetDocument / findSandboxParagraphAnchor reject bottom interactive widgets cleanly
+    const makeDomEl = (tag, text, attrs = {}) => {
+        const el = {
+            tagName: tag.toUpperCase(),
+            textContent: text,
+            hidden: false,
+            parentElement: null,
+            parentNode: null,
+            nextElementSibling: null,
+            closest: () => null,
+            contains: (other) => other === el,
+            matches: () => false,
+            getAttribute: (k) => attrs[k] ?? null,
+            hasAttribute: (k) => k in attrs,
+            getBoundingClientRect: () => ({ width: 320, height: 36 }),
+        };
+        return el;
+    };
+    const widgetBtn1 = makeDomEl('button', '详情');
+    const widgetBtn2 = makeDomEl('button', '关系');
+    const widgetCardDiv = makeDomEl('div', '你踩着碎石走上木廊 2024年07月21日 地点：偏屋', { class: 'scene-cover' });
+    const widgetDoc = {
+        body: {
+            textContent: widgetCardDiv.textContent,
+            querySelector: (sel) => (sel.includes('scene-cover') ? widgetCardDiv : null),
+            querySelectorAll: (sel) => {
+                if (sel.includes('button')) return [widgetBtn1, widgetBtn2];
+                return [widgetCardDiv];
+            },
+            getBoundingClientRect: () => ({ height: 260 }),
+        },
+    };
+    widgetCardDiv.parentElement = widgetDoc.body;
+    assert.equal(isInteractiveWidgetDocument(widgetDoc), true);
+    assert.equal(
+        findSandboxParagraphAnchor(widgetDoc, { kind: 'paragraph', index: 0, excerpt: '你踩着碎石走上木廊' }, { allowIndexFallback: true }),
+        null,
+    );
+
+    // 7. mountMediaSlot inserts BEFORE trailing widget wrapper when only a widget wrapper exists (no markdown prose)
+    const widgetWrapper = {
+        classList: { contains: (c) => c === 'ttm-sandbox-container' },
+        previousElementSibling: null,
+        nextElementSibling: null,
+        before(node) {
+            node.isConnected = true;
+            widgetWrapper.previousElementSibling = node;
+            bodyContainer.order.unshift(node);
+        },
+        after() {},
+        querySelector: () => null,
+    };
+    const bodyContainer = {
+        children: [widgetWrapper],
+        order: [widgetWrapper],
+        querySelectorAll: () => [],
+        append(node) { bodyContainer.order.push(node); },
+    };
+    const slotEl = { isConnected: false, parentElement: null };
+    mountMediaSlot(bodyContainer, slotEl, { kind: 'paragraph', index: 0 });
+    assert.equal(bodyContainer.order[0], slotEl, 'outer media slot must appear BEFORE trailing widget wrapper');
+    assert.equal(bodyContainer.order[1], widgetWrapper);
+});
+
+test('findSandboxParagraphAnchor standalone serialization, mixed/html routing, onclick widgets, and post-settlement replyMedia stability', (t) => {
+    const standaloneAnchor = new Function(`return (${findSandboxParagraphAnchor.toString()})`)();
+    const makeEl = (tag, text, opts = {}) => {
+        const attrs = { ...(opts.attrs ?? {}) };
+        if (opts.className) attrs.class = opts.className;
+        const el = {
+            tagName: tag.toUpperCase(),
+            textContent: text,
+            hidden: Boolean(opts.hidden),
+            children: opts.children ?? [],
+            parentElement: opts.parentElement ?? null,
+            parentNode: opts.parentNode ?? null,
+            nextElementSibling: null,
+            closest: opts.closest ?? (() => null),
+            contains: (other) => other === el || el.children.some((c) => c.contains?.(other)),
+            matches: opts.matches ?? (() => false),
+            getAttribute: (k) => (k in attrs ? attrs[k] : null),
+            hasAttribute: (k) => k in attrs,
+            getBoundingClientRect: () => ({ width: 360, height: 42 }),
+        };
+        for (const c of el.children) {
+            c.parentElement = el;
+            c.parentNode = el;
+        }
+        return el;
+    };
+
+    // 1. Standalone findSandboxParagraphAnchor executes cleanly on prose & div+onclick scene-cover widgets
+    const proseP1 = makeEl('p', '午后三点的太阳正悬在半空，将柏油路面晒得泛出细微的白光。');
+    const proseP2 = makeEl('p', '澪正仰躺在木廊上，一只脚挂在廊边晃来晃去，显然是在偷懒。');
+    const proseP3 = makeEl('p', '汐站在阴凉处看着他俩，轻声说着今天的气温真高。');
+    const proseWrap = makeEl('div', [proseP1, proseP2, proseP3].map((p) => p.textContent).join('\n'), {
+        className: 'tipsy-reader-prose',
+        children: [proseP1, proseP2, proseP3],
+    });
+    const standaloneProseDoc = {
+        body: {
+            textContent: proseWrap.textContent,
+            querySelector: (sel) => (sel.includes('tipsy-reader-prose') ? proseWrap : null),
+            querySelectorAll: (sel) => {
+                if (sel.includes('tipsy-reader-prose')) return [proseWrap];
+                return [proseP1, proseP2, proseP3];
+            },
+            getBoundingClientRect: () => ({ height: 320 }),
+        },
+    };
+    const hitStandalone = standaloneAnchor(standaloneProseDoc, {
+        kind: 'paragraph',
+        index: 1,
+        excerpt: '澪正仰躺在木廊上',
+    });
+    assert.equal(hitStandalone, proseP2);
+
+    const coverBtn = makeEl('div', 'UNLOCK SCENE', { className: 'click-btn-acg', attrs: { onclick: 'unlock()' } });
+    const resetDiv = makeEl('div', 'CLOSE', { className: 'reset-btn', attrs: { onclick: 'reset()' } });
+    const coverLayer = makeEl('div', 'MEMORY FRAGMENT UNLOCK SCENE', { className: 'cover-layer', children: [coverBtn] });
+    const sceneWidgetDoc = {
+        body: {
+            textContent: 'MEMORY FRAGMENT UNLOCK SCENE',
+            querySelector: (sel) => (sel.includes('cover-layer') || sel.includes('scene-card') ? coverLayer : null),
+            querySelectorAll: (sel) => {
+                if (sel.includes('click') || sel.includes('btn') || sel.includes('button')) return [coverBtn, resetDiv];
+                return [coverLayer, coverBtn, resetDiv];
+            },
+            getBoundingClientRect: () => ({ height: 480 }),
+        },
+    };
+    coverLayer.parentElement = sceneWidgetDoc.body;
+    assert.equal(isInteractiveWidgetDocument(sceneWidgetDoc), true);
+    assert.equal(standaloneAnchor(sceneWidgetDoc, { kind: 'paragraph', index: 0 }, { allowIndexFallback: true }), null);
+
+    // 2. hasSubstantialOuterProse ignores tiny leftover token '")' and prefers mixed prose iframe over trailing html widgets
+    const prevDoc = globalThis.document;
+    const prevWin = globalThis.window;
+    const prevRAF = globalThis.requestAnimationFrame;
+    const prevCAF = globalThis.cancelAnimationFrame;
+    t.after(() => {
+        globalThis.document = prevDoc;
+        globalThis.window = prevWin;
+        globalThis.requestAnimationFrame = prevRAF;
+        globalThis.cancelAnimationFrame = prevCAF;
+    });
+
+    const makeFrameHostNode = (tag = 'div', text = '') => {
+        const attrs = new Map();
+        const classSet = new Set();
+        const node = {
+            tagName: tag.toUpperCase(),
+            hidden: false,
+            isConnected: true,
+            dataset: {},
+            children: [],
+            childNodes: [],
+            style: {},
+            textContent: text,
+            nextElementSibling: null,
+            previousElementSibling: null,
+            parentElement: null,
+            parentNode: { nodeType: 1 },
+            ownerDocument: null,
+            classList: {
+                add: (c) => classSet.add(c),
+                remove: (c) => classSet.delete(c),
+                contains: (c) => classSet.has(c),
+            },
+            setAttribute: (k, v) => attrs.set(k, String(v)),
+            removeAttribute: (k) => attrs.delete(k),
+            getAttribute: (k) => (attrs.has(k) ? attrs.get(k) : 'set'),
+            hasAttribute: (k) => attrs.has(k),
+            closest: () => null,
+            contains: (o) => o === node || node.children.some((c) => c.contains?.(o)),
+            matches: () => false,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            getBoundingClientRect: () => ({ top: 10, left: 10, width: 680, height: 320 }),
+            attachShadow: () => ({ children: [], appendChild: (c) => c }),
+            appendChild: (c) => {
+                c.parentNode = node;
+                c.parentElement = node;
+                node.children.push(c);
+                return c;
+            },
+            after: (inserted) => {
+                inserted.parentNode = node.parentNode;
+                inserted.parentElement = node.parentElement;
+                inserted.isConnected = true;
+                node.nextElementSibling = inserted;
+            },
+            before: (inserted) => {
+                inserted.parentNode = node.parentNode;
+                inserted.parentElement = node.parentElement;
+                inserted.isConnected = true;
+                node.previousElementSibling = inserted;
+            },
+            remove: () => {
+                node.isConnected = false;
+            },
+        };
+        return node;
+    };
+
+    const makeDocWithNode = (docBody) => {
+        const d = {
+            readyState: 'complete',
+            body: docBody,
+            createElement: (tag) => {
+                const el = makeFrameHostNode(tag, '');
+                el.ownerDocument = d;
+                return el;
+            },
+            contains: (o) => docBody.contains(o),
+        };
+        docBody.ownerDocument = d;
+        return d;
+    };
+
+    const mixedP1 = makeFrameHostNode('p', '午后三点的太阳正悬在半空，将柏油路面晒得泛出细微的白光。');
+    const mixedP2 = makeFrameHostNode('p', '澪正仰躺在木廊上，一只脚挂在廊边晃来晃去。');
+    const mixedP3 = makeFrameHostNode('p', '汐站在阴影里看着他俩，夏天的风从屋檐下吹过。');
+    const mixedProseContainer = makeFrameHostNode('div', '');
+    mixedProseContainer.classList.add('tipsy-reader-prose');
+    mixedProseContainer.appendChild(mixedP1);
+    mixedProseContainer.appendChild(mixedP2);
+    mixedProseContainer.appendChild(mixedP3);
+    const mixedBody = makeFrameHostNode('body', `${mixedP1.textContent}\n${mixedP2.textContent}\n${mixedP3.textContent}`);
+    mixedBody.appendChild(mixedProseContainer);
+    mixedBody.querySelector = (sel) => (sel.includes('tipsy-reader-prose') ? mixedProseContainer : null);
+    mixedBody.querySelectorAll = (sel) => {
+        if (sel.includes('tipsy-reader-prose')) return [mixedProseContainer];
+        return [mixedP1, mixedP2, mixedP3];
+    };
+    const mixedDoc = makeDocWithNode(mixedBody);
+
+    const mixedFrame = makeFrameHostNode('iframe');
+    mixedFrame.classList.add('compat-message-frame');
+    mixedFrame.dataset = { blockType: 'mixed' };
+    mixedFrame.contentDocument = mixedDoc;
+
+    const sceneFrame = makeFrameHostNode('iframe');
+    sceneFrame.classList.add('compat-message-frame');
+    sceneFrame.dataset = { blockType: 'html' };
+    sceneFrame.contentDocument = sceneWidgetDoc;
+
+    const strayMarkdown = makeFrameHostNode('div', '")');
+    strayMarkdown.classList.add('compat-prose', 'message-markdown');
+    strayMarkdown.querySelectorAll = () => [];
+
+    const compatBody = makeFrameHostNode('div', '');
+    compatBody.classList.add('mes_text');
+    compatBody.children = [mixedFrame, sceneFrame, strayMarkdown];
+    compatBody.querySelector = (sel) => (sel.includes('message-markdown') ? strayMarkdown : null);
+    compatBody.querySelectorAll = (sel) => {
+        if (sel.includes('message-markdown')) return [strayMarkdown];
+        if (sel.includes('iframe')) return [mixedFrame, sceneFrame];
+        return [];
+    };
+
+    const rowEl = {
+        dataset: { readingSwipe: 's0', messageId: 'm-mixed' },
+        querySelector: () => compatBody,
+    };
+    const outerDoc = makeDocWithNode(makeFrameHostNode('body'));
+    globalThis.document = outerDoc;
+    globalThis.window = { addEventListener: () => {}, removeEventListener: () => {}, innerWidth: 400, innerHeight: 800 };
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.cancelAnimationFrame = () => {};
+
+    assert.equal(hasSubstantialOuterProse(compatBody, { kind: 'paragraph', index: 1 }), false);
+
+    // Wait while mixed frame is awaiting async adaptAuthorHtml srcdoc: must NOT mount into scene_cover widget
+    mixedFrame.getAttribute = (k) => (k === 'srcdoc' || k === 'src' ? null : null);
+    mixedFrame.contentDocument = makeDocWithNode(makeFrameHostNode('body', ''));
+    const surfacePending = createFilmSurface({
+        row: (id) => (id === 'm-mixed' ? rowEl : undefined),
+        onAction: () => {},
+    });
+    surfacePending.sync(
+        [{ key: 'k-mix', message: 'm-mixed', swipe: 's0', status: 'ready', label: '夏廊', ratio: '3:2', takeIndex: 0, takeCount: 1, canStage: false, anchor: { kind: 'paragraph', index: 1, excerpt: '澪正仰躺在木廊上' } }],
+        'tok-1',
+    );
+    assert.equal(mixedP2.nextElementSibling, null, 'must wait for pending mixed iframe before falling back');
+    surfacePending.dispose();
+
+    // Once mixed frame loads, mounts inside mixed prose iframe (and NEVER inside scene_cover or after ')')
+    mixedFrame.getAttribute = (k) => (k === 'srcdoc' ? '<!doctype html>' : null);
+    mixedFrame.contentDocument = mixedDoc;
+    const surface = createFilmSurface({
+        row: (id) => (id === 'm-mixed' ? rowEl : undefined),
+        onAction: () => {},
+    });
+    surface.sync(
+        [{ key: 'k-mix', message: 'm-mixed', swipe: 's0', status: 'ready', label: '夏廊', ratio: '3:2', takeIndex: 0, takeCount: 1, canStage: false, anchor: { kind: 'paragraph', index: 1, excerpt: '澪正仰躺在木廊上' } }],
+        'tok-2',
+    );
+    assert.ok(mixedP2.nextElementSibling, 'media must mount inside mixed prose iframe');
+    assert.equal(mixedP2.nextElementSibling.ownerDocument, mixedDoc);
+    surface.dispose();
+
+    // 3. locateAnchor places outer media right after mixed wrapper, BEFORE trailing widgets
+    const mixedWrap = makeFrameHostNode('div');
+    mixedWrap.classList.add('ttm-sandbox-container');
+    mixedWrap.dataset = { blockType: 'mixed' };
+    const optWrap = makeFrameHostNode('div');
+    optWrap.classList.add('ttm-sandbox-container');
+    optWrap.dataset = { blockType: 'html' };
+    const sceneWrap = makeFrameHostNode('div');
+    sceneWrap.classList.add('ttm-sandbox-container');
+    sceneWrap.dataset = { blockType: 'html' };
+    const vBody = {
+        children: [mixedWrap, optWrap, sceneWrap, strayMarkdown],
+        querySelectorAll: (sel) => (sel.includes('message-markdown') ? [strayMarkdown] : []),
+    };
+    assert.equal(locateAnchor(vBody, { kind: 'paragraph', index: 1 }), mixedWrap);
+
+    // 4. Block LCS keeps untouched mixed prose & scene_cover iframes when an earlier options block disappears
+    const kProse = blockContentKey('mixed', '<p>正文不变</p>', 0);
+    const kOpts = blockContentKey('html', '<div>选项</div>', 0);
+    const kScene = blockContentKey('html', '<div class="scene-cover"></div>', 0);
+    const lcs = computeKeptBlockIndices([kProse, kOpts, kScene], [kProse, kScene]);
+    assert.deepEqual([...lcs.keepOld], [0, 2]);
+    assert.equal(lcs.keepNew.get(1), 2);
 });

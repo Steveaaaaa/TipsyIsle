@@ -1,6 +1,5 @@
-import type { ToolDeclaration } from '../../../packages/plugin-sdk/index.js';
 import { streamLlmCompletion, type CompletionRequestMessage, type CompletionToolCall, type StreamCompletionRequest } from '../../core/platform-bridge';
-import { activePlugins, assertPluginActive, reportPlugin, type InstalledPlugin } from './catalog';
+import { activePlugins, assertPluginActive, reportPlugin } from './catalog';
 import { jsonObject, signature } from './edits';
 import { invokeNativePlugin } from './host';
 import { liveStory } from './story-port';
@@ -8,7 +7,6 @@ import { validateJson } from './storage';
 import { checkToolSchema } from './tool-schema';
 import { untilAbort } from './abortable';
 
-interface Tool { plugin: InstalledPlugin; declaration: ToolDeclaration; name: string }
 const rounds = 4, callsPerRound = 6, resultLimit = 6000;
 
 export async function streamStoryWithNativeTools(req: StreamCompletionRequest, onPreview: (delta: { content: string; reasoning: string } | null) => void) {

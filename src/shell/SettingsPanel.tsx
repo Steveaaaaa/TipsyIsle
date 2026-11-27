@@ -1,11 +1,11 @@
 import { useRef, useState } from 'react';
 import { SchemaFormRenderer } from '../registry/SchemaFormRenderer';
-import { settingsDraftStore, discardSettingsDraft, SettingsDraftProvider, useSettingsEditor } from '../registry/settings-draft';
+import { countPendingSettingsChanges, settingsDraftStore, discardSettingsDraft, SettingsDraftProvider, useSettingsEditor } from '../registry/settings-draft';
+import { commitSettingsDraft } from './settings-draft-actions';
 import { ExtensionManager } from './ExtensionManager';
 import { LanSyncPanel } from './LanSyncPanel';
 import type { ReactNode } from 'react';
-import { workspaceStore, saveSettingsEdits, setStatusBanner } from '../store/workspace-store';
-import { updateSyncOptions } from '../core/sync/engine';
+import { workspaceStore, setStatusBanner } from '../store/workspace-store';
 import { MvuSettingsPanel } from './MvuSettingsPanel';
 import { RegexManagerPanel } from './RegexManagerPanel';
 import { ScriptManagerPanel } from './ScriptManagerPanel';
@@ -35,23 +35,10 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenAppearance, onOp
     const workspace = workspaceStore.useStore();
     const { fields, setValues: setSchemaValues } = useSettingsEditor();
     const draft = settingsDraftStore.useStore();
-    const [saving, setSaving] = useState(false), [saveError, setSaveError] = useState('');
-    const changed = Object.keys(draft.values).length + Object.keys(draft.streamModes).length + Object.keys(draft.syncOptions).length
-        + Object.keys(draft.extensions).length + Number(draft.deviceName !== undefined);
-    const save = async () => {
-        setSaving(true); setSaveError('');
-        try {
-            for (const [id, value] of Object.entries(draft.values)) if (fields[id]?.type === 'number' && (value === '' || !Number.isFinite(Number(value)))) {
-                throw new Error(`请填写「${fields[id].title}」的数值。`);
-            }
-            if (draft.deviceName !== undefined && !draft.deviceName.trim()) throw new Error('请填写设备名称。');
-            await saveSettingsEdits(draft.values, draft.streamModes, draft.extensions);
-            settingsDraftStore.setState({ values: {}, streamModes: {}, extensions: {} });
-            if (Object.keys(draft.syncOptions).length || draft.deviceName !== undefined) await updateSyncOptions(draft.syncOptions, draft.deviceName);
-            discardSettingsDraft(); setStatusBanner('设置已保存。');
-        } catch (error) { setSaveError(error instanceof Error ? error.message : String(error)); }
-        finally { setSaving(false); }
-    };
+    const changed = countPendingSettingsChanges(draft);
+    const saving = draft.saving;
+    const saveError = draft.saveError;
+    const saveBlocked = workspace.isGenerating || workspace.helperGenerationCount > 0;
     const [category, setCategory] = useState<SettingsCategory>(initialCategory);
     const [pluginDestination, setPluginDestination] = useState<PluginSettingsDestination>('overview');
     const [direction, setDirection] = useState<'forward' | 'backward'>('forward');
@@ -179,9 +166,19 @@ function SettingsPanelContent({ advancedTools, dataTools, onOpenAppearance, onOp
         </div>}
         </fieldset>
         {!!changed && <div className="ttm-settings-savebar" role="region" aria-label="保存设置">
-            <div><strong>{changed} 项修改待保存</strong><small>保存后用于后续运行</small>{saveError && <p role="alert">{saveError}</p>}</div>
-            <button type="button" className="ttm-btn-secondary" disabled={saving} onClick={() => { discardSettingsDraft(); setSaveError(''); }}>放弃修改</button>
-            <button type="button" className="ttm-btn-primary" disabled={saving || workspace.isGenerating || workspace.helperGenerationCount > 0} onClick={() => void save()}>{saving ? '正在保存…' : workspace.isGenerating || workspace.helperGenerationCount > 0 ? '生成结束后保存' : '保存设置'}</button>
+            <div className="ttm-settings-savebar-row">
+                <div className="ttm-settings-savebar-status">
+                    <span className="ttm-settings-dirty-dot" aria-hidden="true" />
+                    <strong>{changed} 项修改待保存</strong>
+                </div>
+                <div className="ttm-settings-savebar-actions">
+                    <button type="button" className="ttm-btn-ghost" disabled={saving} onClick={() => discardSettingsDraft()}>撤销</button>
+                    <button type="button" className="ttm-btn-primary" disabled={saving || saveBlocked} onClick={() => void commitSettingsDraft()}>
+                        {saving ? '保存中…' : saveBlocked ? '等待生成' : '保存'}
+                    </button>
+                </div>
+            </div>
+            {saveError && <p className="ttm-settings-savebar-error" role="alert">{saveError}</p>}
         </div>}
     </div>;
 }

@@ -4,6 +4,8 @@ import { DEFAULT_CONTEXT_TOKENS } from '../core/generation-defaults';
 import { getScopedVariables, replaceScopedVariables, resolveMergedVariables, scopedVariableStore } from '../store/scoped-variable-store';
 import { refreshPromptInspectorPreview, workspaceStore, type WorkspaceState } from '../store/workspace-store';
 import type { ChatMessageNode, NormalizedCharacterCard, NormalizedPreset, VariableScopeLevel } from '../types';
+import { countPendingSettingsChanges, discardSettingsDraft, settingsDraftStore } from '../registry/settings-draft';
+import { commitSettingsDraft } from './settings-draft-actions';
 import { Icon } from './Icon';
 import { SettingsPanel } from './SettingsPanel';
 import type { SettingsCategory } from './settings-presentation';
@@ -40,6 +42,10 @@ export function WorkspaceInspector({
     onOpenAppearancePackages, onOpenAsset, onShowCharacters,
 }: WorkspaceInspectorProps) {
     const variableState = scopedVariableStore.useStore();
+    const draft = settingsDraftStore.useStore();
+    const pendingChanges = countPendingSettingsChanges(draft);
+    const showMobileSave = tab === 'schema-settings' && pendingChanges > 0;
+    const saveBlocked = generating || state.helperGenerationCount > 0;
     const [selectedVarScope, setSelectedVarScope] = useState<VariableScopeLevel>('chat');
     const [newVarKey, setNewVarKey] = useState('');
     const [newVarVal, setNewVarVal] = useState('');
@@ -80,10 +86,32 @@ export function WorkspaceInspector({
                 mobileActive ? 'is-mobile-active' : ''
             }`}
         >
-            <div className="ttm-inspector-heading"><h2 data-ti-type="heading">设置与工具</h2><div className="ttm-inspector-heading-actions">
-                {tab === 'schema-settings' && <button type="button" className="ttm-btn-ghost ttm-inspector-guide" title="重新开始使用引导" disabled={generating} onClick={onReplayGuide}><Icon name="book" width={17} height={17} />使用引导</button>}
-                <button type="button" className="ttm-icon-btn ttm-inspector-close" aria-label="关闭侧面板" onClick={onClose}><Icon name="close" /></button>
-            </div></div>
+            <div className="ttm-inspector-heading">
+                <div className="ttm-inspector-heading-title">
+                    <h2 data-ti-type="heading">设置与工具</h2>
+                    {showMobileSave && (
+                        <span className="ttm-settings-header-badge" aria-live="polite">
+                            <span className="ttm-settings-dirty-dot" aria-hidden="true" />
+                            <span>{pendingChanges} 项待改</span>
+                        </span>
+                    )}
+                </div>
+                <div className="ttm-inspector-heading-actions">
+                    {showMobileSave && (
+                        <div className="ttm-settings-header-save" role="region" aria-label="保存设置">
+                            <button type="button" className="ttm-btn-ghost" disabled={draft.saving} onClick={() => discardSettingsDraft()}>撤销</button>
+                            <button type="button" className="ttm-btn-primary" disabled={draft.saving || saveBlocked} onClick={() => void commitSettingsDraft()}>
+                                {draft.saving ? '保存中…' : saveBlocked ? '等待生成' : '保存'}
+                            </button>
+                        </div>
+                    )}
+                    {tab === 'schema-settings' && <button type="button" className={`ttm-btn-ghost ttm-inspector-guide${showMobileSave ? ' is-hidden-mobile-dirty' : ''}`} title="重新开始使用引导" disabled={generating} onClick={onReplayGuide}><Icon name="book" width={17} height={17} />使用引导</button>}
+                    <button type="button" className="ttm-icon-btn ttm-inspector-close" aria-label="关闭侧面板" onClick={onClose}><Icon name="close" /></button>
+                </div>
+            </div>
+            {showMobileSave && draft.saveError && (
+                <div className="ttm-settings-header-error" role="alert">{draft.saveError}</div>
+            )}
             {(tab === 'prompt-tree' || tab === 'variables') && <button type="button" className="ttm-btn-ghost" onClick={() => onTabChange('schema-settings')}><Icon name="chevron" width={14} height={14} style={{ transform: 'rotate(180deg)' }} />返回设置</button>}
             <nav className="ttm-inspector-tabs" aria-label="工具分类">
                 <button

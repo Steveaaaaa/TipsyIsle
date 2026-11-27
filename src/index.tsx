@@ -20,8 +20,6 @@ export * from './pipeline/pipeline-worker-client';
 export * from './sandbox/event-bus';
 export * from './sandbox/slash-interpreter';
 export * from './sandbox/SandboxFrame';
-export * from './plugins/slot-registry';
-export * from './plugins/plugin-host';
 
 let mountedRoot: Root | null = null;
 

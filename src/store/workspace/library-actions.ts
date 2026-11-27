@@ -723,13 +723,6 @@ async function importLibraryAsset(file: File, png: boolean, progress: (stage: st
     return `已导入故事「${card.name}」，选择故事即可进入，附带世界书自动启用。`;
 }
 
-/**
- * 将当前激活角色卡（含内嵌世界书与正则脚本）编码进标准 PNG (tEXt chara + ccv3) 并触发下载
- */
-export async function exportActiveCharacterAsPng(): Promise<string> {
-    return exportCharacterAsPng(workspaceStore.getState().activeCharacterId);
-}
-
 export async function exportCharacterAsPng(characterId: string): Promise<string> {
     const card = workspaceStore.getState().characters.find(item => item.id === characterId);
     if (!card) throw new Error('找不到要导出的角色卡');

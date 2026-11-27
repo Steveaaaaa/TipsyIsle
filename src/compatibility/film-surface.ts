@@ -1,6 +1,6 @@
 import type { ProseAnchorSpec } from '../../packages/plugin-sdk/index.js';
-import { mountMediaSlot } from '../plugins/native/prose-anchor';
-import { findSandboxParagraphAnchor } from '../sandbox/sandbox-media-shim';
+import { hasSubstantialOuterProse, mountMediaSlot } from '../plugins/native/prose-anchor';
+import { findSandboxParagraphAnchor, isInteractiveWidgetDocument } from '../sandbox/sandbox-media-shim';
 
 export interface CompatFilmSurfaceAction {
     id: string;
@@ -72,23 +72,41 @@ const FILM_SHADOW_CSS = `
     width: 100%;
     margin: 0;
     overflow: hidden;
-    background-color: #25221f;
-    color: #faf6e9;
-    border-radius: 10px;
-    box-shadow: 0 8px 26px -12px rgba(0, 0, 0, 0.45);
+    background-color: #1c1713;
+    color: #faf3e3;
+    border-radius: 12px;
+    border: 1px solid rgba(232, 184, 109, 0.22);
+    box-shadow: 0 14px 36px -16px rgba(0, 0, 0, 0.58), inset 0 1px 0 rgba(255, 228, 174, 0.1);
 }
 .ti-darkroom.ti-polaroid {
     max-width: 22rem;
     border: 6px solid #f4eee1;
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
 }
 .ti-darkroom[aria-busy="true"]::after {
     content: '';
     pointer-events: none;
     position: absolute;
     inset: 0;
-    border: 1.5px solid rgba(239, 199, 128, 0.45);
+    border: 1.5px solid rgba(232, 184, 109, 0.55);
     border-radius: inherit;
+    box-shadow: inset 0 0 28px rgba(226, 146, 68, 0.16);
+}
+.ti-darkroom-corners {
+    position: absolute;
+    inset: 7px;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.6;
+    background:
+        linear-gradient(#e8b86d, #e8b86d) 0 0 / 10px 1.25px no-repeat,
+        linear-gradient(#e8b86d, #e8b86d) 0 0 / 1.25px 10px no-repeat,
+        linear-gradient(#e8b86d, #e8b86d) 100% 0 / 10px 1.25px no-repeat,
+        linear-gradient(#e8b86d, #e8b86d) 100% 0 / 1.25px 10px no-repeat,
+        linear-gradient(#e8b86d, #e8b86d) 0 100% / 10px 1.25px no-repeat,
+        linear-gradient(#e8b86d, #e8b86d) 0 100% / 1.25px 10px no-repeat,
+        linear-gradient(#e8b86d, #e8b86d) 100% 100% / 10px 1.25px no-repeat,
+        linear-gradient(#e8b86d, #e8b86d) 100% 100% / 1.25px 10px no-repeat;
 }
 .ti-darkroom img {
     position: absolute;
@@ -100,7 +118,7 @@ const FILM_SHADOW_CSS = `
     opacity: 0;
     filter: blur(8px);
     transform: scale(1.015);
-    transition: opacity 0.42s ease-out, filter 0.42s ease-out, transform 0.42s ease-out;
+    transition: opacity 0.44s ease-out, filter 0.44s ease-out, transform 0.44s ease-out;
     cursor: zoom-in;
 }
 .ti-darkroom img.is-loaded {
@@ -112,61 +130,115 @@ const FILM_SHADOW_CSS = `
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: linear-gradient(110deg, transparent 20%, rgba(239, 199, 128, 0.14) 48%, transparent 76%);
-    background-size: 220% 100%;
+    background:
+        radial-gradient(circle at 50% 45%, rgba(232, 168, 92, 0.2), transparent 62%),
+        linear-gradient(110deg, transparent 18%, rgba(246, 212, 148, 0.2) 48%, transparent 78%);
+    background-size: 100% 100%, 220% 100%;
     animation: ti-darkroom-shimmer 2.1s ease-in-out infinite;
 }
 @keyframes ti-darkroom-shimmer {
-    0% { background-position: 180% 0; }
-    100% { background-position: -80% 0; }
+    0% { background-position: 0 0, 180% 0; }
+    100% { background-position: 0 0, -80% 0; }
 }
 figcaption {
     position: absolute;
-    left: 0.6rem;
-    bottom: 0.55rem;
-    max-width: calc(100% - 1.2rem);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 1.45em 0.8rem 0.55rem;
+    background: linear-gradient(180deg, transparent 0%, rgba(16, 13, 10, 0.62) 52%, rgba(12, 10, 8, 0.88) 100%);
+    color: #fff8e7;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
+    pointer-events: none;
+    z-index: 1;
+}
+.ti-darkroom-caption-title {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    background: rgba(28, 24, 20, 0.84);
-    color: #fff9e8;
-    padding: 0.24em 0.6em;
-    border-radius: 0.35em;
-    backdrop-filter: blur(6px);
-    z-index: 1;
+    font-size: 12.5px;
 }
-figcaption.is-developing {
-    border: 1px solid rgba(239, 199, 128, 0.4);
+figcaption.is-developing .ti-darkroom-caption-title {
     color: #f4d69c;
 }
 .ti-darkroom-subtitle {
     display: block;
-    font-size: 0.72rem;
-    opacity: 0.78;
+    margin-top: 1px;
+    font-size: 11px;
+    color: rgba(244, 214, 156, 0.86);
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ti-film-dock {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    max-width: calc(100% - 16px);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    z-index: 3;
+}
+.ti-film-dock-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 30px;
+    padding: 0 9px;
+    border: 1px solid rgba(232, 184, 109, 0.38);
+    border-radius: 999px;
+    background: rgba(18, 14, 11, 0.78);
+    color: #f3d293;
+    font: 600 12px/1 system-ui, sans-serif;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.42);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
+}
+.ti-film-dock-toggle:hover,
+.ti-film-dock-toggle.is-open {
+    background: rgba(34, 26, 18, 0.94);
+    border-color: rgba(232, 184, 109, 0.72);
+    color: #fff3d4;
+}
+.ti-dock-ring {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    box-shadow: inset 0 0 0 2px rgba(232, 184, 109, 0.35);
+    display: inline-block;
 }
 .ti-film-tools {
-    position: absolute;
-    right: 0.5em;
-    top: 0.5em;
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     flex-wrap: wrap;
-    gap: 0.2em;
-    max-width: calc(100% - 1em);
-    padding: 0.22em 0.3em;
-    background: rgba(24, 21, 18, 0.86);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 0.55em;
-    backdrop-filter: blur(8px);
-    z-index: 2;
-    transition: opacity 0.16s ease-out;
+    gap: 3px;
+    padding: 4px 6px;
+    background: rgba(18, 15, 12, 0.9);
+    border: 1px solid rgba(232, 184, 109, 0.28);
+    border-radius: 10px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.56);
+    transform-origin: top right;
+    transition: opacity 0.18s cubic-bezier(.16,1,.3,1), transform 0.18s cubic-bezier(.16,1,.3,1), visibility 0.18s;
 }
-@media (hover: hover) {
-    .ti-darkroom:not(:hover):not(:focus-within) .ti-film-tools {
-        opacity: 0;
-    }
+.ti-film-tools[data-open="false"] {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(-4px) scale(0.95);
+}
+.ti-film-tools[data-open="true"] {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
 }
 .ti-film-tools button,
 .ti-margin-tab button {
@@ -174,15 +246,16 @@ figcaption.is-developing {
     background: transparent;
     color: inherit;
     font: inherit;
-    padding: 0 0.48em;
+    padding: 0 7px;
     min-height: 30px;
-    border-radius: 0.35em;
+    border-radius: 6px;
     cursor: pointer;
     touch-action: manipulation;
 }
 .ti-film-tools button:hover,
 .ti-film-tools button:focus-visible {
-    background: rgba(255, 255, 255, 0.16);
+    background: rgba(232, 184, 109, 0.2);
+    color: #fff6df;
 }
 .ti-film-tools button:disabled,
 .ti-margin-tab button:disabled {
@@ -191,7 +264,8 @@ figcaption.is-developing {
 }
 .ti-film-tools span {
     font-variant-numeric: tabular-nums;
-    padding: 0 0.25em;
+    padding: 0 4px;
+    color: #e8b86d;
 }
 .ti-margin-tab {
     position: relative;
@@ -203,30 +277,32 @@ figcaption.is-developing {
     position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 0.35em;
+    gap: 5px;
     max-width: 14rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    padding: 0.15em 0.6em;
-    min-height: 26px;
-    font-size: 0.78rem;
-    background: linear-gradient(135deg, #f3cf8d, #dda858);
-    color: #35250f;
-    border-radius: 0.4em;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+    padding: 3px 10px;
+    min-height: 28px;
+    font-size: 12px;
+    font-weight: 600;
+    background: linear-gradient(135deg, #f3cf8d, #d89b46);
+    color: #2c1d0a;
+    border: 1px solid rgba(255, 240, 200, 0.45);
+    border-radius: 999px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
 }
 .ti-margin-preview {
     position: absolute;
     right: 0;
-    top: 30px;
-    width: 210px;
+    top: 32px;
+    width: 214px;
     padding: 6px;
-    border-radius: 8px;
-    background: rgba(24, 21, 18, 0.94);
-    color: #faf6e9;
-    border: 1px solid rgba(239, 199, 128, 0.3);
-    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.48);
+    border-radius: 10px;
+    background: rgba(18, 14, 11, 0.96);
+    color: #faf3e3;
+    border: 1px solid rgba(232, 184, 109, 0.34);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.52);
     opacity: 0;
     pointer-events: none;
     transform: translateY(-4px);
@@ -239,12 +315,12 @@ figcaption.is-developing {
     height: auto;
     max-height: 150px;
     object-fit: cover;
-    border-radius: 5px;
+    border-radius: 6px;
 }
 .ti-margin-preview span {
     display: block;
     margin-top: 4px;
-    font-size: 0.74rem;
+    font-size: 11px;
     opacity: 0.88;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -257,12 +333,12 @@ figcaption.is-developing {
 }
 .ti-margin-fault {
     display: block;
-    font-size: 0.75rem;
+    font-size: 11.5px;
     color: #ffb4a2;
 }
 @media (prefers-reduced-motion: reduce) {
     .ti-darkroom-shimmer { animation: none; }
-    .ti-darkroom img, .ti-film-tools, .ti-margin-preview { transition: none; }
+    .ti-darkroom img, .ti-film-tools, .ti-margin-preview, .ti-film-dock-toggle { transition: none; }
 }
 `;
 
@@ -288,6 +364,8 @@ interface MountedSurface {
     imgFallbackUrl?: string;
     figcaption?: HTMLElement;
     tools?: HTMLElement;
+    dockToggle?: HTMLButtonElement;
+    toolsOpen?: boolean;
     bookmarkPreviewImg?: HTMLImageElement;
 }
 
@@ -425,30 +503,62 @@ export function createFilmSurface({
         body: HTMLElement,
         spec: CompatFilmSlot,
     ): { frame: HTMLIFrameElement; doc: Document; after: Element } | null => {
-        if (body.querySelector(':scope > .message-markdown, :scope > .tipsy-stream-parts > .message-markdown')) return null;
-        const loadedFrames: { frame: HTMLIFrameElement; doc: Document }[] = [];
-        for (const frame of Array.from(body.querySelectorAll<HTMLIFrameElement>('iframe.compat-message-frame'))) {
+        if (hasSubstantialOuterProse(body, spec.anchor)) return null;
+        const allFrames = Array.from(body.querySelectorAll<HTMLIFrameElement>('iframe.compat-message-frame'));
+        if (!allFrames.length) return null;
+        let allLoaded = true;
+        const hasAnyMixedFrame = allFrames.some((f) => f.dataset?.blockType === 'mixed');
+        const mixedFrames: { frame: HTMLIFrameElement; doc: Document }[] = [];
+        const htmlFrames: { frame: HTMLIFrameElement; doc: Document }[] = [];
+        for (const frame of allFrames) {
             let doc: Document | null = null;
             try { doc = frame.contentDocument; } catch { doc = null; }
-            if (!doc?.body) continue;
+            const awaitingSrcdoc =
+                typeof frame.getAttribute === 'function' &&
+                frame.getAttribute('srcdoc') === null &&
+                frame.getAttribute('src') === null &&
+                !(doc?.body?.textContent ?? '').trim();
+            if (awaitingSrcdoc || !doc?.body || (doc.readyState && doc.readyState !== 'complete')) {
+                allLoaded = false;
+            }
+            if (awaitingSrcdoc || !doc?.body) continue;
             watchChildDoc(doc);
-            loadedFrames.push({ frame, doc });
+            if (!isInteractiveWidgetDocument(doc)) {
+                if (frame.dataset?.blockType === 'mixed') mixedFrames.push({ frame, doc });
+                else htmlFrames.push({ frame, doc });
+            }
         }
-        if (!loadedFrames.length) return null;
+        if (!mixedFrames.length && !htmlFrames.length) return null;
 
-        for (const { frame, doc } of loadedFrames) {
+        for (const { frame, doc } of mixedFrames) {
             const after = findSandboxParagraphAnchor(doc, spec.anchor, { allowIndexFallback: false });
             if (after && after.parentNode) return { frame, doc, after };
         }
+        if (!hasAnyMixedFrame) {
+            for (const { frame, doc } of htmlFrames) {
+                const after = findSandboxParagraphAnchor(doc, spec.anchor, { allowIndexFallback: false });
+                if (after && after.parentNode) return { frame, doc, after };
+            }
+        }
 
-        const byHeight = [...loadedFrames].sort((a, b) => {
-            const ha = typeof a.frame.getBoundingClientRect === 'function' ? a.frame.getBoundingClientRect().height : 0;
-            const hb = typeof b.frame.getBoundingClientRect === 'function' ? b.frame.getBoundingClientRect().height : 0;
-            return hb - ha;
-        });
-        for (const { frame, doc } of byHeight) {
+        if (!allLoaded) return null;
+
+        const sortByHeight = (list: { frame: HTMLIFrameElement; doc: Document }[]) =>
+            [...list].sort((a, b) => {
+                const ha = typeof a.frame.getBoundingClientRect === 'function' ? a.frame.getBoundingClientRect().height : 0;
+                const hb = typeof b.frame.getBoundingClientRect === 'function' ? b.frame.getBoundingClientRect().height : 0;
+                return hb - ha;
+            });
+
+        for (const { frame, doc } of sortByHeight(mixedFrames)) {
             const after = findSandboxParagraphAnchor(doc, spec.anchor, { allowIndexFallback: true });
             if (after && after.parentNode) return { frame, doc, after };
+        }
+        if (!hasAnyMixedFrame) {
+            for (const { frame, doc } of sortByHeight(htmlFrames)) {
+                const after = findSandboxParagraphAnchor(doc, spec.anchor, { allowIndexFallback: true });
+                if (after && after.parentNode) return { frame, doc, after };
+            }
         }
         return null;
     };
@@ -484,6 +594,7 @@ export function createFilmSurface({
         else host.removeAttribute?.('data-folded');
 
         if (folded) {
+            surface.toolsOpen = false;
             if (surface.mode !== 'bookmark') {
                 while (container.firstChild) container.removeChild(container.firstChild);
                 surface.figure = undefined;
@@ -492,13 +603,14 @@ export function createFilmSurface({
                 surface.imgUrl = undefined;
                 surface.figcaption = undefined;
                 surface.tools = undefined;
+                surface.dockToggle = undefined;
                 surface.bookmarkPreviewImg = undefined;
                 surface.mode = 'bookmark';
             }
             while (container.firstChild) container.removeChild(container.firstChild);
             const tab = doc.createElement('div');
             tab.className = 'ti-margin-tab';
-            const toggleBtn = makeButton(doc, `🔖 ${slot.label}`, `${slot.label} · 展开画卷`, busy, () =>
+            const toggleBtn = makeButton(doc, `✦ ${slot.label}`, `${slot.label} · 展开画卷`, busy, () =>
                 emitAction(surface, { action: 'bookmark' }),
             );
             tab.appendChild(toggleBtn);
@@ -527,6 +639,35 @@ export function createFilmSurface({
             return;
         }
 
+        const setToolsOpenState = (open: boolean) => {
+            surface.toolsOpen = open;
+            if (surface.tools) {
+                surface.tools.setAttribute('data-open', open ? 'true' : 'false');
+            }
+            if (surface.dockToggle) {
+                surface.dockToggle.className = `ti-film-dock-toggle${open ? ' is-open' : ''}`;
+                surface.dockToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+                surface.dockToggle.setAttribute('aria-label', open ? '收起胶片操作栏' : '展开胶片操作栏');
+                surface.dockToggle.title = open ? '收起操作' : '浮光暗房工具';
+                while (surface.dockToggle.firstChild) surface.dockToggle.removeChild(surface.dockToggle.firstChild);
+                if (open) {
+                    const closeMark = doc.createElement('span');
+                    closeMark.textContent = '✕';
+                    surface.dockToggle.appendChild(closeMark);
+                } else {
+                    const ring = doc.createElement('span');
+                    ring.className = 'ti-dock-ring';
+                    ring.setAttribute('aria-hidden', 'true');
+                    surface.dockToggle.appendChild(ring);
+                }
+                if (surface.slot.takeCount > 1) {
+                    const badge = doc.createElement('span');
+                    badge.textContent = `${surface.slot.takeIndex + 1}/${surface.slot.takeCount}`;
+                    surface.dockToggle.appendChild(badge);
+                }
+            }
+        };
+
         if (surface.mode !== 'darkroom' || !surface.figure) {
             while (container.firstChild) container.removeChild(container.firstChild);
             surface.bookmarkPreviewImg = undefined;
@@ -534,20 +675,34 @@ export function createFilmSurface({
 
             const figure = doc.createElement('figure');
             figure.className = 'ti-darkroom';
+            const corners = doc.createElement('span');
+            corners.className = 'ti-darkroom-corners';
+            corners.setAttribute('aria-hidden', 'true');
             const figcaption = doc.createElement('figcaption');
+            const dock = doc.createElement('div');
+            dock.className = 'ti-film-dock';
+            const dockToggle = doc.createElement('button');
+            dockToggle.type = 'button';
+            dockToggle.className = 'ti-film-dock-toggle';
+            listenTrusted(dockToggle, () => setToolsOpenState(!surface.toolsOpen), nativeAddEventListener);
             const tools = doc.createElement('div');
             tools.className = 'ti-film-tools';
+            dock.appendChild(dockToggle);
+            dock.appendChild(tools);
+            figure.appendChild(corners);
             figure.appendChild(figcaption);
-            figure.appendChild(tools);
+            figure.appendChild(dock);
             container.appendChild(figure);
 
             surface.figure = figure;
             surface.figcaption = figcaption;
             surface.tools = tools;
+            surface.dockToggle = dockToggle;
             surface.shimmer = undefined;
             surface.img = undefined;
             surface.imgUrl = undefined;
         }
+        setToolsOpenState(!!surface.toolsOpen);
 
         const figure = surface.figure!;
         const developing = slot.status === 'developing';
@@ -572,7 +727,13 @@ export function createFilmSurface({
         if (media) {
             if (!surface.img) {
                 const img = doc.createElement('img');
-                listenTrusted(img, () => emitAction(surface, { action: 'lightbox', mediaId: slot.mediaId }), nativeAddEventListener);
+                listenTrusted(img, () => {
+                    if (surface.toolsOpen) {
+                        setToolsOpenState(false);
+                    } else {
+                        emitAction(surface, { action: 'lightbox', mediaId: surface.slot.mediaId });
+                    }
+                }, nativeAddEventListener);
                 img.addEventListener?.('load', () => {
                     img.classList.add('is-loaded');
                 });
@@ -615,46 +776,54 @@ export function createFilmSurface({
         const caption = surface.figcaption!;
         caption.className = developing ? 'is-developing' : '';
         while (caption.firstChild) caption.removeChild(caption.firstChild);
-        caption.textContent = slot.fault || (slot.status === 'failed' ? '显影失败，可换一镜' : developing ? '暗房显影中…' : slot.label);
-        if (!slot.fault && slot.subtitle) {
+        const titleSpan = doc.createElement('span');
+        titleSpan.className = 'ti-darkroom-caption-title';
+        titleSpan.textContent = slot.fault || (slot.status === 'failed' ? '显影失败，可换一镜' : developing ? '暗房显影中…' : slot.label);
+        caption.appendChild(titleSpan);
+        if (!slot.fault && !developing && slot.subtitle) {
             const sub = doc.createElement('span');
             sub.className = 'ti-darkroom-subtitle';
             sub.textContent = slot.subtitle;
             caption.appendChild(sub);
         }
 
+        const triggerTool = (req: Omit<CompatFilmActionRequest, 'key'>) => {
+            setToolsOpenState(false);
+            emitAction(surface, req);
+        };
+
         const tools = surface.tools!;
         while (tools.firstChild) tools.removeChild(tools.firstChild);
         if (slot.takeCount > 1) {
-            tools.appendChild(makeButton(doc, '‹', '上一帧', busy, () => emitAction(surface, { action: 'previous' })));
+            tools.appendChild(makeButton(doc, '‹', '上一帧', busy, () => triggerTool({ action: 'previous' })));
             const counter = doc.createElement('span');
             counter.textContent = `${slot.takeIndex + 1}/${slot.takeCount}`;
             tools.appendChild(counter);
-            tools.appendChild(makeButton(doc, '›', '下一帧', busy, () => emitAction(surface, { action: 'next' })));
+            tools.appendChild(makeButton(doc, '›', '下一帧', busy, () => triggerTool({ action: 'next' })));
         }
-        tools.appendChild(makeButton(doc, '↻ 换一镜', '重新生成一帧并保留旧帧', busy, () => emitAction(surface, { action: 'reroll' })));
+        tools.appendChild(makeButton(doc, '↻ 换一镜', '重新生成一帧并保留旧帧', busy, () => triggerTool({ action: 'reroll' })));
         if (slot.commandId) {
             const commandId = slot.commandId;
-            tools.appendChild(makeButton(doc, '精修', '打开暗房精修台', busy, () => emitAction(surface, { action: 'command', commandId })));
+            tools.appendChild(makeButton(doc, '精修', '打开暗房精修台', busy, () => triggerTool({ action: 'command', commandId })));
         }
         for (const act of slot.actions ?? []) {
             tools.appendChild(
                 makeButton(doc, act.label, act.title || act.label, busy, () => {
                     if (act.kind === 'command' && act.commandId) {
-                        emitAction(surface, { action: 'command', commandId: act.commandId });
+                        triggerTool({ action: 'command', commandId: act.commandId });
                     } else {
-                        emitAction(surface, { action: 'custom', customId: act.id });
+                        triggerTool({ action: 'custom', customId: act.id });
                     }
                 }),
             );
         }
-        tools.appendChild(makeButton(doc, '收为书签', '折叠为页边琥珀胶片签', busy, () => emitAction(surface, { action: 'bookmark' })));
+        tools.appendChild(makeButton(doc, '收为书签', '折叠为页边琥珀胶片签', busy, () => triggerTool({ action: 'bookmark' })));
         if (slot.canStage) {
-            tools.appendChild(makeButton(doc, '设为舞台', '将此帧设为本幕背景舞台', busy, () => emitAction(surface, { action: 'stage' })));
+            tools.appendChild(makeButton(doc, '设为舞台', '将此帧设为本幕背景舞台', busy, () => triggerTool({ action: 'stage' })));
         }
         if (media) {
-            tools.appendChild(makeButton(doc, '放大', '查看大图', busy, () => emitAction(surface, { action: 'lightbox', mediaId: slot.mediaId })));
-            tools.appendChild(makeButton(doc, '保存', '保存原图', busy, () => emitAction(surface, { action: 'save', mediaId: slot.mediaId })));
+            tools.appendChild(makeButton(doc, '放大', '查看大图', busy, () => triggerTool({ action: 'lightbox', mediaId: slot.mediaId })));
+            tools.appendChild(makeButton(doc, '保存', '保存原图', busy, () => triggerTool({ action: 'save', mediaId: slot.mediaId })));
         }
     };
 
@@ -686,7 +855,11 @@ export function createFilmSurface({
             const targetDoc = bestMatch ? bestMatch.doc : document;
 
             if (bestMatch) {
-                const canReuse = old && old.hostFrame === bestMatch.frame && old.doc === bestMatch.doc;
+                let surfaceHidden = false;
+                if (old?.host && typeof getComputedStyle === 'function') {
+                    try { surfaceHidden = getComputedStyle(old.host).display === 'none'; } catch { surfaceHidden = false; }
+                }
+                const canReuse = old && old.hostFrame === bestMatch.frame && old.doc === bestMatch.doc && old.host.isConnected && !surfaceHidden;
                 if (!canReuse && old) old.host.remove();
                 const surface: MountedSurface = canReuse
                     ? old!

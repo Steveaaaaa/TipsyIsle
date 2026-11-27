@@ -1,9 +1,11 @@
 import { preloadsMessageHtml } from './render-settings';
 import { storySpeakerName } from '../core/story-identity';
+import { formatApproxTokens, formatReplyDuration, readMessageMetrics } from '../pipeline/message-metrics';
 import { appendRuntimeDiagnostic } from './runtime-diagnostics';
 import { loadGallery, installGallery, galleryMarkup } from './gallery-runtime';
 import { StreamingView, mountAuthorLoading } from '../shell/streaming-view';
 import { preserveReadingAnchor, observeComponentSizes, rememberComponentSize } from '../shell/stream-layout';
+import { resolveReplyJumpMode, type ReplyJumpMode } from '../shell/reading-navigation';
 import type { SessionResources } from './session-resources';
 import './reading-host.css';
 import { applyReadingPresentation, type ReadingPresentation } from '../theme/reading-presentation';
@@ -40,10 +42,14 @@ import { applyRegexScripts, orderedRegexScripts } from '../pipeline/macro-regex-
 import vueBrowserRuntimeUrl from 'vue/dist/vue.global.prod.js?url';
 import { defaultHelperPreset, systemPromptIds, placeholderPromptIds } from './preset-codec';
 import { normalizeScriptTrees, scriptsFromTrees, type ScriptScope } from './script-trees';
+import { isRemoteSPresetInjectorScript } from './spreset-config';
+import { runSPresetFinalRequestInRealm } from './spreset-runtime';
+import { estimateTokenCount } from '../pipeline/token-counter';
 import type { CompatibilityLoadReport } from './contracts';
 import { formatTemplateMarkdown } from '../pipeline/template-formatting';
 import { renderMessageMarkdown, renderMixedMessage } from '../pipeline/message-markdown';
 import { createFilmSurface, type CompatFilmSlot } from './film-surface';
+import { blockContentKey, computeKeptBlockIndices } from './block-reconcile';
 import { normalizeRegexScripts } from '../pipeline/normalizer';
 import { createAudioRuntime } from './audio-runtime';
 import { executeSlashPipeline, type SlashExecutionOptions } from '../sandbox/slash-core';
@@ -331,35 +337,15 @@ function syncNativePresetState(next: CompatSnapshot) {
 const powerUserSettings: Record<string, any> = {
     auto_swipe: false,
     auto_continue: { enabled: false, allow_chat_completions: false, target_length: 0 },
+    get persona_description() {
+        return snapshot?.personas?.find(persona => persona.avatar_id === snapshot.activePersonaId)?.description ?? '';
+    },
 };
-const registeredTools: Array<Record<string, any>> = [];
 const ToolManager = {
-    tools: registeredTools,
-    hasTool: (name: string) => registeredTools.some(tool => tool?.name === name),
-    registerFunctionTool: (options: Record<string, any>) => {
-        if (!options || typeof options.name !== 'string' || !options.name) return;
-        const idx = registeredTools.findIndex(tool => tool?.name === options.name);
-        const def = {
-            ...options,
-            toFunctionOpenAI: () => ({
-                type: 'function',
-                function: {
-                    name: options.name,
-                    description: options.description ?? '',
-                    parameters: options.parameters ?? { type: 'object', properties: {} },
-                },
-            }),
-        };
-        if (idx >= 0) registeredTools[idx] = def;
-        else registeredTools.push(def);
-        return def;
-    },
-    unregisterFunctionTool: (name: string) => {
-        const idx = registeredTools.findIndex(tool => tool?.name === name);
-        if (idx >= 0) registeredTools.splice(idx, 1);
-    },
-    isToolCallingSupported: () => true,
-    canPerformToolCalls: () => true,
+    tools: Object.freeze([] as Array<Record<string, any>>),
+    hasTool: () => false,
+    isToolCallingSupported: () => false,
+    canPerformToolCalls: () => false,
 };
 type FormatterStage = 'beforeRegex' | 'afterRegex' | 'afterMarkdown';
 type FormatterHookFn = (...args: any[]) => any;
@@ -535,15 +521,30 @@ trackReadingBookmark(window, () => {
 }, bookmark => outer.postMessage({ kind: 'compat:reading-bookmark', token, session: snapshot.session, bookmark }, '*'));
 function reportReplyPosition() {
     readingFrame = 0;
-    const row = readingReplyId ? rows.get(readingReplyId) : undefined;
+    const lastMessage = snapshot?.messages.at(-1);
+    const targetId = readingReplyId ?? lastMessage?.id;
+    const row = targetId ? rows.get(targetId) : undefined;
     const loaded = row && [...row.element.querySelectorAll('iframe')].every(frame => {
         try { return frame.contentDocument?.readyState === 'complete'; } catch { return true; }
     });
-    const away = !!row && !!loaded && !row.incomplete && !snapshot?.generating && Math.abs(row.element.getBoundingClientRect().top - 12) > 100;
-    const key = `${snapshot?.session}:${readingReplyId}:${away}`;
+    const rect = row?.element.getBoundingClientRect();
+    const distanceFromBottom = Math.max(0, document.documentElement.scrollHeight - window.innerHeight - window.scrollY);
+    const canJumpToReplyStart = Boolean(readingReplyId && row && loaded && !row.incomplete && !snapshot?.generating
+        && lastMessage?.id === readingReplyId && lastMessage.floor > 0);
+    const mode: ReplyJumpMode = rect
+        ? resolveReplyJumpMode({
+            replyTop: rect.top,
+            replyBottom: rect.bottom,
+            replyHeight: rect.height,
+            viewportHeight: window.innerHeight,
+            distanceFromBottom,
+            canJumpToReplyStart,
+        })
+        : 'none';
+    const key = `${snapshot?.session}:${readingReplyId ?? ''}:${mode}`;
     if (key === lastReadingPosition) return;
     lastReadingPosition = key;
-    outer.postMessage({ kind: 'compat:reply-position', session: snapshot?.session, replyId: readingReplyId, away }, '*');
+    outer.postMessage({ kind: 'compat:reply-position', session: snapshot?.session, replyId: readingReplyId, mode }, '*');
 }
 function scheduleReadingPosition() {
     if (!readingFrame) readingFrame = requestAnimationFrame(reportReplyPosition);
@@ -701,6 +702,9 @@ function track<T>(promise: Promise<T>): Promise<T> {
     return promise;
 }
 async function flush() {
+    if (settingsSaveTimer) await saveSettingsImmediate();
+    if (chatSaveTimer) { clearTimeout(chatSaveTimer); chatSaveTimer = undefined; await saveChatMetadata(undefined, true); }
+    if (metadataSaveTimer) { clearTimeout(metadataSaveTimer); metadataSaveTimer = undefined; await saveChatMetadata(undefined, chat.length === snapshot.messages.length); }
     while (writes.size) await Promise.allSettled([...writes]);
     if (writeFailure !== undefined) { const error = writeFailure; writeFailure = undefined; throw error; }
 }
@@ -1164,6 +1168,7 @@ function displayedSource(text: string, floor: number, role: 'assistant' | 'user'
 function modelSettingsOverlay(): Record<string, any> {
     return {
         ...snapshot.assetCatalog.inUsePreset,
+        preset_settings_openai: snapshot.assetCatalog.loadedPresetName,
         chat_completion_source: snapshot.modelSettings.source,
         openai_model: snapshot.modelSettings.model,
         claude_model: snapshot.modelSettings.model,
@@ -1217,10 +1222,8 @@ function repaintMessageBlock(floor: number, overrideMes?: string) {
     const incomplete = !!node.extra?.tipsy_generation_incomplete || !!node.templatePending;
     if (row && row.content === nextContent && rowEl.childNodes.length > 0 && !hasFormatterStage('afterMarkdown')) return;
     const restore = preserveReadingAnchor(rowEl);
-    disposeRowBody(rowEl);
-    rowEl.replaceChildren();
-    populateMessageBody(rowEl, node, nextContent, incomplete, snapshot.messages.length);
-    if (row) row.content = nextContent;
+    reconcileMessageBody(rowEl, node, nextContent, incomplete, snapshot.messages.length);
+    if (row) { row.content = nextContent; row.incomplete = incomplete; }
     films.sync();
     restore();
     scheduleReadingPosition();
@@ -1314,6 +1317,15 @@ const context = () => {
         return character.raw;
     },
     mainApi: 'openai', getChatCompletionModel: () => snapshot.modelSettings.model,
+    getTokenizerModel: () => snapshot.modelSettings.model,
+    getTokenCountAsync: async (text: string) => estimateTokenCount(String(text ?? '')),
+    generate: async (_type = 'normal', _options?: Record<string, unknown>, _dryRun = false) => {
+        if (snapshot.generating) return;
+        await flush();
+        const text = composerProxy.value;
+        if (text.trim()) await request('composer.send', { text }, 600000);
+        else await request('slash.generate', { text: '' }, 600000);
+    },
     chatCompletionSettings: chatCompletionSettingsProxy,
     registerMacro: registerHostMacro, unregisterMacro: unregisterHostMacro,
     substituteParams: (text: string) => helper.substitudeMacros(text),
@@ -1687,7 +1699,7 @@ const helper: Record<string, any> = {
             }
             target.find('.mes_text').html(html); return;
         }
-        const old = rows.get(node.id)!; disposeRow(old.element); rows.delete(node.id); renderMessages();
+        repaintMessageBlock(floor);
     },
     getCharacterNames: () => snapshot.assetCatalog.characters.map(card => card.name),
     getCharacterIds: () => snapshot.assetCatalog.characters.map(card => card.avatar),
@@ -2597,7 +2609,8 @@ let reconciledScriptTrees: CompatSnapshot['scriptTrees'] | undefined;
 async function refreshScripts() {
     const refreshToken = token;
     const trees = snapshot.scriptTrees;
-    const desired = [...new Map([...scriptsFromTrees(trees.global), ...scriptsFromTrees(trees.preset), ...scriptsFromTrees(trees.character)].map(script => [script.id, script])).values()];
+    const desired = [...new Map([...scriptsFromTrees(trees.global), ...scriptsFromTrees(trees.preset), ...scriptsFromTrees(trees.character)].map(script => [script.id, script])).values()]
+        .filter(script => !isRemoteSPresetInjectorScript(script));
     initialScripts = desired;
     const enabled = new Map(desired.filter(script => script.enabled).map(script => [script.id, script]));
     for (const [id, failure] of scriptFailures) if (!enabled.has(id)) {
@@ -2719,7 +2732,10 @@ function renderMessages(previous?: CompatSnapshot) {
         if (node.role === 'assistant') canRetry = node.floor > 0;
         const oldNode = samePrefix ? prior[index] : undefined;
         const oldRow = rows.get(node.id);
-        if (oldRow && oldNode !== node) oldRow.element.dataset.readingSwipe = readingSwipeId(node);
+        if (oldRow && oldNode !== node) {
+            oldRow.element.dataset.readingSwipe = readingSwipeId(node);
+            syncRowMetrics(oldRow.element, node);
+        }
         const openingSelector = node.floor === 0 && messages.length === 1 && node.swipes.length > 1;
         if (oldNode === node && oldRow && canRetry === oldRow.element.hasAttribute('data-can-retry') &&
             (index !== 0 || (prior!.length === 1) === (messages.length === 1))) continue;
@@ -2731,10 +2747,100 @@ function renderMessages(previous?: CompatSnapshot) {
         const old = oldRow;
         if (old && node.streamPreview && streamViews.has(old.element) && old.swipe === node.activeSwipeIndex && old.avatar === avatar) {
             streamViews.get(old.element)!.update(node.streamPreview, true);
+            syncRowMetrics(old.element, node);
             old.content = content; old.identity = identity; old.incomplete = incomplete;
             continue;
         }
         if (old?.content === content && old.swipe === node.activeSwipeIndex && old.incomplete === incomplete && old.identity === identity && old.avatar === avatar) continue;
+        const buildHeader = (targetEl: HTMLElement) => {
+            const header = document.createElement('header');
+            const speaker = document.createElement('div'); speaker.className = 'compat-message-identity';
+            const portrait = document.createElement('span'); portrait.className = 'compat-message-avatar'; portrait.setAttribute('aria-hidden', 'true'); portrait.textContent = speakerName.slice(0, 1);
+            if (avatar && avatar !== 'default.png') {
+                const image = document.createElement('img'); image.src = avatar; image.alt = '';
+                image.onerror = () => image.remove(); portrait.append(image);
+            }
+            const name = document.createElement('strong'); name.textContent = speakerName;
+            const floorLabel = document.createElement('small'); floorLabel.textContent = `#${node.floor}`;
+            speaker.append(portrait, name, floorLabel); header.append(speaker);
+            const toolbar = document.createElement('div'); toolbar.className = 'compat-message-toolbar';
+            const swipes = document.createElement('div'); swipes.className = 'compat-message-swipes';
+            const menu = document.createElement('details'); menu.className = 'compat-message-menu';
+            const toggle = document.createElement('summary'); toggle.setAttribute('aria-label', `${speakerName} 第 ${node.floor} 层消息操作`); toggle.title = '消息操作';
+            toggle.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>';
+            const actions = document.createElement('div'); actions.className = 'compat-message-actions'; actions.setAttribute('role', 'group'); actions.setAttribute('aria-label', '消息操作');
+            const actionUpdates: Array<() => void> = [];
+            messageActionUpdates.set(targetEl, () => actionUpdates.forEach(update => update()));
+            const button = (title: string, action: () => any, disabled: boolean | (() => boolean) = false) => {
+                const b = document.createElement('button'); b.type = 'button';
+                const update = () => { b.disabled = typeof disabled === 'function' ? disabled() : disabled; };
+                update(); actionUpdates.push(update);
+                if (title === '‹' || title === '›') {
+                    b.setAttribute('aria-label', title === '‹' ? '上一个开场' : '下一个开场');
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('width', '13'); svg.setAttribute('height', '13'); svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.7'); svg.setAttribute('aria-hidden', 'true');
+                    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', title === '‹' ? 'm15 5-7 7 7 7' : 'm9 5 7 7-7 7'); svg.append(path); b.append(svg);
+                } else b.textContent = title;
+                b.onclick = () => { menu.open = false; Promise.resolve().then(action).catch(error => diagnostic('消息操作', error)); };
+                (title === '‹' || title === '›' ? swipes : actions).append(b);
+                return b;
+            };
+            if (node.floor > 0) {
+                const branch = document.createElement('button'); branch.type = 'button';
+                branch.className = 'compat-route-button'; branch.textContent = `路线 · ${node.routeCount ?? 1}`;
+                branch.setAttribute('aria-label', `查看第 ${node.floor} 楼的故事路线`);
+                branch.onclick = () => void request('story.routes', { id: node.id });
+                speaker.append(branch);
+            }
+            if (openingSelector) {
+                swipes.setAttribute('role', 'group'); swipes.setAttribute('aria-label', '切换开场');
+                button('‹', () => request('chat.swipe', { floor: node.floor, direction: 'prev' }), () => snapshot.generating || node.activeSwipeIndex === 0);
+                const count = document.createElement('small'); count.textContent = `开场 ${node.activeSwipeIndex + 1} / ${node.swipes.length}`; swipes.append(count);
+                button('›', () => request('chat.swipe', { floor: node.floor, direction: 'next' }), () => snapshot.generating || node.activeSwipeIndex === node.swipes.length - 1);
+                toolbar.append(swipes);
+            }
+            button('复制', () => request('ui.copy', { text: chat[node.floor]?.mes ?? node.content }));
+            button('修改', () => request('chat.edit', { id: node.id }), () => snapshot.generating || !!snapshot.messages.find(m => m.id === node.id)?.extra?.tipsy_generation_incomplete);
+            if (canRetry) button('从这里重新选择', () => request('story.retry', { id: node.id }), () => snapshot.generating);
+            if (node.role === 'assistant' && !incomplete) {
+                const illustration = button('本楼配图', () => request('extension.illustration.open', { id: node.id }));
+                const update = () => { illustration.hidden = typeof globals.STBaiBaiImage?.generate !== 'function'; };
+                actionUpdates.push(update); update();
+            }
+            if (node.isHidden) { const notice = document.createElement('small'); notice.textContent = '已从模型上下文隐藏'; actions.append(notice); }
+            const plugins = button('本楼插件', () => {
+                const current = snapshot.messages.find(message => message.id === node.id);
+                if (current) return request('nativePlugins.message', { id: current.id, swipe: swipeId(current), updatedAt: current.updatedAt });
+            }, () => snapshot.generating);
+            const updatePlugins = () => {
+                plugins.hidden = incomplete || !!node.extra?.tipsy_generation_terminal || !snapshot.nativeMessageMenu?.some(item => (!item.role || item.role === node.role)
+                    && (!item.latestOnly || node.id === snapshot.messages.at(-1)?.id));
+            };
+            plugins.addEventListener('click', event => { if (!event.isTrusted) event.stopImmediatePropagation(); }, { capture: true });
+            actionUpdates.push(updatePlugins); updatePlugins();
+            button('删除', () => request('chat.delete', { floor: node.floor }));
+            menu.append(toggle, actions); toolbar.append(menu); header.append(toolbar);
+            menu.addEventListener('keydown', event => { if (event.key === 'Escape') { menu.open = false; toggle.focus(); } });
+            return header;
+        };
+        if (old && !node.streamPreview && !streamViews.has(old.element) && old.swipe === node.activeSwipeIndex) {
+            if (old.identity !== identity || old.avatar !== avatar || old.incomplete !== incomplete) {
+                old.element.setAttribute('mesid', String(node.floor));
+                old.element.toggleAttribute('data-can-retry', canRetry);
+                old.element.querySelector(':scope > header')?.replaceWith(buildHeader(old.element));
+            }
+            if (old.content !== content || old.incomplete !== incomplete) {
+                const bodyEl = old.element.querySelector<HTMLElement>(':scope > .mes_text');
+                if (bodyEl) {
+                    const restore = bodyEl.getBoundingClientRect().top < 0 ? preserveReadingAnchor(bodyEl) : undefined;
+                    reconcileMessageBody(bodyEl, node, content, incomplete, messages.length);
+                    if (restore) restoreAnchors.push(restore);
+                }
+            }
+            syncRowMetrics(old.element, node);
+            old.content = content; old.identity = identity; old.incomplete = incomplete; old.avatar = avatar;
+            continue;
+        }
         const nextSibling = samePrefix ? old?.element.nextSibling ?? null : null;
         if (old) { if (streamViews.has(old.element)) restoreAnchors.push(preserveReadingAnchor(old.element)); disposeRow(old.element); }
         const element = document.createElement('article'); element.className = `mes is-${node.role}`;
@@ -2742,78 +2848,14 @@ function renderMessages(previous?: CompatSnapshot) {
         element.dataset.readingSwipe = readingSwipeId(node);
         element.setAttribute('mesid', String(node.floor));
         element.toggleAttribute('data-can-retry', canRetry);
-        const header = document.createElement('header');
-        const speaker = document.createElement('div'); speaker.className = 'compat-message-identity';
-        const portrait = document.createElement('span'); portrait.className = 'compat-message-avatar'; portrait.setAttribute('aria-hidden', 'true'); portrait.textContent = speakerName.slice(0, 1);
-        if (avatar && avatar !== 'default.png') {
-            const image = document.createElement('img'); image.src = avatar; image.alt = '';
-            image.onerror = () => image.remove(); portrait.append(image);
-        }
-        const name = document.createElement('strong'); name.textContent = speakerName;
-        const floorLabel = document.createElement('small'); floorLabel.textContent = `#${node.floor}`;
-        speaker.append(portrait, name, floorLabel); header.append(speaker);
-        const toolbar = document.createElement('div'); toolbar.className = 'compat-message-toolbar';
-        const swipes = document.createElement('div'); swipes.className = 'compat-message-swipes';
-        const menu = document.createElement('details'); menu.className = 'compat-message-menu';
-        const toggle = document.createElement('summary'); toggle.setAttribute('aria-label', `${speakerName} 第 ${node.floor} 层消息操作`); toggle.title = '消息操作';
-        toggle.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>';
-        const actions = document.createElement('div'); actions.className = 'compat-message-actions'; actions.setAttribute('role', 'group'); actions.setAttribute('aria-label', '消息操作');
-        const actionUpdates: Array<() => void> = [];
-        messageActionUpdates.set(element, () => actionUpdates.forEach(update => update()));
-        const button = (title: string, action: () => any, disabled: boolean | (() => boolean) = false) => {
-            const b = document.createElement('button'); b.type = 'button';
-            const update = () => { b.disabled = typeof disabled === 'function' ? disabled() : disabled; };
-            update(); actionUpdates.push(update);
-            if (title === '‹' || title === '›') {
-                b.setAttribute('aria-label', title === '‹' ? '上一个开场' : '下一个开场');
-                const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-                svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('width', '13'); svg.setAttribute('height', '13'); svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.7'); svg.setAttribute('aria-hidden', 'true');
-                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', title === '‹' ? 'm15 5-7 7 7 7' : 'm9 5 7 7-7 7'); svg.append(path); b.append(svg);
-            } else b.textContent = title;
-            b.onclick = () => { menu.open = false; Promise.resolve().then(action).catch(error => diagnostic('消息操作', error)); };
-            (title === '‹' || title === '›' ? swipes : actions).append(b);
-            return b;
-        };
-        if (node.floor > 0) {
-            const branch = document.createElement('button'); branch.type = 'button';
-            branch.className = 'compat-route-button'; branch.textContent = `路线 · ${node.routeCount ?? 1}`;
-            branch.setAttribute('aria-label', `查看第 ${node.floor} 楼的故事路线`);
-            branch.onclick = () => void request('story.routes', { id: node.id });
-            speaker.append(branch);
-        }
-        if (openingSelector) {
-            swipes.setAttribute('role', 'group'); swipes.setAttribute('aria-label', '切换开场');
-            button('‹', () => request('chat.swipe', { floor: node.floor, direction: 'prev' }), () => snapshot.generating || node.activeSwipeIndex === 0);
-            const count = document.createElement('small'); count.textContent = `开场 ${node.activeSwipeIndex + 1} / ${node.swipes.length}`; swipes.append(count);
-            button('›', () => request('chat.swipe', { floor: node.floor, direction: 'next' }), () => snapshot.generating || node.activeSwipeIndex === node.swipes.length - 1);
-            toolbar.append(swipes);
-        }
-        button('复制', () => request('ui.copy', { text: chat[node.floor]?.mes ?? node.content }));
-        button('修改', () => request('chat.edit', { id: node.id }), () => snapshot.generating || !!snapshot.messages.find(m => m.id === node.id)?.extra?.tipsy_generation_incomplete);
-        if (canRetry) button('从这里重新选择', () => request('story.retry', { id: node.id }), () => snapshot.generating);
-        if (node.role === 'assistant' && !incomplete) {
-            const illustration = button('本楼配图', () => request('extension.illustration.open', { id: node.id }));
-            const update = () => { illustration.hidden = typeof globals.STBaiBaiImage?.generate !== 'function'; };
-            actionUpdates.push(update); update();
-        }
-        if (node.isHidden) { const notice = document.createElement('small'); notice.textContent = '已从模型上下文隐藏'; actions.append(notice); }
-        const plugins = button('本楼插件', () => {
-            const current = snapshot.messages.find(message => message.id === node.id);
-            if (current) return request('nativePlugins.message', { id: current.id, swipe: swipeId(current), updatedAt: current.updatedAt });
-        }, () => snapshot.generating);
-        const updatePlugins = () => {
-            plugins.hidden = incomplete || !!node.extra?.tipsy_generation_terminal || !snapshot.nativeMessageMenu?.some(item => (!item.role || item.role === node.role)
-                && (!item.latestOnly || node.id === snapshot.messages.at(-1)?.id));
-        };
-        plugins.addEventListener('click', event => { if (!event.isTrusted) event.stopImmediatePropagation(); }, { capture: true });
-        actionUpdates.push(updatePlugins); updatePlugins();
-        button('删除', () => request('chat.delete', { floor: node.floor }));
-        menu.append(toggle, actions); toolbar.append(menu); header.append(toolbar); element.append(header);
-        menu.addEventListener('keydown', event => { if (event.key === 'Escape') { menu.open = false; toggle.focus(); } });
+        element.append(buildHeader(element));
         element.addEventListener('contextmenu', event => {
             if (matchMedia('(any-pointer: coarse)').matches || window.getSelection()?.toString()
                 || (event.target as HTMLElement).closest('input, textarea, select, a, button, [contenteditable]')) return;
-            event.preventDefault(); menu.open = true; toggle.focus();
+            event.preventDefault();
+            const menu = element.querySelector<HTMLDetailsElement>(':scope > header .compat-message-menu');
+            const toggle = menu?.querySelector<HTMLElement>(':scope > summary');
+            if (menu) { menu.open = true; toggle?.focus(); }
         });
         const body = document.createElement('div'); body.className = node.streamPreview ? 'compat-stream-body' : 'mes_text';
         if (node.streamPreview) {
@@ -2821,9 +2863,9 @@ function renderMessages(previous?: CompatSnapshot) {
             const view = new StreamingView(body, () => readingPresentation?.streamLoadingSprite ?? '');
             streamViews.set(element, view); view.update(node.streamPreview);
         } else {
-            populateMessageBody(body, node, content, incomplete, messages.length);
+            reconcileMessageBody(body, node, content, incomplete, messages.length);
         }
-        element.append(body); rows.set(node.id, { element, content, swipe: node.activeSwipeIndex, incomplete, identity, avatar });
+        element.append(body); syncRowMetrics(element, node); rows.set(node.id, { element, content, swipe: node.activeSwipeIndex, incomplete, identity, avatar });
         if (samePrefix) root.insertBefore(element, nextSibling);
     }
     // Re-appending an existing iframe's ancestor reloads its document. Unchanged
@@ -2839,7 +2881,9 @@ function renderMessages(previous?: CompatSnapshot) {
     restoreReadingPosition();
     scheduleReadingPosition();
 }
-function populateMessageBody(
+type BlockEntry = { key: string; type: 'markdown' | 'html' | 'mixed'; element: HTMLElement; isDeferred?: boolean };
+const bodyBlockEntries = new WeakMap<HTMLElement, BlockEntry[]>();
+function reconcileMessageBody(
     body: HTMLElement,
     node: CompatSnapshot['messages'][number],
     content: string,
@@ -2854,50 +2898,112 @@ function populateMessageBody(
         body.style.setProperty('--compat-row-estimate', `${Math.max(72, Math.ceil(content.length / 44) * 24 + 48)}px`);
     }
     if (node.templatePending) {
+        disposeRowBody(body);
+        body.replaceChildren();
         const pending = document.createElement('p'); pending.setAttribute('role', 'status'); pending.textContent = '正在渲染消息模板…'; body.append(pending);
+        return;
+    }
+    if (incomplete && !extracted.every(block => block.type === 'markdown')) {
+        disposeRowBody(body);
+        body.replaceChildren();
+        const notice = document.createElement('p'); notice.setAttribute('role', 'status');
+        notice.textContent = '正在生成互动内容…';
+        body.append(notice);
         return;
     }
     const hookContext = { messageId: node.floor, isSystem: Boolean(node.isHidden), isUser: node.role === 'user' };
     const hasAfterMarkdown = hasFormatterStage('afterMarkdown');
-    let notified = false;
-    for (const block of extracted) {
+    const occurrences = new Map<string, number>();
+    const desired = extracted.map((block) => {
+        const base = `${block.type}:${block.content}`;
+        const occ = occurrences.get(base) ?? 0;
+        occurrences.set(base, occ + 1);
+        const rawKey = blockContentKey(block.type, block.content, occ);
+        const matchKey = block.type === 'markdown' && hasAfterMarkdown ? `${rawKey}:afterMd` : rawKey;
+        return { block, key: rawKey, matchKey };
+    });
+    const existing = bodyBlockEntries.get(body) ?? [];
+    const oldKeys = existing.map((entry, idx) => entry.type === 'markdown' && hasAfterMarkdown ? `stale:${idx}` : entry.key);
+    const { keepOld, keepNew } = computeKeptBlockIndices(oldKeys, desired.map((d) => d.matchKey));
+    if (!existing.length) {
+        disposeRowBody(body);
+        body.replaceChildren();
+    } else {
+        for (let i = 0; i < existing.length; i++) {
+            if (!keepOld.has(i)) {
+                disposeElementResources(existing[i].element);
+                existing[i].element.remove();
+            }
+        }
+    }
+    const nextKeptAfter: Array<Element | null> = new Array(desired.length).fill(null);
+    let anchor: Element | null = null;
+    for (let i = desired.length - 1; i >= 0; i--) {
+        nextKeptAfter[i] = anchor;
+        const oldIdx = keepNew.get(i);
+        if (oldIdx !== undefined) anchor = existing[oldIdx].element;
+    }
+    const nextEntries: BlockEntry[] = [];
+    for (let i = 0; i < desired.length; i++) {
+        const { block, key } = desired[i];
+        const oldIdx = keepNew.get(i);
+        if (oldIdx !== undefined) {
+            const kept = existing[oldIdx];
+            nextEntries.push(kept);
+            if (kept.isDeferred && preloadsMessageHtml(node.floor, totalMessages, snapshot.helperRenderDepth)) {
+                loadDeferredAuthorPage(kept.element);
+            }
+            continue;
+        }
+        const entry: BlockEntry = { key, type: block.type, element: document.createElement('div') };
         if (block.type === 'markdown') {
-            const prose = document.createElement('div');
+            const prose = entry.element;
             prose.className = 'compat-prose message-markdown';
             const html = renderMessageMarkdown(block.content);
             prose.innerHTML = hasAfterMarkdown ? runFormatterStage('afterMarkdown', html, hookContext) : html;
-            body.append(prose);
-        } else if (!incomplete) {
+        } else {
             const mount = () => {
                 const frame = createChild(block.type === 'mixed' ? renderMixedMessage(block.content) : block.content, node.floor, undefined, node.componentTargets);
-                const loader = mountAuthorLoading(frame, node.componentTargets, () => readingPresentation?.streamLoadingSprite ?? '');
+                frame.dataset.blockType = block.type;
+                const loader = mountAuthorLoading(frame, node.componentTargets, () => readingPresentation?.streamLoadingSprite ?? '', () => films.schedule());
                 authorLoaders.set(frame, loader.dispose);
+                loader.wrapper.dataset.blockType = block.type;
                 return loader.wrapper;
             };
-            if (preloadsMessageHtml(node.floor, totalMessages, snapshot.helperRenderDepth)) body.append(mount());
-            else {
+            if (preloadsMessageHtml(node.floor, totalMessages, snapshot.helperRenderDepth)) {
+                entry.element = mount();
+            } else {
                 const slot = document.createElement('p');
                 slot.className = 'compat-deferred-author'; slot.textContent = '正在加载互动内容…';
-                body.append(slot);
+                entry.element = slot;
+                entry.isDeferred = true;
                 deferredAuthorPages.set(slot, () => {
+                    const mounted = mount();
+                    entry.element = mounted;
+                    entry.isDeferred = false;
                     const restore = preserveReadingAnchor(slot);
-                    slot.replaceWith(mount());
+                    slot.replaceWith(mounted);
                     restore();
                 });
                 authorPageObserver.observe(slot);
             }
-        } else if (!notified) {
-            const notice = document.createElement('p'); notice.setAttribute('role', 'status');
-            notice.textContent = '正在生成互动内容…';
-            body.append(notice); notified = true;
         }
+        const refEl = nextKeptAfter[i];
+        if (refEl && refEl.parentNode === body) body.insertBefore(entry.element, refEl);
+        else body.append(entry.element);
+        nextEntries.push(entry);
     }
+    bodyBlockEntries.set(body, nextEntries);
 }
-function disposeRowBody(container: HTMLElement) {
+function disposeElementResources(container: Element) {
+    if (container.classList.contains('compat-deferred-author')) {
+        authorPageObserver.unobserve(container); deferredAuthorPages.delete(container);
+    }
     for (const slot of container.querySelectorAll('.compat-deferred-author')) {
         authorPageObserver.unobserve(slot); deferredAuthorPages.delete(slot);
     }
-    for (const frame of container.querySelectorAll('iframe')) {
+    const frames = container.tagName === 'IFRAME' ? [container as HTMLIFrameElement] : [...container.querySelectorAll('iframe')];
+    for (const frame of frames) {
         if (frame.contentWindow) childDisposers.get(frame.contentWindow)?.();
         authorLoaders.get(frame)?.(); authorLoaders.delete(frame);
         if (frame.dataset.compatChild) messageFrames.delete(frame.dataset.compatChild);
@@ -2905,7 +3011,129 @@ function disposeRowBody(container: HTMLElement) {
         children.delete(frame);
     }
 }
+function disposeRowBody(container: HTMLElement) {
+    bodyBlockEntries.delete(container);
+    disposeElementResources(container);
+}
+const liveMetricTargets = new Map<HTMLElement, { startedAt: number; durationValueEl: HTMLElement }>();
+let liveMetricsTimer: ReturnType<typeof setInterval> | undefined;
+
+function refreshLiveMetricsTimer() {
+    if (!liveMetricTargets.size) {
+        if (liveMetricsTimer !== undefined) { clearInterval(liveMetricsTimer); liveMetricsTimer = undefined; }
+        return;
+    }
+    if (liveMetricsTimer !== undefined) return;
+    liveMetricsTimer = setInterval(() => {
+        const now = Date.now();
+        for (const [element, entry] of liveMetricTargets) {
+            if (!element.isConnected) { liveMetricTargets.delete(element); continue; }
+            entry.durationValueEl.textContent = formatReplyDuration(Math.max(0, now - entry.startedAt), true) ?? '0s';
+        }
+        if (!liveMetricTargets.size && liveMetricsTimer !== undefined) { clearInterval(liveMetricsTimer); liveMetricsTimer = undefined; }
+    }, 1000);
+}
+
+function metricSvg(path: string): SVGSVGElement {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('width', '11'); svg.setAttribute('height', '11');
+    svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.9'); svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round'); svg.setAttribute('aria-hidden', 'true');
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', path);
+    svg.append(p);
+    return svg;
+}
+
+function syncRowMetrics(element: HTMLElement, node: CompatSnapshot['messages'][number]) {
+    const metrics = readMessageMetrics(node);
+    const existing = element.querySelector(':scope > .compat-msg-metrics') as HTMLElement | null;
+    const isUser = node.role === 'user';
+    const tokenRaw = isUser ? metrics?.promptTokens : metrics?.outputTokens;
+    const tokenText = formatApproxTokens(tokenRaw);
+    const hasLiveDuration = Boolean(metrics?.isLive && metrics.startedAt !== undefined);
+    const durationText = hasLiveDuration ? undefined : formatReplyDuration(metrics?.durationMs, false);
+
+    if (!metrics || (!tokenText && !durationText && !hasLiveDuration)) {
+        liveMetricTargets.delete(element);
+        refreshLiveMetricsTimer();
+        existing?.remove();
+        return;
+    }
+
+    const bar = existing ?? document.createElement('div');
+    let pill = bar.firstElementChild as HTMLElement | null;
+    if (!existing || !pill) {
+        bar.replaceChildren();
+        pill = document.createElement('span'); pill.className = 'compat-msg-metrics-pill';
+        bar.append(pill);
+        element.append(bar);
+    }
+    bar.className = `compat-msg-metrics is-${node.role}${hasLiveDuration ? ' is-live' : ''}`;
+
+    const titleParts: string[] = [];
+    if (durationText) titleParts.push(`回复耗时 ${durationText}`);
+    else if (hasLiveDuration) titleParts.push('正在实时计时');
+    if (tokenRaw && tokenRaw > 0) {
+        titleParts.push(isUser
+            ? `本轮向模型共发送约 ${tokenRaw.toLocaleString()} tokens`
+            : `本楼模型输出${metrics.estimatedFallback ? '约 ' : ' '}${tokenRaw.toLocaleString()} tokens`);
+    }
+    bar.title = titleParts.join(' · ');
+
+    const showDuration = hasLiveDuration || !!durationText;
+    const desiredSignature = `${isUser ? 'u' : 'a'}|${hasLiveDuration ? '1' : '0'}|${showDuration ? '1' : '0'}|${tokenText ? '1' : '0'}`;
+    if (pill.dataset.sig !== desiredSignature) {
+        pill.dataset.sig = desiredSignature;
+        pill.replaceChildren();
+        if (showDuration) {
+            const item = document.createElement('span'); item.className = 'compat-msg-metric-item is-duration';
+            if (hasLiveDuration) {
+                const dot = document.createElement('span'); dot.className = 'compat-msg-metric-live-dot'; dot.setAttribute('aria-hidden', 'true');
+                item.append(dot);
+            } else {
+                item.append(metricSvg('M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18'));
+            }
+            const value = document.createElement('span'); value.className = 'compat-msg-metric-val';
+            item.append(value);
+            pill.append(item);
+        }
+        if (showDuration && tokenText) {
+            const sep = document.createElement('span'); sep.className = 'compat-msg-metric-sep'; sep.setAttribute('aria-hidden', 'true');
+            pill.append(sep);
+        }
+        if (tokenText) {
+            const item = document.createElement('span'); item.className = 'compat-msg-metric-item is-tokens';
+            item.append(metricSvg(isUser ? 'M12 19V5m-6 6 6-6 6 6' : 'M12 3l1.9 5.3L19 10.2l-5.1 1.9L12 17.5l-1.9-5.4L5 10.2l5.1-1.9Z'));
+            const value = document.createElement('span'); value.className = 'compat-msg-metric-val';
+            item.append(value);
+            pill.append(item);
+        }
+    }
+
+    const durationVal = pill.querySelector('.is-duration .compat-msg-metric-val') as HTMLElement | null;
+    if (durationVal) {
+        if (hasLiveDuration) {
+            durationVal.textContent = formatReplyDuration(Math.max(0, Date.now() - metrics.startedAt!), true) ?? '0s';
+            liveMetricTargets.set(element, { startedAt: metrics.startedAt!, durationValueEl: durationVal });
+        } else {
+            liveMetricTargets.delete(element);
+            durationVal.textContent = durationText ?? '';
+        }
+    } else {
+        liveMetricTargets.delete(element);
+    }
+    refreshLiveMetricsTimer();
+
+    const tokenVal = pill.querySelector('.is-tokens .compat-msg-metric-val') as HTMLElement | null;
+    if (tokenVal && tokenText) {
+        tokenVal.textContent = isUser ? `发送 ${tokenText} tok` : `输出 ${tokenText} tok`;
+    }
+}
+
 function disposeRow(element: HTMLElement) {
+    liveMetricTargets.delete(element);
+    refreshLiveMetricsTimer();
     streamViews.get(element)?.dispose(); streamViews.delete(element);
     disposeRowBody(element);
     element.remove();
@@ -3137,11 +3365,19 @@ window.addEventListener('message', event => {
         readingReplyId = typeof data.replyId === 'string' ? data.replyId : undefined;
         lastReadingPosition = ''; scheduleReadingPosition(); return;
     }
-    if (data.kind === 'compat:reading-jump' && data.session === snapshot?.session && typeof data.replyId === 'string') {
-        const row = rows.get(data.replyId);
-        if (row && !row.incomplete && !snapshot.generating) {
+    if (data.kind === 'compat:reading-jump' && data.session === snapshot?.session) {
+        if (snapshot.generating) return;
+        const behavior: ScrollBehavior = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth';
+        if (data.mode === 'latest-bottom') {
             stopRestoringBookmark();
-            window.scrollTo({ top: Math.max(0, window.scrollY + row.element.getBoundingClientRect().top - 12), behavior: 'instant' });
+            window.scrollTo({ top: document.documentElement.scrollHeight, behavior });
+            scheduleReadingPosition();
+            return;
+        }
+        const row = typeof data.replyId === 'string' ? rows.get(data.replyId) : undefined;
+        if (row && !row.incomplete) {
+            stopRestoringBookmark();
+            window.scrollTo({ top: Math.max(0, window.scrollY + row.element.getBoundingClientRect().top - 14), behavior });
             scheduleReadingPosition();
         }
         return;
@@ -3429,6 +3665,26 @@ window.addEventListener('message', event => {
                 result.interceptedHistory = history;
                 result.injections = aborted ? [] : await collectInjections(true);
                 await flush();
+            } else if (data.command === 'runSPresetFinalRequest') {
+                const payload = (data.args[0] ?? {}) as { request?: Record<string, any>; activatedLorebookEntries?: Array<Record<string, any>> };
+                const reqDraft = payload.request ?? {};
+                if (Array.isArray(payload.activatedLorebookEntries) && payload.activatedLorebookEntries.length) {
+                    await emit(events.WORLD_INFO_ACTIVATED, payload.activatedLorebookEntries);
+                }
+                await emit(events.CHAT_COMPLETION_SETTINGS_READY, reqDraft);
+                const beforeMeta = structuredClone(metadata);
+                const beforeExtras = chat.map(row => row?.extra ? structuredClone(row.extra) : undefined);
+                const out = await runSPresetFinalRequestInRealm({ request: reqDraft, rawPreset: nativeOaiSettings });
+                const extrasChanged = chat.some((row, index) => !_.isEqual(row?.extra, beforeExtras[index]));
+                if (metadataSaveTimer !== undefined || !_.isEqual(metadata, beforeMeta) || extrasChanged) {
+                    clearTimeout(metadataSaveTimer);
+                    metadataSaveTimer = undefined;
+                    await saveChatMetadata(undefined, chat.length === snapshot.messages.length);
+                }
+                result.spresetRequest = out.request;
+                result.spresetOutputPreprocessing = out.outputPreprocessing;
+                result.spresetApplied = out.applied;
+                result.spresetDeletedReasoningEffort = out.deletedReasoningEffort;
             } else if (data.command === 'refreshRouteMemory') {
                 if (baibaiRunning()) await emit(events.CHAT_CHANGED, snapshot.session);
             } else if (data.command === 'settle') result = await settle(data.args[0], data.args[1], true, false, undefined, data.args[2]?.strict === true, data.args[2]?.messageContent);

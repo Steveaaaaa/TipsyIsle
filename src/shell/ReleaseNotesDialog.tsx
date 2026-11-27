@@ -25,6 +25,20 @@ function renderReleaseNotes(notes: string) {
     return container.innerHTML;
 }
 
+function formatPublishedDate(raw?: string | null): string | undefined {
+    if (!raw) return undefined;
+    const timestamp = Date.parse(raw);
+    if (!Number.isFinite(timestamp)) return undefined;
+    const date = new Date(timestamp);
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function formatInstallerSize(bytes?: number | null): string | undefined {
+    if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return undefined;
+    const mb = bytes / (1024 * 1024);
+    return mb >= 100 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
+}
+
 export function ReleaseNotesDialog() {
     const view = releaseNotesView.useStore(state => state.open);
     const update = view?.kind === 'update' ? view.release : null;
@@ -33,22 +47,51 @@ export function ReleaseNotesDialog() {
     const html = useMemo(() => source?.trim() ? renderReleaseNotes(source) : '', [source]);
     if (!view) return null;
     const title = update?.title?.trim();
+    const showTitle = Boolean(title && title !== version && title !== `v${version}` && title !== `TipsyIsle ${version}` && title !== `微醺屿 ${version}`);
     const releaseUrl = `https://github.com/Steveaaaaa/TipsyIsle/releases/tag/v${encodeURIComponent(version)}`;
+    const publishedDate = formatPublishedDate(update?.publishedAt);
+    const installerSize = formatInstallerSize(update?.installerSize);
 
-    return <AnchoredDialog title={update ? `发现新版 · ${version}` : `更新日志 · ${version}`} anchor={view.kind === 'current' ? view.anchor : document.body}
+    return <AnchoredDialog title={update ? '发现新版本' : '版本更新日志'} anchor={view.kind === 'current' ? view.anchor : document.body}
         compact centered fitContent className="ttm-release-notes-dialog" onClose={closeReleaseNotes}>
-        <div className="ttm-release-notes-scroll">
-            {title && title !== version && title !== `v${version}` && <h3>{title}</h3>}
-            {html ? <div className="ttm-release-notes-prose" dangerouslySetInnerHTML={{ __html: html }} />
-                : <p>{update ? '这个版本暂未附上更新日志。' : '这个版本没有内置更新日志。'}</p>}
-        </div>
-        <div className="ttm-release-notes-actions">
-            <a href={releaseUrl} target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
-            <div>
-                {update && <button type="button" className="ttm-btn-ghost" onClick={ignoreAppUpdate}>忽略此版本</button>}
-                <button type="button" className="ttm-btn-secondary" onClick={closeReleaseNotes}>{update ? '稍后' : '关闭'}</button>
-                {update && <button type="button" className="ttm-btn-primary" onClick={confirmAppUpdate}>下载并安装</button>}
+        <div className="ttm-release-hero">
+            <div className="ttm-release-hero-top">
+                <div className="ttm-release-version-row">
+                    {update ? <>
+                        <span className="ttm-release-pill is-from">v{app.version}</span>
+                        <span className="ttm-release-arrow" aria-hidden="true">→</span>
+                        <span className="ttm-release-pill is-to">v{version}</span>
+                        <span className="ttm-release-tag">可更新</span>
+                    </> : <>
+                        <span className="ttm-release-pill is-to">v{version}</span>
+                        <span className="ttm-release-tag is-current">当前版本</span>
+                    </>}
+                </div>
+                <a className="ttm-release-github-link" href={releaseUrl} target="_blank" rel="noopener noreferrer">GitHub ↗</a>
             </div>
+            {showTitle && <h3 className="ttm-release-title">{title}</h3>}
+            {(publishedDate || installerSize) && <div className="ttm-release-meta">
+                {publishedDate && <span>发布于 {publishedDate}</span>}
+                {installerSize && <span>安装包 {installerSize}</span>}
+            </div>}
+        </div>
+        <div className="ttm-release-notes-scroll">
+            {html ? <div className="ttm-release-notes-prose" dangerouslySetInnerHTML={{ __html: html }} />
+                : <p className="ttm-release-empty">{update ? '这个版本暂未附上更新日志，可点击右上角在 GitHub Release 查看详情。' : '这个版本没有内置更新日志。'}</p>}
+        </div>
+        <div className={`ttm-release-notes-actions ${update ? 'is-update' : 'is-current'}`}>
+            {update ? <>
+                <button type="button" className="ttm-btn-secondary ttm-release-ignore-btn" onClick={ignoreAppUpdate}>忽略这次更新</button>
+                <div className="ttm-release-notes-secondary-pair">
+                    <button type="button" className="ttm-btn-secondary" onClick={closeReleaseNotes}>稍后提醒</button>
+                    <button type="button" className="ttm-btn-primary ttm-release-install-btn" onClick={confirmAppUpdate}>下载并安装</button>
+                </div>
+            </> : <>
+                <a href={releaseUrl} target="_blank" rel="noopener noreferrer">在 GitHub 查看</a>
+                <div>
+                    <button type="button" className="ttm-btn-secondary" onClick={closeReleaseNotes}>关闭</button>
+                </div>
+            </>}
         </div>
     </AnchoredDialog>;
 }

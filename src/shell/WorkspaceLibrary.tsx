@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { storyIdentity } from '../core/story-identity';
-import { SlotMount } from '../plugins/slot-registry';
 import { updateCharacterDocument, type WorkspaceState } from '../store/workspace-store';
 import { textOf, type Appearance } from '../theme/appearance-model';
 import { ShellArt } from '../theme/appearance-shell';
@@ -109,8 +108,6 @@ export function WorkspaceLibrary({
                 onSaveDocument={(document) => runStoreAction('保存角色卡', () => updateCharacterDocument(activeCharacter.id, document))}
             />
             </details>}
-
-            <SlotMount name="shell.sidebar.footer" />
             </div>
             <div className={`ttm-sidebar-bottom${deleteSelection ? ' is-selecting' : ''}`}>
                 {deleteSelection ? <div className="ttm-library-selection" role="group" aria-label="删除角色卡">

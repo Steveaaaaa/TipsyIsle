@@ -37,6 +37,24 @@ async function imagePart(url: string, signal?: AbortSignal): Promise<Part> {
     return { inlineData: { mimeType: response.headers.get('content-type')?.split(';')[0] || 'image/png', data: btoa(chunks.join('')) } };
 }
 
+function hasPropertyOrdering(schema: unknown): boolean {
+    if (!schema || typeof schema !== 'object') return false;
+    if (Array.isArray(schema)) return schema.some(hasPropertyOrdering);
+    const obj = schema as Record<string, unknown>;
+    if ('propertyOrdering' in obj) return true;
+    return Object.values(obj).some(hasPropertyOrdering);
+}
+
+function contentText(content: unknown, name?: string): string {
+    const raw = typeof content === 'string'
+        ? content
+        : Array.isArray(content)
+          ? content.map(part => (typeof part === 'string' ? part : part?.type === 'text' ? String(part.text ?? '') : '')).join('\n')
+          : '';
+    if (!raw) return '';
+    return name ? `${name}: ${raw}` : raw;
+}
+
 async function conversation(req: StreamCompletionRequest) {
     const model = req.model.trim().replace(/^models\//, '');
     const useSysPrompt = req.useSystemPrompt !== false && !/^gemma-?3/i.test(model);
@@ -54,7 +72,7 @@ async function conversation(req: StreamCompletionRequest) {
     if (useSysPrompt) {
         while (startIndex < req.messages.length - 1 && req.messages[startIndex].role === 'system') {
             const message = req.messages[startIndex];
-            const named = 'name' in message && message.name ? `${message.name}: ${message.content}` : message.content;
+            const named = contentText(message.content, 'name' in message ? message.name : undefined);
             if (named) system.push(named);
             startIndex++;
         }
@@ -62,22 +80,63 @@ async function conversation(req: StreamCompletionRequest) {
     for (let index = startIndex; index < req.messages.length; index++) {
         const message = req.messages[index];
         req.signal?.throwIfAborted();
-        const named = 'name' in message && message.name ? `${message.name}: ${message.content}` : message.content;
         if (message.role === 'tool') {
-            addParts('user', [{ functionResponse: { name: message.name,
+            addParts('user', [{ functionResponse: { name: message.name ?? 'tool',
                 response: parseObject(message.content, { result: message.content }), ...(toolIds ? { id: message.tool_call_id } : {}) } }]);
         } else {
             const parts: Part[] = [];
-            if ('reasoning_signature' in message && message.reasoning_signature) parts.push({ text: message.reasoning_content ?? '', thought: true,
-                thoughtSignature: message.reasoning_signature });
-            if (named) parts.push({ text: named });
-            if ('images' in message && message.images?.length) parts.push(...await Promise.all(message.images.map(url => imagePart(url, req.signal))));
-            if ('tool_calls' in message) for (const call of message.tool_calls) {
-                parts.push({ functionCall: { name: call.function.name, args: parseObject(call.function.arguments, {}), ...(toolIds ? { id: call.id } : {}) },
-                    ...(call.thought_signature ? { thoughtSignature: call.thought_signature } : {}) });
+            const msgSig = 'thoughtSignature' in message && typeof message.thoughtSignature === 'string' ? message.thoughtSignature : undefined;
+            const reasoningSig = 'reasoning_signature' in message && typeof message.reasoning_signature === 'string' ? message.reasoning_signature : undefined;
+            if (reasoningSig) {
+                parts.push({ text: ('reasoning_content' in message ? message.reasoning_content : undefined) ?? '', thought: true, thoughtSignature: reasoningSig });
             }
+            const namePrefix = 'name' in message ? message.name : undefined;
+            if (Array.isArray(message.content)) {
+                let firstText = true;
+                for (const item of message.content) {
+                    if (item?.type === 'text') {
+                        const textVal = String(item.text ?? '');
+                        if (textVal) {
+                            const txt = firstText && namePrefix ? `${namePrefix}: ${textVal}` : textVal;
+                            firstText = false;
+                            parts.push({ text: txt });
+                        }
+                    } else if (item?.type === 'image_url' && typeof (item.image_url as any)?.url === 'string') {
+                        parts.push(await imagePart((item.image_url as any).url, req.signal));
+                    }
+                }
+            } else {
+                const rawText = typeof message.content === 'string' ? message.content : '';
+                const thinkMatch = message.role === 'assistant' && msgSig && !reasoningSig
+                    ? /^\s*<think>([\s\S]*?)<\/think>\s*$/i.exec(rawText)
+                    : null;
+                if (thinkMatch) {
+                    parts.push({ text: thinkMatch[1], thought: true, thoughtSignature: msgSig });
+                } else {
+                    const named = namePrefix && rawText ? `${namePrefix}: ${rawText}` : rawText;
+                    if (named) {
+                        parts.push(msgSig && message.role === 'assistant' && !('tool_calls' in message && message.tool_calls?.length)
+                            ? { text: named, thoughtSignature: msgSig }
+                            : { text: named });
+                    }
+                }
+            }
+            if ('images' in message && message.images?.length) parts.push(...await Promise.all(message.images.map(url => imagePart(url, req.signal))));
+            if ('tool_calls' in message && message.tool_calls?.length) {
+                for (const [callIdx, call] of message.tool_calls.entries()) {
+                    const callSig = call.thought_signature
+                        ?? call.signature
+                        ?? call.extra_content?.google?.thoughtSignature
+                        ?? (callIdx === 0 && !reasoningSig && parts.length === 0 ? msgSig : undefined);
+                    parts.push({ functionCall: { name: call.function.name, args: parseObject(call.function.arguments, {}), ...(toolIds ? { id: call.id } : {}) },
+                        ...(callSig ? { thoughtSignature: callSig } : {}) });
+                }
+            }
+            const preserveModel = Boolean(
+                ('tool_calls' in message && message.tool_calls?.length) || msgSig || reasoningSig,
+            );
             const role = message.role === 'assistant'
-                ? (noPrefillModel && index === req.messages.length - 1 ? 'user' : 'model')
+                ? (noPrefillModel && index === req.messages.length - 1 && !preserveModel ? 'user' : 'model')
                 : 'user';
             addParts(role, parts);
         }
@@ -144,14 +203,24 @@ export async function requestGeminiCompletion(req: StreamCompletionRequest): Pro
 
     const declarations = (Array.isArray(parameters.tools) ? parameters.tools : []).flatMap(tool => {
         const fn = object(object(tool).function);
-        return typeof fn.name === 'string' ? [{ name: fn.name, description: fn.description, parametersJsonSchema: fn.parameters }] : [];
+        if (typeof fn.name !== 'string') return [];
+        const schemaField = hasPropertyOrdering(fn.parameters)
+            ? { parameters: fn.parameters }
+            : { parametersJsonSchema: fn.parameters };
+        return [{ name: fn.name, description: fn.description, ...schemaField }];
     });
+    const explicitToolConfig = overrides.toolConfig ?? parameters.toolConfig;
     const choice = parameters.tool_choice;
     const allowedName = object(object(choice).function).name;
     const mode = typeof allowedName === 'string' || choice === 'required' ? 'ANY' : choice === 'none' ? 'NONE' : choice === 'auto' ? 'AUTO' : undefined;
+    const toolConfigBlock = explicitToolConfig && typeof explicitToolConfig === 'object'
+        ? { toolConfig: explicitToolConfig }
+        : mode
+          ? { toolConfig: { functionCallingConfig: { mode, ...(allowedName ? { allowedFunctionNames: [allowedName] } : {}) } } }
+          : {};
     const body = structuredClone({ ...await conversation(req), generationConfig, safetySettings: GEMINI_SAFETY_SETTINGS,
         ...(declarations.length ? { tools: [{ functionDeclarations: declarations }] } : {}),
-        ...(mode ? { toolConfig: { functionCallingConfig: { mode, ...(allowedName ? { allowedFunctionNames: [allowedName] } : {}) } } } : {}),
+        ...toolConfigBlock,
         ...overrides });
     excludeRequestFields(body, req.excludeBody);
     const headers = geminiHeaders(req.apiKey, req.includeHeaders);
@@ -167,6 +236,7 @@ interface GeminiReply {
     candidates?: { index?: number; finishReason?: string; finishMessage?: string; content?: { parts?: {
         text?: string; thought?: boolean | string; thoughtSignature?: string; functionCall?: { id?: string; name?: string; args?: JsonObject };
     }[] } }[];
+    usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
 }
 
 function mapGeminiFinishReason(reason?: string): string | undefined {
@@ -215,6 +285,13 @@ export function geminiReplyAdapter() {
                 ...(streaming ? { delta: message } : { message }),
             }];
         });
-        return { choices };
+        const meta = reply.usageMetadata;
+        const promptTokens = typeof meta?.promptTokenCount === 'number' ? meta.promptTokenCount : undefined;
+        const outputTokens = typeof meta?.candidatesTokenCount === 'number' || typeof meta?.thoughtsTokenCount === 'number'
+            ? (meta?.candidatesTokenCount ?? 0) + (meta?.thoughtsTokenCount ?? 0) : undefined;
+        return {
+            choices,
+            ...(promptTokens !== undefined || outputTokens !== undefined ? { usage: { prompt_tokens: promptTokens, completion_tokens: outputTokens } } : {}),
+        };
     };
 }

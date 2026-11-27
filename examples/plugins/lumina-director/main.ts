@@ -13,7 +13,7 @@ import { continuity, filterLedgerForShot, mergeLedger, mutate, normalizeActorKey
 import { collection, recall, sceneKey } from './scene-memory';
 import { defaultPaletteForScene, direct, type LayoutMode } from './shot-director';
 import { darkroomPanel, frames, studio } from './studio-panel';
-import { extractShotFromReply, narrative, shots, surroundingContext, type ShotCandidate } from './tension-gate';
+import { extractShotFromReply, narrative, sanitizeCaption, shots, surroundingContext, type ShotCandidate } from './tension-gate';
 import { visualBible, type Registry } from './visual-bible';
 
 interface ShotJobPayload {
@@ -348,7 +348,7 @@ export default definePlugin({
             await logDiagnostic(api, `流式抢跑命中第 ${secondShot.index + 1} 段（评分 ${secondShot.score}），已排入暗房显影`);
             await api.replyMedia.developing({
                 slotId: 'shot-1',
-                label: secondShot.part.slice(0, 80) || '暗房显影中…',
+                label: sanitizeCaption(secondShot.part, '暗房显影中…', 80),
                 aspectRatio: '3:2',
                 palette: defaultPaletteForScene(secondShot.part),
                 presentation,
@@ -382,7 +382,7 @@ export default definePlugin({
 
         await api.replyMedia.developing({
             slotId: 'shot-0',
-            label: shot.part.slice(0, 80) || '暗房显影中…',
+            label: sanitizeCaption(shot.part, '暗房显影中…', 80),
             aspectRatio: '3:2',
             palette: defaultPaletteForScene(shot.part),
             presentation,
@@ -559,7 +559,7 @@ export default definePlugin({
             Object.entries(registry).filter(([key]) => !deceasedNormSet.has(normalizeActorKey(key))),
         );
 
-        const corefContext = [payload.userPrompt, payload.surrounding].filter(Boolean).join('\n');
+        const corefContext = [payload.userPrompt, payload.surrounding, payload.replyText].filter(Boolean).join('\n');
         const { actors: subjects, ensemble } = visualBible(
             participants,
             payload.scene,
@@ -620,7 +620,7 @@ export default definePlugin({
 
         const initial: ReplyMediaItem = {
             status: 'developing',
-            label: payload.scene.replace(/<[^>]+>/g, '').slice(0, 80) || '故事插图',
+            label: sanitizeCaption(payload.scene, '故事插图', 80),
             slotId: payload.slot,
             aspectRatio: payload.aspectRatio ?? '3:2',
             palette: defaultPaletteForScene(payload.scene),
@@ -713,6 +713,11 @@ export default definePlugin({
                     priorReplyActors,
                     replyContext: payload.replyText,
                     deceasedNames: [...deceasedSet],
+                    worldContext: sources.worldContext,
+                    inferredStyle: sources.inferredStyle,
+                    onDiagnostic: (msg) => {
+                        void logDiagnostic(api, msg);
+                    },
                 });
 
             const aspectRatio = payload.aspectRatio ?? plan.aspectRatio;
@@ -728,8 +733,11 @@ export default definePlugin({
                 }),
             });
 
-            const result = (await api.tasks.await(taskId)).result;
-            if (result?.kind !== 'image') throw new Error('模型未返回插图');
+            const completed = await api.tasks.await(taskId);
+            if (completed.result?.kind !== 'image') {
+                throw new Error(completed.error?.message || '模型未返回插图');
+            }
+            const result = completed.result;
 
             const id = result.media.id;
             const safeSeed =
@@ -740,7 +748,7 @@ export default definePlugin({
                 ? [plan.prompt, ...plan.actors.map((actor) => `[${actor.name ?? '角色'}] ${actor.prompt}`)].join('\n')
                 : plan.prompt;
             const archivedPrompt = rawArchivedPrompt.slice(0, 4000);
-            const label = (plan.caption || initial.label).slice(0, 160);
+            const label = sanitizeCaption(plan.caption || initial.label, '故事插图', 160);
             const subtitle = [
                 plan.actors.map((actor) => actor.name).filter(Boolean).join(' · '),
                 safeSeed !== undefined ? `Seed ${safeSeed}` : '',
@@ -773,7 +781,7 @@ export default definePlugin({
                 return {
                     replyMedia: upsertSlot(state.replyMedia, {
                         ...old,
-                        label: (plan.caption || old.label).slice(0, 160),
+                        label: sanitizeCaption(plan.caption || old.label, '故事插图', 160),
                         ...(subtitle && { subtitle }),
                         commandId: 'darkroom',
                         aspectRatio,
@@ -950,7 +958,7 @@ export default definePlugin({
                 return {
                     value: pages.map((page) => ({
                         id: page.mediaId!,
-                        label: `第 ${page.floor} 楼 · ${page.text.slice(0, 50)}`,
+                        label: `第 ${page.floor} 楼 · ${sanitizeCaption(page.text, '剧情瞬影', 50)}`,
                     })) as Json,
                     media: pages.map((page) => page.mediaId!),
                 };

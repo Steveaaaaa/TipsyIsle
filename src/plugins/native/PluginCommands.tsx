@@ -94,12 +94,14 @@ function CommandDialog({ request }: { request: Request }) {
     }, [pending, invalid, selected, task, completion]);
     const title = reply?.panel.title ?? selected?.spec.label ?? (request.target ? '本楼插件' : '插件工具');
     const surface = selected?.spec.surface ?? 'dialog';
+    const panelTheme = reply?.panel.theme ?? 'default';
     const owner = selected && `${selected.plugin.manifest.id}:${selected.plugin.fingerprint}`;
-    return <AnchoredDialog anchor={request.anchor ?? document.body} title={title} compact={surface === 'dialog'} centered fitContent surface={surface} className="ttm-native-command-dialog" onClose={close}>
+    return <AnchoredDialog anchor={request.anchor ?? document.body} title={title} compact={surface === 'dialog'} centered fitContent surface={surface}
+        className={`ttm-native-command-dialog${panelTheme !== 'default' ? ` is-theme-${panelTheme}` : ''}`} onClose={close}>
         {invalid ? <p role="status" className="ttm-settings-note">剧情或插件状态已改变。请关闭面板，在当前路线重新打开。</p> : <>
-            {selected && <p className="ttm-native-panel-byline">{selected.plugin.manifest.name}</p>}
+            {selected && !reply?.panel.eyebrow && <p className="ttm-native-panel-byline">{selected.plugin.manifest.name}</p>}
             {!selected && <div className="ttm-native-command-list">{request.commands.map(command => <button type="button" key={command.key} className="ttm-btn-secondary" onClick={() => select(command)}>{command.spec.label}<small>{command.plugin.manifest.name}</small></button>)}</div>}
-            {pending && <p role="status" className="ttm-settings-note">正在运行…</p>}
+            {pending && <p role="status" className="ttm-settings-note ttm-native-pending">正在显影与处理…</p>}
             {error && <p role="alert" className="ttm-native-error">{error}</p>}
             {task && owner && <SurfaceTask key={task.id} owner={owner} id={task.id} onFinished={state => setCompletion({ id: task.id, state })} />}
             {reply && selected && owner && <PluginPanel key={reply.step} owner={owner} panel={reply.panel} disabled={pending} onAction={action => void run(selected, action)} />}

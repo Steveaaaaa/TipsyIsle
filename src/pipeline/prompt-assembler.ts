@@ -96,7 +96,6 @@ async function assemble(input: AssemblePromptInput, templates: TemplateRuntime, 
     const {
         character,
         preset,
-        lorebooks,
         messages,
         userName,
         chatId = 'default_chat',
@@ -148,7 +147,6 @@ async function assemble(input: AssemblePromptInput, templates: TemplateRuntime, 
     const finalVariables = templates.variables;
     for (const activation of input.templateActivations ?? []) await templates.activewi(activation.world, Number.isNaN(Number(activation.uid)) ? activation.uid : Number(activation.uid), activation.force);
     const globalVariables = templates.globals;
-    const variableChanges = templates.variableChanges;
     const globalVariableChanges = templates.globalChanges;
     const macroCtx = {
         userName,

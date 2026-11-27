@@ -101,7 +101,6 @@ function deltaSnapshot(forceVariables = false): CompatSnapshotDelta {
 }
 
 export function installCompatibilityHost(value: CompatibilityHost): void { host = value; }
-export function compatibilitySnapshot(): CompatSnapshot | undefined { return host?.snapshot(); }
 export function refreshCompatibilityGallery(storyId: string): void {
     if (endpoint) endpoint.window.postMessage({ kind: 'compat:gallery', token: endpoint.token, storyId }, compatibilityOrigin);
 }
@@ -409,7 +408,7 @@ export async function commandCompatibilityRuntime(command: string, args: unknown
                 disconnect(error);
                 window.dispatchEvent(new CustomEvent('tipsy-compatibility-fault', { detail: { session, message: error.message } }));
             }
-        }, command === 'saveBeforeRouteChange' ? 5000 : ['event', 'settledMessageReceived', 'beforeGeneration', 'extensionIllustration', 'slash', 'quickReply', 'quickReplyContext', 'scriptButton', 'prepareHelperGeneration', 'finishHelperGeneration'].includes(command) ? 600000 : 30000);
+        }, command === 'saveBeforeRouteChange' ? 5000 : ['event', 'settledMessageReceived', 'beforeGeneration', 'runSPresetFinalRequest', 'extensionIllustration', 'slash', 'quickReply', 'quickReplyContext', 'scriptButton', 'prepareHelperGeneration', 'finishHelperGeneration'].includes(command) ? 600000 : 30000);
         pending.set(id, { resolve, reject, timer });
         try {
             let templateAssets: Partial<TemplateAssets> | undefined;

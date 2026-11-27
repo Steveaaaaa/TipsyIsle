@@ -20,8 +20,6 @@ export interface VariableScopeContext {
     floor?: number;
 }
 
-export type ScopedVariableQuery = VariableScopeContext;
-
 export interface ThemeDesignTokens {
     accentColor: string;
     bgPrimary: string;
@@ -362,25 +360,6 @@ export interface SandboxRpcResponse {
         message: string;
     };
 }
-
-export type PipelineHookName =
-    | 'beforeUserSend'
-    | 'beforePromptAssemble'
-    | 'afterPromptAssemble'
-    | 'afterMessageReceive'
-    | 'beforeMessageRender';
-
-export type UiSlotName =
-    | 'topbar.actions'
-    | 'sidebar.footer'
-    | 'shell.sidebar.footer'
-    | 'composer.toolbar'
-    | 'chat.header.actions'
-    | 'chat.input.toolbar'
-    | 'inspector.extra'
-    | 'inspector.tab'
-    | 'message.footer'
-    | 'message.actions';
 
 export type TavernEventName =
     | 'message_sent'

@@ -19,6 +19,7 @@ const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 const BUSTY_TRAIT_RE = /巨乳|丰满|傲人|[DEFG]罩杯|busty|voluptuous|large breasts/i;
 const ANTI_BUSTY_NEG = 'huge breasts, overly busty, exaggerated curves, oversized chest';
+const ANTI_HISTORICAL_NEG = 'ancient costume, historical robes, hanfu, period drama, wuxia, medieval armor';
 
 function trimPrompt(text: string, max: number): string {
     const clean = text.trim();
@@ -28,32 +29,92 @@ function trimPrompt(text: string, max: number): string {
     return (cut > max * 0.55 ? head.slice(0, cut) : head).replace(/[,;\s]+$/, '').trim();
 }
 
-function mergeProportionNegative(raw: unknown, actors: SpatialActorPrompt[]): string | undefined {
+function mergeStyleNegative(raw: unknown, actors: SpatialActorPrompt[], inferredStyle?: string): string | undefined {
+    const clauses: string[] = [];
     const base = typeof raw === 'string' ? raw.trim() : '';
-    if (!actors.length || actors.some((actor) => BUSTY_TRAIT_RE.test(actor.prompt))) {
-        return base ? trimPrompt(base, 420) : undefined;
+    if (base) clauses.push(base);
+    if (actors.length && !actors.some((actor) => BUSTY_TRAIT_RE.test(actor.prompt))) {
+        if (!/huge breasts|overly busty/i.test(base)) clauses.push(ANTI_BUSTY_NEG);
     }
-    const merged = !base
-        ? ANTI_BUSTY_NEG
-        : /huge breasts|overly busty/i.test(base)
-            ? base
-            : `${base}, ${ANTI_BUSTY_NEG}`;
-    return trimPrompt(merged, 420);
+    if (inferredStyle && /\b(?:modern|contemporary|sci-fi)\b/i.test(inferredStyle)) {
+        if (!/ancient costume|historical robes|hanfu/i.test(base)) clauses.push(ANTI_HISTORICAL_NEG);
+    }
+    const merged = clauses.join(', ');
+    return merged ? trimPrompt(merged, 480) : undefined;
+}
+
+export function extractDirectorJson(rawText: string): Record<string, unknown> | null {
+    const cleaned = rawText
+        .replace(/<(think|thinking|reasoning|thought)[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi, '')
+        .trim();
+    const fenced = /```(?:json)?\s*([\s\S]*?)\s*```/i.exec(cleaned);
+    const candidate = (fenced?.[1] ?? cleaned).trim();
+    try {
+        const directParse = JSON.parse(candidate);
+        if (directParse && typeof directParse === 'object' && !Array.isArray(directParse)) {
+            return directParse as Record<string, unknown>;
+        }
+    } catch {
+        // Fall through to balanced-brace extraction.
+    }
+    const start = candidate.indexOf('{');
+    if (start < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < candidate.length; i++) {
+        const ch = candidate[i];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (ch === '\\') escaped = true;
+            else if (ch === '"') inString = false;
+            continue;
+        }
+        if (ch === '"') inString = true;
+        else if (ch === '{') depth++;
+        else if (ch === '}') {
+            depth--;
+            if (depth === 0) {
+                try {
+                    const slice = JSON.parse(candidate.slice(start, i + 1));
+                    return slice && typeof slice === 'object' && !Array.isArray(slice)
+                        ? (slice as Record<string, unknown>)
+                        : null;
+                } catch {
+                    return null;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+function resolveFallbackFraming(baseFraming: string, userPrompt?: string): string {
+    const focus = userPrompt?.trim() ?? '';
+    if (!focus) return baseFraming;
+    if (/侧脸/.test(focus)) return 'medium close-up, side profile view';
+    if (/脸|眼|眸|表情|神情|笑/.test(focus)) return 'medium close-up portrait';
+    if (/她俩|她们|他俩|他们|两人|二人/.test(focus)) return 'medium two-shot';
+    return baseFraming;
 }
 
 const compactActor = (name: string) => name.replace(/\s+/g, '').trim().toLowerCase();
 
 const INSTRUCTION = `You are a visual continuity director for an interactive story.
-Analyze the scene, character traits, layout mode, and continuity ledger, then output STRICT JSON only (no markdown explanation):
+Analyze the scene, world setting, art style, character traits, layout mode, and continuity ledger, then output STRICT JSON only (no markdown explanation):
 {
   "caption": "2-10 word poetic scene caption in Chinese",
-  "prompt": "concise English visual prompt describing environment, lighting, composition, mood",
-  "negativePrompt": "artifacts to avoid",
+  "prompt": "concise English visual prompt describing art style, era-accurate environment, lighting, composition, mood",
+  "negativePrompt": "artifacts and out-of-era costumes to avoid",
   "aspectRatio": "one of 1:1, 3:2, 2:3, 4:3, 3:4, 16:9, 9:16, 21:9",
   "palette": ["#darkHex", "#accentHex"],
   "actors": [{ "name": "exact actor name", "prompt": "English age impression + physique/build & bust proportion + hair/eyes + current outfit + pose/expression (concise comma-separated tags)", "x": 0.5, "y": 0.48 }],
   "ledger": { "location": "short location", "lighting": "short lighting", "weather": "short weather", "deceased": ["exact actor name if newly confirmed dead/killed/executed in this scene or replyContext, otherwise empty array"] }
 }
+Era & style rules (CRITICAL):
+- Strictly honor worldSetting and inferredStyle (modern vs historical vs sci-fi vs fantasy, Japanese vs western vs Chinese, anime vs photographic).
+- In modern/contemporary stories (including modern towns with local shrines or wooden houses), keep architecture, props, and clothing unmistakably contemporary (casual summer wear, T-shirts, shorts, school uniforms, sneakers); NEVER depict characters or backgrounds in ancient/historical robes or period drama style unless worldSetting explicitly specifies a historical era.
+- Never depict second-person POV narrator ("你"/"you") as a solitary out-of-era wanderer; frame what the camera sees from the scene and userFocus.
 Layout rules:
 - novel-reader: prefer 21:9 establishing shots or 3:2 evocative details.
 - adv-galgame: prefer 16:9 cinematic CG framing.
@@ -99,16 +160,20 @@ export async function direct(
         priorReplyActors?: Record<string, string>;
         replyContext?: string;
         deceasedNames?: string[];
+        worldContext?: string;
+        inferredStyle?: string;
+        onDiagnostic?: (message: string) => void;
     },
 ): Promise<ShotPlan> {
-    const fallbackRatio = defaultRatioForLayout(options.layoutMode, options.framing);
+    const resolvedFraming = resolveFallbackFraming(options.framing, options.userPrompt);
+    const fallbackRatio = defaultRatioForLayout(options.layoutMode, resolvedFraming);
     const fallbackPalette = defaultPaletteForScene(options.scene);
     const presentation: 'editorial' | 'polaroid' = options.layoutMode === 'im-messenger' ? 'polaroid' : 'editorial';
     const initialDeceased = new Set((options.deceasedNames ?? []).map(compactActor).filter(Boolean));
     const livingFallbackActors = options.actors.filter((actor) => !actor.name || !initialDeceased.has(compactActor(actor.name)));
 
     if (options.explicitPrompt) {
-        const prompt = [options.explicitPrompt, options.artDirection].filter(Boolean).join(', ').slice(0, 1400);
+        const prompt = [options.explicitPrompt, options.artDirection || options.inferredStyle].filter(Boolean).join(', ').slice(0, 1400);
         return {
             caption: options.scene.replace(/\s+/g, ' ').trim().slice(0, 48) || '剧情指定镜头',
             prompt,
@@ -125,9 +190,11 @@ export async function direct(
             : undefined;
     const brief = JSON.stringify({
         layoutMode: options.layoutMode,
-        framing: options.framing,
+        framing: resolvedFraming,
         userFocus: options.userPrompt?.trim().slice(0, 240) || undefined,
         artDirection: options.artDirection || undefined,
+        inferredStyle: options.inferredStyle || undefined,
+        worldSetting: options.worldContext?.trim().slice(0, 360) || undefined,
         actors: livingFallbackActors.map((actor) => ({ name: actor.name, traits: actor.prompt })),
         ...(priorReplyActors && { priorReplyActors }),
         ...(options.deceasedNames?.length && { deceasedCharacters: options.deceasedNames }),
@@ -137,6 +204,8 @@ export async function direct(
         scene: options.scene.slice(0, 2400),
     });
 
+    let sawInvalidResponse = false;
+    let lastFailureReason = '';
     for (const chat of chats) {
         try {
             const taskId = await api.models.start({
@@ -144,20 +213,31 @@ export async function direct(
                 connection: chat.id,
                 cacheKey: 'lumina-director-v2',
                 temperature: 0.25,
-                maxTokens: 640,
+                maxTokens: 2048,
                 messages: [
                     { role: 'system', content: INSTRUCTION },
                     { role: 'user', content: brief },
                 ],
             });
             const task = await api.tasks.await(taskId);
-            if (task.result?.kind !== 'chat' || !task.result.text.trim()) continue;
-            const raw = task.result.text.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, '$1');
-            const parsed = JSON.parse(raw) as Record<string, unknown>;
+            if (task.result?.kind !== 'chat' || !task.result.text.trim()) {
+                lastFailureReason = task.error?.message || '模型返回空文本';
+                continue;
+            }
+            const parsed = extractDirectorJson(task.result.text);
+            if (!parsed) {
+                sawInvalidResponse = true;
+                lastFailureReason = '模型未返回有效 JSON';
+                continue;
+            }
             const promptText = typeof parsed.prompt === 'string' && parsed.prompt.trim()
                 ? trimPrompt([parsed.prompt.trim(), options.artDirection].filter(Boolean).join(', '), 1400)
                 : '';
-            if (!promptText) continue;
+            if (!promptText) {
+                sawInvalidResponse = true;
+                lastFailureReason = '模型提示词为空';
+                continue;
+            }
 
             const ratio = typeof parsed.aspectRatio === 'string' && VALID_RATIOS.has(parsed.aspectRatio as AspectRatio)
                 ? (parsed.aspectRatio as AspectRatio)
@@ -225,24 +305,40 @@ export async function direct(
                     ? parsed.caption.trim().slice(0, 60)
                     : options.scene.slice(0, 48),
                 prompt: promptText,
-                negativePrompt: mergeProportionNegative(parsed.negativePrompt, actors),
+                negativePrompt: mergeStyleNegative(parsed.negativePrompt, actors, options.inferredStyle),
                 aspectRatio: ratio,
                 palette,
                 presentation,
                 actors,
                 ledgerPatch,
             };
-        } catch {
+        } catch (err) {
+            if (!lastFailureReason) {
+                lastFailureReason = err instanceof Error && err.message.trim() ? err.message.trim().slice(0, 140) : '请求异常';
+            }
             // Fall through to next authorized chat connection or deterministic fallback.
         }
     }
 
+    const detailSuffix = lastFailureReason ? `（${lastFailureReason}）` : '';
+    if (!chats.length) {
+        options.onDiagnostic?.('未授权文本导演模型，已启用内置场景风格兜底');
+    } else if (sawInvalidResponse) {
+        options.onDiagnostic?.(`导演模型未返回有效 JSON${detailSuffix}，已启用内置场景风格兜底`);
+    } else {
+        options.onDiagnostic?.(`导演模型调用未成功${detailSuffix}，已启用内置场景风格兜底`);
+    }
+
+    const styleAnchor = options.artDirection || options.inferredStyle || 'anime visual novel illustration, clean lineart, atmospheric cinematic lighting';
+    const userFocusCue = options.userPrompt?.trim() ? `camera focus: ${options.userPrompt.trim().slice(0, 120)}` : '';
     const fallbackPrompt = [
-        options.framing,
+        styleAnchor,
+        resolvedFraming,
         livingFallbackActors.map((actor) => actor.prompt).join(', '),
+        userFocusCue,
+        options.worldContext?.trim().slice(0, 220),
         options.ledger.location,
         options.ledger.weather,
-        options.artDirection,
         options.scene,
     ]
         .filter(Boolean)
@@ -252,7 +348,7 @@ export async function direct(
     return {
         caption: options.scene.replace(/\s+/g, ' ').trim().slice(0, 48) || '叙事瞬间',
         prompt: trimPrompt(fallbackPrompt, 1400),
-        negativePrompt: mergeProportionNegative(undefined, livingFallbackActors),
+        negativePrompt: mergeStyleNegative(undefined, livingFallbackActors, options.inferredStyle),
         aspectRatio: fallbackRatio,
         palette: fallbackPalette,
         presentation,

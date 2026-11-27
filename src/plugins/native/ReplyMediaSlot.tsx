@@ -36,6 +36,15 @@ function useImage(owner: string, id?: string) {
     return id && state?.id === id ? state : undefined;
 }
 
+function ApertureIcon({ size = 14, spinning = false }: { size?: number; spinning?: boolean }) {
+    return (
+        <svg className={spinning ? 'ti-aperture-spin' : undefined} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="m14.31 8 5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16 3.95 6.06M14.31 16H2.83m13.79-4-5.74 9.94" />
+        </svg>
+    );
+}
+
 export function FilmLightbox({ slot, onClose }: { slot: MediaProjection; onClose: () => void }) {
     const { item } = slot;
     const owner = mediaIdentity(slot.plugin);
@@ -43,20 +52,23 @@ export function FilmLightbox({ slot, onClose }: { slot: MediaProjection; onClose
     const index = takes.length ? Math.min(item.activeTake ?? 0, takes.length - 1) : 0;
     const media = useImage(owner, takes[index]?.id);
     const [pending, setPending] = useState(false);
+    const [hudVisible, setHudVisible] = useState(true);
+
+    const step = async (action: 'previous' | 'next') => {
+        if (pending || takes.length < 2) return;
+        setPending(true);
+        try { await dispatchMediaAction(slot, action); } finally { setPending(false); }
+    };
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
             if (event.key === 'Escape') onClose();
+            else if (event.key === 'ArrowLeft') void step('previous');
+            else if (event.key === 'ArrowRight') void step('next');
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [onClose]);
-
-    const step = async (action: 'previous' | 'next') => {
-        if (pending) return;
-        setPending(true);
-        try { await dispatchMediaAction(slot, action); } finally { setPending(false); }
-    };
+    });
 
     const saveImage = async () => {
         if (!media || pending) return;
@@ -68,26 +80,72 @@ export function FilmLightbox({ slot, onClose }: { slot: MediaProjection; onClose
         } finally { setPending(false); }
     };
 
+    const setStage = async () => {
+        if (pending) return;
+        setPending(true);
+        try { await dispatchMediaAction(slot, 'stage'); } finally { setPending(false); }
+    };
+
+    const openDarkroom = () => {
+        if (!item.commandId) return;
+        const commandId = item.commandId;
+        onClose();
+        try { openPluginMessageCommand(slot.plugin.manifest.id, commandId, slot.node); } catch { /* Ignore if closed cleanly. */ }
+    };
+
+    const frameBadge = `FRAME ${String(index + 1).padStart(2, '0')} / ${String(Math.max(1, takes.length)).padStart(2, '0')}`;
+
     return createPortal(
         <div className="ti-film-lightbox" role="dialog" aria-modal="true" aria-label={item.label} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-            <div className="ti-film-lightbox-bar">
-                <div className="ti-film-lightbox-meta">
-                    <strong>{item.label}</strong>
-                    {item.subtitle && <span>{item.subtitle}</span>}
+            {media && <div className="ti-film-lightbox-ambient" aria-hidden="true" style={{ backgroundImage: `url(${media.url})` }} />}
+            <div className="ti-film-lightbox-vignette" aria-hidden="true" />
+
+            <header className="ti-film-lightbox-top" data-hidden={hudVisible ? 'false' : 'true'}>
+                <div className="ti-film-lightbox-brand">
+                    <span className="ti-film-lightbox-emblem"><ApertureIcon size={15} /></span>
+                    <span className="ti-film-lightbox-series">浮光暗房</span>
+                    <span className="ti-film-lightbox-counter">{frameBadge}</span>
                 </div>
                 <div className="ti-film-lightbox-actions">
-                    {takes.length > 1 && (
-                        <>
-                            <button type="button" disabled={pending} onClick={() => void step('previous')} aria-label="上一帧">‹</button>
-                            <span>{index + 1}/{takes.length}</span>
-                            <button type="button" disabled={pending} onClick={() => void step('next')} aria-label="下一帧">›</button>
-                        </>
-                    )}
-                    {media && <button type="button" disabled={pending} onClick={() => void saveImage()}>保存原图</button>}
-                    <button type="button" onClick={onClose} aria-label="关闭大图">✕</button>
+                    {item.commandId && <button type="button" disabled={pending} onClick={openDarkroom}>精修</button>}
+                    {slot.plugin.grants.includes('ui.stage') && media && <button type="button" disabled={pending} onClick={() => void setStage()}>设为舞台</button>}
+                    {media && <button type="button" className="is-accent" disabled={pending} onClick={() => void saveImage()}>保存原图</button>}
+                    <button type="button" className="is-close" onClick={onClose} aria-label="关闭大图">✕</button>
                 </div>
+            </header>
+
+            <div className="ti-film-lightbox-stage" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+                {takes.length > 1 && hudVisible && (
+                    <button type="button" className="ti-film-lightbox-nav is-prev" disabled={pending} onClick={() => void step('previous')} aria-label="上一帧">‹</button>
+                )}
+                {media ? (
+                    <div className="ti-film-lightbox-frame">
+                        <img src={media.url} alt={item.label} onClick={() => setHudVisible(v => !v)} />
+                        <span className="ti-film-lightbox-corners" aria-hidden="true" />
+                    </div>
+                ) : (
+                    <p className="ti-film-lightbox-loading"><ApertureIcon size={18} spinning /> <span>正在从银盐底片读取原图…</span></p>
+                )}
+                {takes.length > 1 && hudVisible && (
+                    <button type="button" className="ti-film-lightbox-nav is-next" disabled={pending} onClick={() => void step('next')} aria-label="下一帧">›</button>
+                )}
             </div>
-            {media ? <img src={media.url} alt={item.label} /> : <p className="ti-film-lightbox-loading">正在读取原图…</p>}
+
+            <footer className="ti-film-lightbox-bottom" data-hidden={hudVisible ? 'false' : 'true'}>
+                <div className="ti-film-lightbox-placard">
+                    <div className="ti-film-lightbox-meta">
+                        <strong>{item.label}</strong>
+                        {item.subtitle && <span>{item.subtitle}</span>}
+                    </div>
+                    {takes.length > 1 && (
+                        <div className="ti-film-lightbox-pager">
+                            <button type="button" disabled={pending} onClick={() => void step('previous')} aria-label="上一帧">‹</button>
+                            <span>{index + 1} / {takes.length}</span>
+                            <button type="button" disabled={pending} onClick={() => void step('next')} aria-label="下一帧">›</button>
+                        </div>
+                    )}
+                </div>
+            </footer>
         </div>,
         document.body,
     );
@@ -103,6 +161,7 @@ export function Darkroom({ slot }: { slot: MediaProjection }) {
     const [pending, setPending] = useState(false);
     const [fault, setFault] = useState('');
     const [lightbox, setLightbox] = useState(false);
+    const [toolsOpen, setToolsOpen] = useState(false);
     const layout = themeEngineStore.useStore((state) => state.layoutMode);
 
     useEffect(() => {
@@ -112,6 +171,7 @@ export function Darkroom({ slot }: { slot: MediaProjection }) {
     const click = async (action: MediaAction['action'], customId?: string) => {
         if (pending) return;
         setPending(true);
+        setToolsOpen(false);
         setFault('');
         try {
             await dispatchMediaAction(slot, action, customId);
@@ -124,6 +184,7 @@ export function Darkroom({ slot }: { slot: MediaProjection }) {
 
     const runCommand = (commandId: string) => {
         setFault('');
+        setToolsOpen(false);
         try {
             openPluginMessageCommand(slot.plugin.manifest.id, commandId, slot.node);
         } catch (error) {
@@ -134,6 +195,7 @@ export function Darkroom({ slot }: { slot: MediaProjection }) {
     const saveImage = async () => {
         if (!media || pending) return;
         setFault('');
+        setToolsOpen(false);
         try {
             const base = (media.name || item.label || 'lumina-frame').replace(/[\\/:*?"<>|]/g, '-');
             const ext = media.blob.type.split('/')[1] || 'webp';
@@ -165,7 +227,7 @@ export function Darkroom({ slot }: { slot: MediaProjection }) {
                     aria-label={`${item.label} · 展开画卷`}
                     onClick={() => void click('bookmark')}
                 >
-                    <span aria-hidden="true">🔖</span>
+                    <span className="ti-bookmark-gem" aria-hidden="true">✦</span>
                     <span>{item.label}</span>
                 </button>
                 {media && (
@@ -179,8 +241,8 @@ export function Darkroom({ slot }: { slot: MediaProjection }) {
         );
     }
 
-    const paletteA = item.palette?.[0] ?? '#25221f';
-    const paletteB = item.palette?.[1] ?? '#3a3128';
+    const paletteA = item.palette?.[0] ?? '#221c17';
+    const paletteB = item.palette?.[1] ?? '#3b2e23';
     const developing = item.status === 'developing';
     const polaroid = layout === 'im-messenger' || item.presentation === 'polaroid';
 
@@ -200,53 +262,73 @@ export function Darkroom({ slot }: { slot: MediaProjection }) {
                         src={media.url}
                         alt={item.label}
                         className={imgLoaded ? 'is-loaded' : undefined}
-                        style={{ cursor: 'zoom-in' }}
-                        onClick={() => setLightbox(true)}
+                        style={{ cursor: toolsOpen ? 'pointer' : 'zoom-in' }}
+                        onClick={() => {
+                            if (toolsOpen) setToolsOpen(false);
+                            else setLightbox(true);
+                        }}
                         onLoad={() => setImgLoaded(true)}
                     />
                 )}
+                <span className="ti-darkroom-corners" aria-hidden="true" />
                 <figcaption className={developing ? 'is-developing' : undefined}>
-                    {fault || (item.status === 'failed' ? '显影失败，可换一镜' : developing ? '暗房显影中…' : item.label)}
-                    {!fault && item.subtitle && <span className="ti-darkroom-subtitle">{item.subtitle}</span>}
+                    <span className="ti-darkroom-caption-title">
+                        {developing && <ApertureIcon size={12} spinning />}
+                        <span>{fault || (item.status === 'failed' ? '显影失败，可换一镜' : developing ? '暗房显影中…' : item.label)}</span>
+                    </span>
+                    {!fault && !developing && item.subtitle && <span className="ti-darkroom-subtitle">{item.subtitle}</span>}
                 </figcaption>
-                <div className="ti-film-tools">
-                    {takes.length > 1 && (
-                        <>
-                            {button('previous', '‹', '上一帧')}
-                            <span>{index + 1}/{takes.length}</span>
-                            {button('next', '›', '下一帧')}
-                        </>
-                    )}
-                    {button('reroll', '↻ 换一镜', '重新生成一帧并保留旧帧')}
-                    {item.commandId && (
-                        <button type="button" disabled={pending} title="打开暗房精修台" aria-label="精修" onClick={() => runCommand(item.commandId!)}>
-                            精修
-                        </button>
-                    )}
-                    {(item.actions ?? []).map((act) => (
-                        <button
-                            key={act.id}
-                            type="button"
-                            disabled={pending}
-                            title={act.title || act.label}
-                            aria-label={act.title || act.label}
-                            onClick={() => act.kind === 'command' && act.commandId ? runCommand(act.commandId) : void click('custom', act.id)}
-                        >
-                            {act.label}
-                        </button>
-                    ))}
-                    {button('bookmark', '收为书签', '折叠为页边琥珀胶片签')}
-                    {slot.plugin.grants.includes('ui.stage') && button('stage', '设为舞台', '将此帧设为本幕背景舞台')}
-                    {media && (
-                        <>
-                            <button type="button" disabled={pending} title="查看大图" aria-label="查看大图" onClick={() => setLightbox(true)}>
-                                放大
+                <div className="ti-film-dock">
+                    <button
+                        type="button"
+                        className={`ti-film-dock-toggle${toolsOpen ? ' is-open' : ''}`}
+                        aria-expanded={toolsOpen}
+                        aria-label={toolsOpen ? '收起胶片操作栏' : '展开胶片操作栏'}
+                        title={toolsOpen ? '收起操作' : '浮光暗房工具'}
+                        onClick={() => setToolsOpen(v => !v)}
+                    >
+                        {toolsOpen ? <span aria-hidden="true">✕</span> : <ApertureIcon size={14} />}
+                        {takes.length > 1 && <span className="ti-film-dock-badge">{index + 1}/{takes.length}</span>}
+                    </button>
+                    <div className="ti-film-tools" data-open={toolsOpen ? 'true' : 'false'}>
+                        {takes.length > 1 && (
+                            <>
+                                {button('previous', '‹', '上一帧')}
+                                <span>{index + 1}/{takes.length}</span>
+                                {button('next', '›', '下一帧')}
+                            </>
+                        )}
+                        {button('reroll', '↻ 换一镜', '重新生成一帧并保留旧帧')}
+                        {item.commandId && (
+                            <button type="button" disabled={pending} title="打开暗房精修台" aria-label="精修" onClick={() => runCommand(item.commandId!)}>
+                                精修
                             </button>
-                            <button type="button" disabled={pending} title="保存原图" aria-label="保存原图" onClick={() => void saveImage()}>
-                                保存
+                        )}
+                        {(item.actions ?? []).map((act) => (
+                            <button
+                                key={act.id}
+                                type="button"
+                                disabled={pending}
+                                title={act.title || act.label}
+                                aria-label={act.title || act.label}
+                                onClick={() => act.kind === 'command' && act.commandId ? runCommand(act.commandId) : void click('custom', act.id)}
+                            >
+                                {act.label}
                             </button>
-                        </>
-                    )}
+                        ))}
+                        {button('bookmark', '收为书签', '折叠为页边琥珀胶片签')}
+                        {slot.plugin.grants.includes('ui.stage') && button('stage', '设为舞台', '将此帧设为本幕背景舞台')}
+                        {media && (
+                            <>
+                                <button type="button" disabled={pending} title="查看大图" aria-label="查看大图" onClick={() => { setToolsOpen(false); setLightbox(true); }}>
+                                    放大
+                                </button>
+                                <button type="button" disabled={pending} title="保存原图" aria-label="保存原图" onClick={() => void saveImage()}>
+                                    保存
+                                </button>
+                            </>
+                        )}
+                    </div>
                 </div>
             </figure>
             {lightbox && <FilmLightbox slot={slot} onClose={() => setLightbox(false)} />}
@@ -274,7 +356,7 @@ export function StageLight({ slot, height }: { slot?: MediaProjection; height?: 
     );
 }
 
-export function InlineMedia({ node, source }: { node: ChatMessageNode; source: string }) {
+export function InlineMedia({ node, source, streaming = false }: { node: ChatMessageNode; source: string; streaming?: boolean }) {
     const latent = latentFilm.useStore((state) => state.items);
     const sandboxMountedByFrame = sandboxMediaStore.useStore((state) => state.byFrame);
     const ref = useRef<HTMLSpanElement>(null);
@@ -296,8 +378,8 @@ export function InlineMedia({ node, source }: { node: ChatMessageNode; source: s
         setSlots(next);
 
         let raf = 0;
-        const streaming = latent.some((item) => item.message === node.id) || next.some(({ slot }) => slot.item.status === 'developing');
-        const observer = streaming && next.length && typeof MutationObserver !== 'undefined'
+        const isStreaming = streaming || latent.some((item) => item.message === node.id) || next.some(({ slot }) => slot.item.status === 'developing');
+        const observer = isStreaming && next.length && typeof MutationObserver !== 'undefined'
             ? new MutationObserver((records) => {
                 const relevant = records.some((record) => {
                     const target = record.target as HTMLElement | null;
@@ -319,7 +401,7 @@ export function InlineMedia({ node, source }: { node: ChatMessageNode; source: s
             observer?.disconnect();
             next.forEach(({ mount }) => mount.remove());
         };
-    }, [node, catalog, source, latent, sandboxMountedByFrame]);
+    }, [node, catalog, source, streaming, latent, sandboxMountedByFrame]);
 
     return (
         <>

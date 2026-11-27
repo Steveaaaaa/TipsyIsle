@@ -1,4 +1,4 @@
-import { StreamProjector, createStreamPlan, type StreamDisplayMode, type MessageStreamPreview } from '../../pipeline/streaming-message';
+import { StreamProjector, createStreamPlan, type MessageStreamPreview } from '../../pipeline/streaming-message';
 import { orderedRegexScripts, regexRuleApplies } from '../../pipeline/macro-regex-engine';
 import { scopedVariableStore } from '../scoped-variable-store';
 import { readExtensionVariables } from '../../compatibility/extension-variables';
@@ -7,7 +7,6 @@ import { normalizeTemplateFeatures, templateEntryEnabled } from '../../pipeline/
 import { globalRegexes } from '../global-regex-store';
 import { workspaceStore } from './state';
 import { getActivePreset, getActiveLorebooks, getActiveCharacter } from './library';
-import { persistWorkspace } from './storage';
 import { getActiveChatMessages } from './queries';
 import { readMessageTemplate } from './prompt';
 import { formatMessageWithoutTemplate } from './message-format';
@@ -31,11 +30,6 @@ export function getMessageComponentTargets(node: ChatMessageNode) {
     const targets = [...plan.tags.values()].flatMap(info => info.selector ? [{ key: info.key, selector: info.selector }] : []);
     if (componentTargetsCache.size > 32) componentTargetsCache.delete(componentTargetsCache.keys().next().value!);
     componentTargetsCache.set(key, { sources, targets }); return targets;
-}
-
-export function setStreamDisplayMode(mode: StreamDisplayMode): void {
-    workspaceStore.setState(draft => { draft.streamDisplayModes[draft.activeCharacterId] = mode; draft.templateRenderRevision++; });
-    streamProjectors.clear(); persistWorkspace();
 }
 
 export function getMessageStreamPreview(node: ChatMessageNode) {

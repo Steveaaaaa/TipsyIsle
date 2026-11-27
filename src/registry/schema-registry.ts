@@ -274,21 +274,6 @@ const BUILTIN_SAMPLER_AND_UI_SCHEMAS: SchemaFieldDescriptor[] = [
         description: '在提示词宏 {{user}} 和对话流中展示的当前用户名。',
         mobileWeight: 'essential',
     },
-    {
-        id: 'ui.theme_mode',
-        type: 'select',
-        defaultValue: 'obsidian',
-        group: '界面与身份 (Identity & UI)',
-        title: '视觉主题 (Theme)',
-        description: '切换现代工作台配色方案。',
-        mobileWeight: 'essential',
-        options: [
-            { value: 'obsidian', label: '曜石暗夜 (Obsidian Dark)' },
-            { value: 'oled', label: '纯粹 OLED 黑 (True OLED)' },
-            { value: 'aurora', label: '极光雾蓝 (Aurora Slate)' },
-            { value: 'paper', label: '暖调羊皮纸 (Warm Paper)' },
-        ],
-    },
 ];
 
 function buildInitialRegistryState(): SchemaRegistryState {
@@ -333,24 +318,6 @@ export async function hydrateStorySettings() {
     schemaRegistryStore.setState(draft => { Object.assign(draft.values, local, story); });
 }
 
-export function registerSchemaField<T>(descriptor: SchemaFieldDescriptor<T>): void {
-    schemaRegistryStore.setState((draft) => {
-        draft.fields[descriptor.id] = descriptor;
-        if (!draft.groupsOrder.includes(descriptor.group)) {
-            draft.groupsOrder.push(descriptor.group);
-        }
-        if (!(descriptor.id in draft.values)) {
-            draft.values[descriptor.id] = descriptor.defaultValue;
-        }
-    });
-}
-
-export function registerSchemaFields(descriptors: SchemaFieldDescriptor[]): void {
-    for (const d of descriptors) {
-        registerSchemaField(d);
-    }
-}
-
 export function setSchemaValue(id: string, value: unknown): void {
     setSchemaValues({ [id]: value });
 }
@@ -391,22 +358,6 @@ export function getSchemaValue<T = unknown>(id: string, fallback?: T): T {
         return state.fields[id]!.defaultValue as T;
     }
     return fallback as T;
-}
-
-export function exportSamplerParametersPayload(extraOverrides?: Record<string, unknown>): Record<string, unknown> {
-    const state = schemaRegistryStore.getState();
-    const output: Record<string, unknown> = {};
-    for (const [id, val] of Object.entries(state.values)) {
-        if (id.startsWith('sampler.')) {
-            output[id.slice('sampler.'.length)] = val;
-        } else if (id.startsWith('api.')) {
-            output[id.slice('api.'.length)] = val;
-        }
-    }
-    if (extraOverrides) {
-        Object.assign(output, extraOverrides);
-    }
-    return output;
 }
 
 export function getSchemaValues(): Record<string, unknown> { return { ...schemaRegistryStore.getState().values }; }

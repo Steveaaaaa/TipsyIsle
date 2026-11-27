@@ -72,19 +72,38 @@ export interface StreamCompletionRequest {
     signal?: AbortSignal;
     onToken: (deltaContent: string, deltaReasoning?: string) => void;
     onToolCall?: () => void;
+    onToolCallsDelta?: (toolCalls: CompletionToolCall[]) => void;
     requireReplyText?: boolean;
 }
+export type CompletionRequestPart =
+    | { type: 'text'; text: string }
+    | { type: 'image_url'; image_url: { url: string; [key: string]: unknown } }
+    | { type: string; [key: string]: unknown };
 export type CompletionRequestMessage = AssembledPromptMessage | {
-    role: 'assistant'; content: string; tool_calls: CompletionToolCall[]; reasoning_content?: string; reasoning_signature?: string;
-} | { role: 'tool'; content: string; tool_call_id: string; name: string; isError?: boolean };
+    role: 'assistant' | 'user' | 'system';
+    content?: string | CompletionRequestPart[] | null;
+    name?: string;
+    tool_calls?: CompletionToolCall[];
+    reasoning_content?: string;
+    reasoning_signature?: string;
+    thoughtSignature?: string;
+} | { role: 'tool'; content: string; tool_call_id: string; name?: string; isError?: boolean };
 
 /**
  * Universal SSE Streaming LLM Client.
  * Uses the local gateway, Tauri HTTP, or direct browser HTTP depending on the runtime.
  */
-export interface CompletionToolCall { id: string; type: 'function'; function: { name: string; arguments: string }; thought_signature?: string }
+export interface CompletionToolCall {
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+    thought_signature?: string;
+    signature?: string;
+    extra_content?: { google?: { thoughtSignature?: string }; [key: string]: unknown };
+}
+export interface CompletionUsage { promptTokens?: number; outputTokens?: number }
 export interface CompletionCandidate { content: string; reasoning: string; reasoning_signature?: string; tool_calls?: CompletionToolCall[] }
-export interface CompletionResult extends CompletionCandidate { candidates?: CompletionCandidate[] }
+export interface CompletionResult extends CompletionCandidate { candidates?: CompletionCandidate[]; usage?: CompletionUsage }
 function replyText(value: unknown): string {
     if (typeof value === 'string') return value;
     if (!Array.isArray(value)) return '';
@@ -101,10 +120,11 @@ class EmptyReplyError extends Error {
     }
 }
 
-function withCandidates(candidates: CompletionCandidate[], req: StreamCompletionRequest, finishReason?: string): CompletionResult {
+function withCandidates(candidates: CompletionCandidate[], req: StreamCompletionRequest, finishReason?: string, usage?: CompletionUsage): CompletionResult {
     const available = req.requireReplyText ? candidates.filter(candidate => candidate.content.trim()) : candidates;
     if (!available.length) throw new EmptyReplyError(finishReason);
-    return { ...available[0], ...(available.length > 1 ? { candidates: available } : {}) };
+    const hasUsage = usage && (usage.promptTokens !== undefined || usage.outputTokens !== undefined);
+    return { ...available[0], ...(hasUsage ? { usage } : {}), ...(available.length > 1 ? { candidates: available } : {}) };
 }
 
 const candidateFrom = (message: any): CompletionCandidate => ({ content: replyText(message.content) || replyText(message.refusal),
@@ -171,7 +191,8 @@ async function requestChatCompletion(req: StreamCompletionRequest, gateway: bool
         content: message.images?.length ? [{ type: 'text', text: message.content }, ...message.images.map(url => ({ type: 'image_url', image_url: { url } }))] : message.content,
         ...(message.name ? { name: message.name } : {}) } : message.role === 'tool'
             ? { role: 'tool', content: message.content, tool_call_id: message.tool_call_id,
-                ...(gateway ? { name: message.name, isError: message.isError } : {}) }
+                ...(message.name ? { name: message.name } : {}),
+                ...(gateway && message.isError ? { isError: message.isError } : {}) }
             : message);
     const completionBody = structuredClone({ ...req.parameters, model: req.model, messages, stream: req.stream ?? true, ...req.includeBody });
     excludeRequestFields(completionBody, req.excludeBody);
@@ -290,13 +311,22 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
     let responseFormat: 'sse' | 'json-array' | 'json-object' | undefined = contentType.includes('text/event-stream') ? 'sse' : undefined;
     let arrayStarted = false;
     let reasoningSignature = '';
+    const usage: CompletionUsage = {};
+    const captureUsage = (rawUsage: any) => {
+        if (!rawUsage || typeof rawUsage !== 'object') return;
+        const prompt = Number(rawUsage.prompt_tokens ?? rawUsage.input_tokens);
+        const completion = Number(rawUsage.completion_tokens ?? rawUsage.output_tokens);
+        if (Number.isFinite(prompt) && prompt >= 0) usage.promptTokens = Math.round(prompt);
+        if (Number.isFinite(completion) && completion >= 0) usage.outputTokens = Math.round(completion);
+    };
     const toolCalls = new Map<number, CompletionToolCall>();
     const alternatives = new Map<number, CompletionCandidate & { tools: Map<number, CompletionToolCall> }>();
 
     const processPacket = (rawParsed: Record<string, any>, streamingChunk: boolean) => {
         if (!rawParsed || typeof rawParsed !== 'object') throw new Error('LLM 接口返回了无效的流式数据');
-        const parsed = adapt ? adapt(rawParsed, streamingChunk) : rawParsed;
+        const parsed: Record<string, any> = adapt ? adapt(rawParsed, streamingChunk) : rawParsed;
         if (parsed.error) throw new Error(`LLM 接口错误：${getCompletionError(parsed.error)}`);
+        captureUsage(parsed.usage);
         const choice = parsed.choices?.find((choice: any) => !choice.index);
         for (const item of parsed.choices ?? []) if (item.index > 0) {
             const value = alternatives.get(item.index) ?? { content: '', reasoning: '', tools: new Map<number, CompletionToolCall>() };
@@ -327,7 +357,15 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
             if (item.function?.name) call.function.name += item.function.name;
             if (item.function?.arguments) call.function.arguments += item.function.arguments;
             if (item.thought_signature) call.thought_signature = item.thought_signature;
+            if (item.signature) call.signature = item.signature;
+            if (item.extra_content) call.extra_content = item.extra_content;
             toolCalls.set(key, call);
+        }
+        if (delta.tool_calls?.length && req.onToolCallsDelta) {
+            req.onToolCallsDelta([...toolCalls.entries()].sort(([a], [b]) => a - b).map(([, call]) => ({
+                ...call,
+                function: { ...call.function },
+            })));
         }
         const contentPiece = replyText(delta.content) || replyText(delta.refusal);
         const reasoningPiece = typeof delta.reasoning_content === 'string' ? delta.reasoning_content
@@ -346,13 +384,17 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
                 processPacket(packet, true);
             }
         } else {
-            const payload = adapt ? adapt(raw, false) : raw;
+            const payload: Record<string, any> = adapt ? adapt(raw, false) : raw;
             if (payload?.error) throw new Error(`LLM 接口错误：${getCompletionError(payload.error)}`);
+            captureUsage(payload?.usage);
             const choices = Array.isArray(payload?.choices) ? [...payload.choices].sort((a, b) => (a.index ?? 0) - (b.index ?? 0)) : [];
             const candidates = choices.filter(choice => choice.message).map(choice => candidateFrom(choice.message));
             if (!candidates.length && !req.requireReplyText) throw new Error('LLM 接口未返回回复消息');
-            const first = withCandidates(candidates, req, choices[0]?.finish_reason);
-            if (first.tool_calls?.length) req.onToolCall?.();
+            const first = withCandidates(candidates, req, choices[0]?.finish_reason, usage);
+            if (first.tool_calls?.length) {
+                req.onToolCall?.();
+                req.onToolCallsDelta?.(first.tool_calls.map(call => ({ ...call, function: { ...call.function } })));
+            }
             req.onToken(first.content, first.reasoning);
             return first;
         }
@@ -361,7 +403,7 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
             ...(toolCalls.size ? { tool_calls: [...toolCalls.entries()].sort(([a], [b]) => a - b).map(([, value]) => value) } : {}) };
         const candidates = [first, ...[...alternatives].sort(([a], [b]) => a - b).map(([, { tools, ...value }]) => ({ ...value,
             ...(tools.size ? { tool_calls: [...tools].sort(([a], [b]) => a - b).map(([, tool]) => tool) } : {}) }))];
-        return withCandidates(candidates, req, finishReason);
+        return withCandidates(candidates, req, finishReason, usage);
     };
 
     if (req.stream === false && (contentType.includes('application/json') || contentType.split(';')[0].endsWith('+json'))) {
@@ -443,7 +485,7 @@ async function readCompletionResponse(response: Response, req: StreamCompletionR
             ...(toolCalls.size ? { tool_calls: [...toolCalls.entries()].sort(([a], [b]) => a - b).map(([, value]) => value) } : {}) };
         const candidates = [first, ...[...alternatives].sort(([a], [b]) => a - b).map(([, { tools, ...value }]) => ({ ...value,
             ...(tools.size ? { tool_calls: [...tools].sort(([a], [b]) => a - b).map(([, tool]) => tool) } : {}) }))];
-        return withCandidates(candidates, req, finishReason);
+        return withCandidates(candidates, req, finishReason, usage);
     } finally {
         try { await reader.cancel(); } catch { /* Preserve the original request error. */ }
         reader.releaseLock();

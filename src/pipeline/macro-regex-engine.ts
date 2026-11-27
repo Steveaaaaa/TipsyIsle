@@ -19,7 +19,6 @@ export interface MacroContext extends StandardMacroContext {
     onSetGlobalVariable?: (key: string, value: unknown) => void;
     variableScopes?: MacroVariableScopes;
 }
-export type MacroEvalContext = MacroContext;
 
 export interface ApplyRegexOptions {
     stage?: RegexPlacementStage;
@@ -564,14 +563,35 @@ export function extractHtmlSandboxBlocks(markdown: string): Array<{ type: 'markd
         }
         appendFragment(content.slice(offset));
     };
+    const unwrapTemplateMessageWrapper = (source: string): string => {
+        const trimmed = source.trim();
+        const openMatch = /^<div\s+class=["']tipsy-template-message["'](?:\s[^>]*)?>/i.exec(trimmed);
+        if (!openMatch) return source;
+        const codeRanges = [...messageCodeBlocks(trimmed)].map(block => [block.start, block.end] as const);
+        const insideCode = (pos: number) => codeRanges.some(([start, end]) => pos >= start && pos < end);
+        const innerTokens = /<!--[\s\S]*?-->|<script\b[\s\S]*?<\/script\s*>|<style\b[\s\S]*?<\/style\s*>|<(\/?)div\b[^>]*>/gi;
+        innerTokens.lastIndex = openMatch[0].length;
+        let depth = 1;
+        for (let tok: RegExpExecArray | null; (tok = innerTokens.exec(trimmed));) {
+            if (insideCode(tok.index) || tok[0].startsWith('<!--') || /^<(?:script|style)\b/i.test(tok[0])) continue;
+            if (tok[1]) depth--; else depth++;
+            if (depth === 0) {
+                return innerTokens.lastIndex === trimmed.length
+                    ? trimmed.slice(openMatch[0].length, tok.index)
+                    : source;
+            }
+        }
+        return source;
+    };
+    const unwrapped = unwrapTemplateMessageWrapper(markdown);
     let offset = 0;
-    for (const block of messageCodeBlocks(markdown)) {
-        appendFormattedText(markdown.slice(offset, block.start));
+    for (const block of messageCodeBlocks(unwrapped)) {
+        appendFormattedText(unwrapped.slice(offset, block.start));
         if (block.isHtml) {
             if (block.content) blocks.push({ type: 'html', content: block.content });
         } else blocks.push({ type: 'markdown', content: block.source });
         offset = block.end;
     }
-    appendFormattedText(markdown.slice(offset));
+    appendFormattedText(unwrapped.slice(offset));
     return blocks;
 }

@@ -8,7 +8,7 @@ import { registerWorkspaceSnapshots } from './workspace/storage';
 
 export { saveSettingsEdits } from './workspace/settings';
 export { commitNativeWorkspace, commitNativeAssetEdit, applyNativeChatEdit, openNativePluginRoute } from './workspace/runtime';
-export { worldbooksChanged, selectPersona, savePlayerPersona, clearCharacterPersona, setGlobalWorldbookEnabled, setCharacterWorldbookBinding, updateLorebookEntry, updateCharacterDocument, replaceActiveWorldbookEntries, selectPreset, applyPresetSettings, updatePresetPrompt, removeWorldbookFromWorkspace, deleteWorkspaceWorldbook, getCharacterDeletionBooks, deleteWorkspaceCharacter, deleteWorkspaceCharacters, deleteWorkspacePreset, clearImportedWorkspace, importStoryCharacter, importAssetFile, exportActiveCharacterAsPng, exportCharacterAsPng, saveWorkspaceRegexRules } from './workspace/library-actions';
+export { worldbooksChanged, selectPersona, savePlayerPersona, clearCharacterPersona, setGlobalWorldbookEnabled, setCharacterWorldbookBinding, updateLorebookEntry, updateCharacterDocument, replaceActiveWorldbookEntries, selectPreset, applyPresetSettings, updatePresetPrompt, removeWorldbookFromWorkspace, deleteWorkspaceWorldbook, getCharacterDeletionBooks, deleteWorkspaceCharacter, deleteWorkspaceCharacters, deleteWorkspacePreset, clearImportedWorkspace, importStoryCharacter, importAssetFile, exportCharacterAsPng, saveWorkspaceRegexRules } from './workspace/library-actions';
 export {
     setHelperCharacterAvatar, addHelperCharacter, importHelperCharacter, replaceHelperCharacterRegexes,
     writeHelperPreset, removeHelperPreset, renameHelperPreset, replaceHelperPresetRegexes,
@@ -25,7 +25,7 @@ export { getWorkspaceScriptTrees, getWorkspaceScripts, replaceWorkspaceScriptTre
 export { validateHelperVariableWrite, saveHelperVariables, commitMvuInitialization, commitMvuMessage } from './workspace/story-variables';
 export { commitPromptVariableChanges, commitPromptTask } from './workspace/prompt-commit';
 
-export { captureMessageSnapshot, updateWorldbookTimedEffects, sealBranchPoint, trackBranchExtension, retryStoryFrom, selectChatBranch, deleteStoryBranch, getChatBranchStats } from './workspace/branches';
+export { captureMessageSnapshot, updateWorldbookTimedEffects, sealBranchPoint, trackBranchExtension, retryStoryFrom, selectChatBranch, deleteStoryBranch } from './workspace/branches';
 
 export { readNativeChat, listArchivedChats, readHelperChatArchives, importHelperChat, storySaveDuplicate, importStorySave, readStoryForExport, restoreArchivedChat, SYNC_EXTENSIONS, restoreChatExtensions, captureChatContinuation, applyArchivedChat, createChat, selectCharacter, startNewChat, startFreeChat, getFreeChatConnection, updateFreeChat, renameStoryChat, deleteWorkspaceChats } from './workspace/sessions';
 
@@ -34,7 +34,7 @@ export { persistWorkspaceNow, publishSyncedWorkspace, rollbackWorkspacePublicati
 export { updateHelperGenerationCount, setMvuExtraAnalysisActive } from './workspace/activity';
 export { setStatusBanner } from './workspace/notice';
 export { observePromptInspector, refreshPromptInspectorPreview, createPromptAssemblyInput, invalidateTemplateEnvironment, templateLifecycleKey, ensureTemplatePreload, refreshMessageTemplates, refreshTemplateLifecycle } from './workspace/prompt';
-export { getMessageComponentTargets, setStreamDisplayMode, getMessageStreamPreview, formatMessageForDisplay, isMessageTemplatePending } from './workspace/message-display';
+export { getMessageComponentTargets, getMessageStreamPreview, formatMessageForDisplay, isMessageTemplatePending } from './workspace/message-display';
 
 export { type WorkspaceState, workspaceStore } from './workspace/state';
 export { getActiveCharacter, getActivePreset, getAvailableWorldbooks, getActivePersona, getCharacterWorldbooks, getActiveLorebooks } from './workspace/library';

@@ -1,5 +1,4 @@
 import { assemblePromptPipeline, type AssemblePromptInput } from './prompt-assembler';
-import { executePluginHooks } from '../plugins/plugin-host';
 import type { AssembledPromptResult } from '../types';
 import { commandCompatibilityRuntime } from '../compatibility/runtime-client';
 import { prepareWorldbookVectors } from '../core/worldbook-vectors';
@@ -43,16 +42,13 @@ function getOrSpawnWorker(): Worker | null {
 }
 
 export async function runPromptPipelineAsync(rawInput: AssemblePromptInput, signal?: AbortSignal, reuseTemplateAssets = false, afterNativeScan?: NativeScanHook): Promise<AssembledPromptResult> {
-    const hookedInput = rawInput.templateTask ? rawInput : await executePluginHooks('beforePromptAssemble', rawInput);
+    const hookedInput = rawInput;
     await prepareWorldbookVectors(hookedInput, signal);
     signal?.throwIfAborted();
     if (typeof window !== 'undefined' && (!hookedInput.templatePreview || /<%|@@if(?:\s|\\[trn])/.test(JSON.stringify([hookedInput.character, hookedInput.lorebooks, hookedInput.lorebookCatalog, hookedInput.preset, hookedInput.messages, hookedInput.injections, hookedInput.helperGeneration, hookedInput.templateTask])))) {
         const result = await commandCompatibilityRuntime('assemblePrompt', [hookedInput], true, reuseTemplateAssets && !!rawInput.templateTask);
         if (!result.assembled) throw new Error('隔离模板环境没有返回提示词结果');
-        try {
-            const assembled = rawInput.templateTask ? result.assembled : await executePluginHooks('afterPromptAssemble', result.assembled);
-            return { ...assembled, templateTransactionId: result.assembled.templateTransactionId };
-        } catch (error) { await finishPromptTemplateTask(result.assembled, false).catch(() => {}); throw error; }
+        return result.assembled;
     }
     const worker = hookedInput.nativePrompt?.afterScan ? null : getOrSpawnWorker();
 
@@ -77,7 +73,7 @@ export async function runPromptPipelineAsync(rawInput: AssemblePromptInput, sign
         assemblePromptPipeline(hookedInput, undefined, afterNativeScan).then(resolve, reject);
     });
 
-    return rawInput.templateTask ? assembled : executePluginHooks('afterPromptAssemble', assembled);
+    return assembled;
 }
 
 export async function finishPromptTemplateTask(result: AssembledPromptResult, accept: boolean): Promise<void> {

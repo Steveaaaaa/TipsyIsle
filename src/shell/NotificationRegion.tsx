@@ -25,11 +25,15 @@ export function NotificationRegion() {
                 <span className="ttm-notification-state" aria-hidden="true" />
                 <span className="ttm-notification-message" role={item.kind === 'error' ? 'alert' : 'status'}>{item.message}</span>
                 {item.kind === 'error' ? <div className="ttm-notification-error-actions">
+                    {item.secondaryAction && <button type="button" className="ttm-notification-action is-secondary" onClick={item.secondaryAction.run}>{item.secondaryAction.label}</button>}
                     {item.action && <button type="button" className="ttm-notification-action" onClick={item.action.run}>{item.action.label}</button>}
                     <button type="button" className="ttm-notification-action" aria-haspopup="dialog" onClick={event => setExportAnchor(event.currentTarget)}>
                         <Icon name="download" width={14} height={14} />导出错误日志
                     </button>
-                </div> : item.action && <button type="button" className="ttm-notification-action" onClick={item.action.run}>{item.action.label}</button>}
+                </div> : (item.action || item.secondaryAction) && <div className="ttm-notification-actions">
+                    {item.secondaryAction && <button type="button" className="ttm-notification-action is-secondary" onClick={item.secondaryAction.run}>{item.secondaryAction.label}</button>}
+                    {item.action && <button type="button" className="ttm-notification-action" onClick={item.action.run}>{item.action.label}</button>}
+                </div>}
                 <button type="button" className="ttm-notification-close" aria-label="关闭通知" onClick={() => dismissNotification(item.id)}><Icon name="close" width={15} height={15} /></button>
             </div>
         )}</aside>, target)}

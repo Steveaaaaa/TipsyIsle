@@ -5,9 +5,9 @@ export interface ShotCandidate {
     explicitPrompt?: string;
 }
 
-const IGNORED_BLOCKS = /<(think|thinking|reasoning|draft|cot|thought|analysis|scratchpad|reflection|logic_check|dice_calculation|review|plan|planning|script|style|details|pre|html|div|section|aside|table|svg|iframe|UpdateVariable|UpdateVariableVariable|jsonpatch|scene_time|scene_cover|status|status_bar|statusplaceholderimpl|summary|action|suggested_questions|nsfw_illust|dream_after_format)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi;
+const IGNORED_BLOCKS = /<(think|think_nya|report_nya|comment|options|background|thinking|reasoning|draft|cot|thought|analysis|scratchpad|reflection|logic_check|dice_calculation|review|plan|planning|advice|ooc|author_note|system_note|thinking_process|script|style|details|pre|html|div|section|aside|table|svg|iframe|UpdateVariable|UpdateVariableVariable|jsonpatch|scene_time|scene_cover|status|status_bar|statusplaceholderimpl|summary|action|suggested_questions|nsfw_illust|dream_after_format)\b[^>]*>[\s\S]*?(?:<\/\1~?\s*>|$)/gi;
 const BARE_PIC_TAG = /<pic\b(?![^>]*\bprompt\s*=)[^>]*>[\s\S]{0,160}?(?:<\/pic\s*>|$)/gi;
-const TRANSPARENT_WRAPPERS = /<\/?(?:now_plot|dream_plot|dream_body|story|content|text|plot|narrative|maintext|main_text|response|message|body|prose|chapter|scene|main|output|[a-z][a-z0-9]*_[a-z0-9_]+)\b[^>]*>/gi;
+const TRANSPARENT_WRAPPERS = /<\/?(?:game|now_plot|dream_plot|dream_body|story|content|text|plot|narrative|maintext|main_text|response|message|body|prose|chapter|scene|main|output|[a-z][a-z0-9]*_[a-z0-9_]+)\b[^>]*>/gi;
 const CODE_AND_EJS = /```[\s\S]*?(?:```|$)|<%[\s\S]*?%>/g;
 const PIC_TAG = /<pic\b[^<>]{0,400}?\bprompt\s*=\s*(["'])([\s\S]{1,1600}?)\1[^<>]*>/i;
 const IIG_TAG = /<img\b[^<>]{0,2400}?\bsrc\s*=\s*(["'])\[IMG:GEN\]\1[^<>]*>/i;
@@ -26,6 +26,23 @@ const POSTURE_FRAMING_CUE = /坐在|跪坐|倚在|靠在|站在|蹲在|俯身|�
 
 function decodeEntities(value: string) {
     return value.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+}
+
+export function sanitizeCaption(raw: string, fallback = '浮光留影', maxLength = 80): string {
+    let cleaned = raw
+        .replace(IGNORED_BLOCKS, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    for (let i = 0; i < 4; i++) {
+        const next = cleaned
+            .replace(/^[\s\-*>#•·]+/, '')
+            .replace(/^(?:如何使用最新输入内容|最新\s*advice\s*是|advice\s*是|注意|提示|说明)[:：]\s*/i, '')
+            .trim();
+        if (next === cleaned) break;
+        cleaned = next;
+    }
+    return cleaned.slice(0, maxLength).trim() || fallback;
 }
 
 export function extractExplicitPrompt(raw: string): string | undefined {
@@ -104,6 +121,10 @@ const FOCUS_PAIRS: [RegExp, RegExp][] = [
 const HAN_RE = /\p{Script=Han}/u;
 const PREV_BOUNDARY = new Set([...'和与跟被把向对让看见问找叫拉抱小阿']);
 const NEXT_BOUNDARY = new Set([...'说道问笑看望轻低点摇走站坐转抬伸拉握抱的也却便就正把被向对和与在从着了']);
+const DIRECT_PORTRAIT_FOCUS_RE = /侧脸|脸颊|脸庞|面容|容貌|眉眼|眼眸|眼睛|瞳|表情|神情|微笑|笑颜|唇|\b(?:profile|face|eyes|expression|smile)\b/i;
+const USER_SUBJECT_FOCUS_RE = /她俩|她们|他俩|他们|两人|二人|侧脸|脸颊|脸庞|面容|眉眼|眼眸|眼睛|表情|神情|微笑|笑颜|发丝|背影|身影|少女|女孩|男孩|姐妹|兄弟|看她|看他|\b(?:her|his|their|face|profile|eyes|smile|girls?|boys?)\b/i;
+const PARA_HAS_PERSON_RE = /她|他|少女|少年|女孩|男孩|女生|男生|女人|男人|姐姐|妹妹|哥哥|弟弟|侧脸|脸颊|脸庞|眉眼|眼眸|眼神|嘴角|唇角|微笑|笑道|轻笑|低声|开口|说道|转身|回头|发丝|短发|长发|马尾|身影|巫女|同学|\b(?:she|he|her|his|they|girl|boy|woman|man)\b/i;
+const GAZE_ENV_PAIR = FOCUS_PAIRS[7][0];
 const FOCUS_STOP_WORDS = new Set([
     '什么', '时候', '发现', '怎么', '一下', '按照', '最新', '可以', '这里', '那里',
     '现在', '开始', '继续', '进行', '他们', '她们', '她俩', '他俩', '我们', '你们',
@@ -154,8 +175,15 @@ function extractFocusTokens(userPrompt: string): string[] {
     return [...tokens];
 }
 
-function userFocusScore(clean: string, index: number, userPrompt: string, targetAliases: string[]): number {
-    if (!userPrompt.trim()) return 0;
+function userFocusScore(
+    clean: string,
+    index: number,
+    userPrompt: string,
+    targetAliases: string[],
+    wantsSubject: boolean,
+    hasPerson: boolean,
+): { bonus: number; matchedAlias: boolean } {
+    if (!userPrompt.trim()) return { bonus: 0, matchedAlias: false };
     let bonus = 0;
     const matchedAlias = targetAliases.some((alias) => matchesFocusAlias(clean, alias));
     if (matchedAlias) {
@@ -171,6 +199,7 @@ function userFocusScore(clean: string, index: number, userPrompt: string, target
 
     let cueBonus = 0;
     for (const [userCue, textCue] of FOCUS_PAIRS) {
+        if (userCue === GAZE_ENV_PAIR && wantsSubject && !hasPerson) continue;
         if (userCue.test(userPrompt) && textCue.test(clean)) {
             cueBonus += 4;
             if (cueBonus >= 6) {
@@ -200,7 +229,7 @@ function userFocusScore(clean: string, index: number, userPrompt: string, target
     ) {
         bonus -= 2;
     }
-    return bonus;
+    return { bonus, matchedAlias };
 }
 
 function scoreParagraph(raw: string, clean: string): { score: number; explicitPrompt?: string } {
@@ -224,22 +253,34 @@ export function shots(
     const windowParts = early ? rawParts.slice(0, 4) : rawParts;
     const userPrompt = options?.userPrompt ?? '';
     const targetAliases = options?.targetAliases ?? [];
+    const wantsSubject = targetAliases.length > 0 || USER_SUBJECT_FOCUS_RE.test(userPrompt);
+    const wantsPortrait = DIRECT_PORTRAIT_FOCUS_RE.test(userPrompt);
 
-    const candidates: ShotCandidate[] = [];
+    const candidates: Array<ShotCandidate & { hasPerson: boolean }> = [];
     for (const [index, raw] of windowParts.entries()) {
         const clean = raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         if (!clean && !extractExplicitPrompt(raw)) continue;
         const { score: baseScore, explicitPrompt } = scoreParagraph(raw, clean);
         if (options?.markersOnly && !explicitPrompt) continue;
-        const focusBonus = userFocusScore(clean, index, userPrompt, targetAliases);
+        const matchedAlias = targetAliases.some((alias) => matchesFocusAlias(clean, alias));
+        const hasPerson = matchedAlias || PARA_HAS_PERSON_RE.test(clean);
+        // Never fire early on pure-environment paragraphs when the user explicitly focused on face/portrait details.
+        if (early && wantsPortrait && !hasPerson && !explicitPrompt) continue;
+        const { bonus: focusBonus } = userFocusScore(clean, index, userPrompt, targetAliases, wantsPortrait, hasPerson);
         const score = baseScore + focusBonus;
         const minScore = early ? (index < 2 ? 8 : 4) : 4;
         if (score >= minScore && (!early || index < 2 || !!explicitPrompt || clean.length >= 36)) {
-            candidates.push({ part: clean || explicitPrompt || '', index, score, explicitPrompt });
+            candidates.push({ part: clean || explicitPrompt || '', index, score, explicitPrompt, hasPerson });
         }
     }
 
     if (!candidates.length) return [];
+
+    if (!early && wantsSubject && candidates.some((c) => c.hasPerson)) {
+        for (const c of candidates) {
+            if (!c.hasPerson && !c.explicitPrompt) c.score -= 4;
+        }
+    }
 
     const hasUserFocus = userPrompt.trim().length > 0;
     const ranked = [...candidates].sort((left, right) =>
@@ -256,7 +297,9 @@ export function shots(
             return rawParts.slice(lo, hi).some((part) => transition.test(part));
         });
 
-    return (second ? [first, second] : [first]).sort((left, right) => left.index - right.index);
+    return (second ? [first, second] : [first])
+        .map(({ hasPerson: _hasPerson, ...shot }) => shot)
+        .sort((left, right) => left.index - right.index);
 }
 
 export function extractShotFromReply(

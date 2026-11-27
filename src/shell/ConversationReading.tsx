@@ -1,12 +1,12 @@
-import { useCallback, useMemo, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { CompatibilityChat } from '../compatibility/CompatibilityChat';
 import { freeChatName } from '../store/chat-archives';
 import { deleteChatMessage, editChatMessage, formatMessageForDisplay, getActiveChatMessages, getActivePersona, isMessageTemplatePending, replaceActiveWorldbookEntries, swipeChatMessage, workspaceStore, type WorkspaceState } from '../store/workspace-store';
 import type { ThemeEngineState } from '../theme/theme-engine';
 import type { ChatMessageNode, NormalizedCharacterCard, NormalizedLorebook, NormalizedPreset } from '../types';
-import { Icon } from './Icon';
 import { MessageEditDialog } from './MessageEditDialog';
 import { VirtualChatStream } from './VirtualChatStream';
+import type { ReplyJumpMode } from './reading-navigation';
 import type { useReadingMode } from './useReadingMode';
 
 interface ConversationReadingProps {
@@ -40,24 +40,75 @@ export function ConversationReading({
     illustrationAnchor, compatibilityView, extensionPanel, closeExtensionPanel, onReadingActivity, onIllustrateMessage, runSlashCommand,
     requestGenerate,
 }: ConversationReadingProps) {
-    const [replyPosition, setReplyPosition] = useState<{ id?: string; away: boolean }>({ away: false });
+    const [replyPosition, setReplyPosition] = useState<{ id?: string; mode: ReplyJumpMode }>({ mode: 'none' });
     const [jumpRequest, setJumpRequest] = useState(0);
-    const [dismissedReply, setDismissedReply] = useState('');
-    const [fadingReply, setFadingReply] = useState('');
-    const latestReply = useMemo(() => [...activeMessages].reverse().find(node => node.role === 'assistant'), [activeMessages]);
+    const [jumpMode, setJumpMode] = useState<Exclude<ReplyJumpMode, 'none'>>('reply-start');
+    const [jumpReveal, setJumpReveal] = useState(false);
+    const [lastJumpMode, setLastJumpMode] = useState<Exclude<ReplyJumpMode, 'none'>>('reply-start');
+    const hideTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const pinnedRef = useRef(false);
+
+    const latestMessage = activeMessages.at(-1);
+    const latestReply = latestMessage?.role === 'assistant' && latestMessage.floor > 0 ? latestMessage : undefined;
     const replyId = useMemo(() => !state.isGenerating && !state.helperGenerationCount && !state.mvuExtraAnalysisActive && latestReply &&
         !latestReply.extra?.tipsy_generation_incomplete && (isFree || !isMessageTemplatePending(latestReply)) ? latestReply.id : undefined,
         [isFree, latestReply, state.isGenerating, state.helperGenerationCount, state.mvuExtraAnalysisActive, state.templateRenderRevision]);
-    const replyAway = replyPosition.id === replyId && replyPosition.away;
-    const replyKey = replyId ? `${state.activeChatId}:${replyId}:${latestReply?.activeSwipeIndex}` : '';
-    const reportReplyPosition = useCallback((away: boolean) => {
-        setReplyPosition(previous => previous.id === replyId && previous.away === away ? previous : { id: replyId, away });
+    const activeJumpMode: ReplyJumpMode = replyPosition.mode === 'latest-bottom'
+        ? 'latest-bottom'
+        : replyPosition.mode === 'reply-start' && replyPosition.id === replyId
+            ? 'reply-start'
+            : 'none';
+
+    useEffect(() => {
+        if (activeJumpMode !== 'none') setLastJumpMode(activeJumpMode);
+    }, [activeJumpMode]);
+
+    const clearHideTimer = useCallback(() => {
+        if (hideTimerRef.current !== undefined) {
+            clearTimeout(hideTimerRef.current);
+            hideTimerRef.current = undefined;
+        }
+    }, []);
+    const scheduleHide = useCallback((duration: number) => {
+        clearHideTimer();
+        if (pinnedRef.current) return;
+        hideTimerRef.current = setTimeout(() => { setJumpReveal(false); }, duration);
+    }, [clearHideTimer]);
+    const revealJump = useCallback((duration = 4000) => {
+        setJumpReveal(true);
+        scheduleHide(duration);
+    }, [scheduleHide]);
+    useEffect(() => () => clearHideTimer(), [clearHideTimer]);
+    useEffect(() => {
+        clearHideTimer();
+        setJumpReveal(false);
+        setReplyPosition({ mode: 'none' });
+    }, [state.activeChatId, clearHideTimer]);
+
+    const prevGeneratingRef = useRef(state.isGenerating);
+    useEffect(() => {
+        const wasGenerating = prevGeneratingRef.current;
+        prevGeneratingRef.current = state.isGenerating;
+        if (wasGenerating && !state.isGenerating && replyId) revealJump(8000);
+    }, [state.isGenerating, replyId, revealJump]);
+
+    const handleReadingActivity = useCallback((kind?: 'scroll' | 'tap') => {
+        onReadingActivity(kind);
+        if (kind !== 'tap') revealJump(4000);
+    }, [onReadingActivity, revealJump]);
+
+    const reportReplyPosition = useCallback((mode: ReplyJumpMode) => {
+        setReplyPosition(previous => (previous.id === replyId && previous.mode === mode ? previous : { id: replyId, mode }));
     }, [replyId]);
+
+    const showJumpPill = activeJumpMode !== 'none' && jumpReveal;
+    const displayMode = activeJumpMode !== 'none' ? activeJumpMode : lastJumpMode;
+
     return (
         <>
             <div ref={illustrationAnchor} className={`ttm-reading-viewport${hasWallpaper && hasStory ? ' ttm-skin-story-surface' : ''}`} data-ti-protected={hasStory ? '' : undefined}>
             {workspaceReady && hasStory && <CompatibilityChat key={state.activeCharacterId} session={state.activeChatId} revision={state} visible={compatibilityView} extensionPanel={extensionPanel} closeExtensionPanel={closeExtensionPanel}
-                replyId={replyId} jumpRequest={jumpRequest} onReadingActivity={onReadingActivity} onReplyPosition={reportReplyPosition} />}
+                replyId={replyId} jumpRequest={jumpRequest} jumpMode={jumpMode} onReadingActivity={handleReadingActivity} onReplyPosition={reportReplyPosition} />}
             {isFree && !activeMessages.length && <section className="ttm-start-page" aria-label={freeChatName}>
                 <h2>想聊点什么？</h2>
                 {needsConnection && <button type="button" className="ttm-btn-secondary" onClick={onOpenConnection}>连接模型</button>}
@@ -68,7 +119,8 @@ export function ConversationReading({
                 messages={activeMessages}
                 replyId={replyId}
                 jumpRequest={jumpRequest}
-                onReadingActivity={onReadingActivity}
+                jumpMode={jumpMode}
+                onReadingActivity={handleReadingActivity}
                 onReplyPosition={reportReplyPosition}
                 characterId={activeCharacter.id}
                 characterName={isFree ? 'AI' : activeCharacter.name}
@@ -89,9 +141,38 @@ export function ConversationReading({
                 onGetWorldbook={() => activeLorebooks.flatMap((w) => w.entries)}
                 onReplaceWorldbook={(entries) => Array.isArray(entries) && replaceActiveWorldbookEntries(entries)}
             />}
-            {replyKey && dismissedReply !== replyKey && (replyAway || fadingReply === replyKey) && <button type="button" data-ti-shell="reply-control" className={`ttm-reply-start ttm-btn-secondary ${fadingReply === replyKey ? 'is-dismissed' : ''}`} disabled={fadingReply === replyKey}
-                onClick={() => { setJumpRequest(value => value + 1); if (matchMedia('(prefers-reduced-motion: reduce)').matches) setDismissedReply(replyKey); else setFadingReply(replyKey); }}
-                onAnimationEnd={event => { if (event.animationName === 'reply-dismiss') { setDismissedReply(replyKey); setFadingReply(''); } }}><Icon name="arrow" width={16} height={16} style={{ transform: 'rotate(-90deg)' }} />回到本次回复开头</button>}
+            <button
+                type="button"
+                data-ti-shell="reply-control"
+                className={`ttm-reply-jump ${showJumpPill ? 'is-visible' : ''}`}
+                tabIndex={showJumpPill ? 0 : -1}
+                aria-hidden={!showJumpPill}
+                onPointerEnter={() => { pinnedRef.current = true; clearHideTimer(); }}
+                onPointerLeave={() => { pinnedRef.current = false; if (jumpReveal) scheduleHide(2200); }}
+                onFocus={() => { pinnedRef.current = true; clearHideTimer(); }}
+                onBlur={() => { pinnedRef.current = false; if (jumpReveal) scheduleHide(2200); }}
+                onClick={() => {
+                    if (activeJumpMode === 'none') return;
+                    clearHideTimer();
+                    pinnedRef.current = false;
+                    setJumpMode(activeJumpMode);
+                    setJumpRequest(value => value + 1);
+                    setJumpReveal(false);
+                }}
+            >
+                <span className="ttm-reply-jump-badge" aria-hidden="true">
+                    {displayMode === 'latest-bottom' ? (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M5 19h14M12 5v10m-5-5 5 5 5-5" />
+                        </svg>
+                    ) : (
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M5 5h14M12 19V9m-5 5 5-5 5 5" />
+                        </svg>
+                    )}
+                </span>
+                <span>{displayMode === 'latest-bottom' ? '回到最新' : '回到本楼开头'}</span>
+            </button>
             </div>
 
             {(state.nativeToolPreview?.reasoning ?? state.streamingReasoning) && (

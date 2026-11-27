@@ -3,13 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 import { connectCompatibilityFrame } from './runtime-client';
 import { themeEngineStore, readingThemeTokens } from '../theme/theme-engine';
 import type { ReadingPresentation } from '../theme/reading-presentation';
-import type { ReadingNavigationProps } from '../shell/reading-navigation';
+import type { ReadingNavigationProps, ReplyJumpMode } from '../shell/reading-navigation';
 import { readReadingBookmark } from '../shell/reading-bookmark';
 import { CompatibilityLoading } from './CompatibilityLoading';
 import { CompatibilityFilms } from './CompatibilityFilms';
 
 /** Separate origin: nested documents share APIs without accessing the application origin. */
-export function CompatibilityChat({ session, visible = true, extensionPanel = false, closeExtensionPanel, replyId, jumpRequest, onReadingActivity, onReplyPosition }: {
+export function CompatibilityChat({ session, visible = true, extensionPanel = false, closeExtensionPanel, replyId, jumpRequest, jumpMode, onReadingActivity, onReplyPosition }: {
     session: string; revision: unknown; visible?: boolean; extensionPanel?: boolean; closeExtensionPanel?: () => void;
 } & ReadingNavigationProps) {
     const frame = useRef<HTMLIFrameElement>(null);
@@ -27,7 +27,10 @@ export function CompatibilityChat({ session, visible = true, extensionPanel = fa
             if (event.data.kind === 'compat:popup') { setPopupSession(event.data.visible === true ? session : ''); return; }
             if (!visible) return;
             if (event.data.kind === 'compat:reading-activity') onReadingActivity(event.data.activity === 'tap' ? 'tap' : 'scroll');
-            if (event.data.kind === 'compat:reply-position' && event.data.replyId === replyId) onReplyPosition(event.data.away === true);
+            if (event.data.kind === 'compat:reply-position') {
+                const mode: ReplyJumpMode = event.data.mode === 'reply-start' || event.data.mode === 'latest-bottom' ? event.data.mode : 'none';
+                if (mode === 'none' || mode === 'latest-bottom' || event.data.replyId === replyId) onReplyPosition(mode);
+            }
         };
         window.addEventListener('message', receive);
         return () => window.removeEventListener('message', receive);
@@ -47,10 +50,11 @@ export function CompatibilityChat({ session, visible = true, extensionPanel = fa
     useEffect(publishTarget, [session, replyId, readySession, visible, epoch]);
     const lastJump = useRef(jumpRequest);
     useEffect(() => {
-        if (!visible || !replyId || !jumpRequest || lastJump.current === jumpRequest) return;
+        if (!visible || !jumpRequest || lastJump.current === jumpRequest) return;
+        if (jumpMode !== 'latest-bottom' && !replyId) return;
         lastJump.current = jumpRequest;
-        frame.current?.contentWindow?.postMessage({ kind: 'compat:reading-jump', session, replyId }, compatibilityOrigin);
-    }, [jumpRequest, replyId, session, visible]);
+        frame.current?.contentWindow?.postMessage({ kind: 'compat:reading-jump', session, replyId, mode: jumpMode ?? 'reply-start' }, compatibilityOrigin);
+    }, [jumpRequest, jumpMode, replyId, session, visible]);
     const publishPresentation = () => {
         const { layoutMode, streamLoadingSprite } = themeEngineStore.getState();
         const tokens = readingThemeTokens();

@@ -91,6 +91,8 @@ export async function visualSources() {
         profiles: index.profiles,
         gallery: index.gallery,
         characters: index.characters,
+        worldContext: index.worldContext,
+        inferredStyle: index.inferredStyle,
     };
 }
 

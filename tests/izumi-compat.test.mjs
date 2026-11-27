@@ -73,6 +73,8 @@ async function loadTestBundle() {
                 'export { createPromptAssemblyInput, TemplateInputChangedError } from "./src/store/workspace/prompt.ts";',
                 'export { assemblePromptPipeline } from "./src/pipeline/prompt-assembler.ts";',
                 'export { TemplateRuntime } from "./src/pipeline/template-runtime.ts";',
+                'export { ignoreUpdateVersion, releaseNotesView } from "./src/core/app-update.ts";',
+                'export { notificationStore } from "./src/store/notification-store.ts";',
             ].join('\n'),
             resolveDir: process.cwd(),
             loader: 'ts',
@@ -335,9 +337,9 @@ test('native preset codec, settings/presets HTTP APIs, and chat swipe_info/topLe
         assert.ok(builtScriptDoc.startsWith('<!doctype html><html><head><script>parent.__compatInstall(window);<\\/script></head><body><script type="module">'));
         assert.ok(builtScriptDoc.includes(`t.includes('<head>') || t.includes('<body')`));
 
-        // 8. frame-entry unifies repaintMessageBlock with populateMessageBody/disposeRowBody and supports SillyTavern addHook(fn, opts)
+        // 8. frame-entry unifies repaintMessageBlock with reconcileMessageBody and supports SillyTavern addHook(fn, opts)
         const frameEntrySource = await fs.readFile(new URL('../src/compatibility/frame-entry.ts', import.meta.url), 'utf8');
-        assert.match(frameEntrySource, /function repaintMessageBlock[\s\S]*?disposeRowBody\(rowEl\)[\s\S]*?populateMessageBody\(rowEl,/);
+        assert.match(frameEntrySource, /function repaintMessageBlock[\s\S]*?reconcileMessageBody\(rowEl,/);
         assert.doesNotMatch(frameEntrySource, /function repaintMessageBlock[\s\S]*?rowEl\.innerHTML\s*=/);
         assert.match(frameEntrySource, /stageOrFn:\s*FormatterStage\s*\|\s*FormatterHookFn/);
     } finally {
@@ -804,4 +806,35 @@ test('assemblePromptPipeline syncs in-place advice transfer after WORLD_INFO_ACT
     } finally {
         await cleanup();
     }
+});
+
+test('ignoreUpdateVersion persists ignored release version and closes update dialog', async () => {
+    installMemoryLocalStorage();
+    const { mod, cleanup } = await loadTestBundle();
+    try {
+        const { ignoreUpdateVersion, releaseNotesView, notificationStore } = mod;
+        releaseNotesView.setState({
+            open: {
+                kind: 'update',
+                release: { version: '1.2.1', title: 'TipsyIsle 1.2.1', notes: 'notes', publishedAt: '2026-11-27T00:00:00Z', installerSize: 25 * 1024 * 1024 },
+            },
+        });
+        ignoreUpdateVersion('1.2.1');
+        assert.equal(releaseNotesView.getState().open, null);
+        assert.equal(globalThis.localStorage.getItem('tipsy:ignored-update-version'), '1.2.1');
+        const notice = notificationStore.getState().items.find(item => item.id === 'app-update');
+        assert.match(notice?.message ?? '', /1\.2\.1/);
+    } finally {
+        await cleanup();
+    }
+});
+
+test('compatibility ToolManager honestly reports tool calling as unsupported and omits fake registration', async () => {
+    const src = await fs.readFile(path.resolve('src/compatibility/frame-entry.ts'), 'utf8');
+    const blockMatch = /const ToolManager = \{[\s\S]*?\};/.exec(src);
+    assert.ok(blockMatch, 'ToolManager block should exist in frame-entry.ts');
+    const block = blockMatch[0];
+    assert.match(block, /isToolCallingSupported:\s*\(\)\s*=>\s*false/);
+    assert.match(block, /canPerformToolCalls:\s*\(\)\s*=>\s*false/);
+    assert.doesNotMatch(block, /registerFunctionTool/);
 });

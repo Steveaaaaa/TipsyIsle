@@ -1,6 +1,6 @@
 import type { ProseAnchorSpec } from '../../packages/plugin-sdk/index.js';
-import { mountMediaSlot } from '../plugins/native/prose-anchor';
-import { findSandboxParagraphAnchor } from '../sandbox/sandbox-media-shim';
+import { hasSubstantialOuterProse, mountMediaSlot } from '../plugins/native/prose-anchor';
+import { findSandboxParagraphAnchor, isInteractiveWidgetDocument } from '../sandbox/sandbox-media-shim';
 
 export interface FilmSpace { key:string; message:string; swipe:string; anchor?:ProseAnchorSpec; ratio:string; folded:boolean }
 
@@ -58,32 +58,64 @@ export function filmGeometry(row:(id:string)=>HTMLElement|undefined, publish:(re
         body: HTMLElement,
         spec: FilmSpace,
     ): { frame: HTMLIFrameElement; doc: Document; after: Element } | null => {
-        if (body.querySelector(':scope > .message-markdown, :scope > .tipsy-stream-parts > .message-markdown')) return null;
-        const loadedFrames: { frame: HTMLIFrameElement; doc: Document }[] = [];
-        for (const frame of Array.from(body.querySelectorAll<HTMLIFrameElement>('iframe.compat-message-frame'))) {
+        if (hasSubstantialOuterProse(body, spec.anchor)) return null;
+        const allFrames = Array.from(body.querySelectorAll<HTMLIFrameElement>('iframe.compat-message-frame'));
+        if (!allFrames.length) return null;
+        let allLoaded = true;
+        const hasAnyMixedFrame = allFrames.some((f) => f.dataset?.blockType === 'mixed');
+        const mixedFrames: { frame: HTMLIFrameElement; doc: Document }[] = [];
+        const htmlFrames: { frame: HTMLIFrameElement; doc: Document }[] = [];
+        for (const frame of allFrames) {
             let doc: Document | null = null;
             try { doc = frame.contentDocument; } catch { doc = null; }
-            if (!doc?.body) continue;
+            const awaitingSrcdoc =
+                typeof frame.getAttribute === 'function' &&
+                frame.getAttribute('srcdoc') === null &&
+                frame.getAttribute('src') === null &&
+                !(doc?.body?.textContent ?? '').trim();
+            if (awaitingSrcdoc || !doc?.body || (doc.readyState && doc.readyState !== 'complete')) {
+                allLoaded = false;
+            }
+            if (awaitingSrcdoc || !doc?.body) continue;
             watchChildDoc(doc);
-            loadedFrames.push({ frame, doc });
+            if (!isInteractiveWidgetDocument(doc)) {
+                if (frame.dataset?.blockType === 'mixed') mixedFrames.push({ frame, doc });
+                else htmlFrames.push({ frame, doc });
+            }
         }
-        if (!loadedFrames.length) return null;
+        if (!mixedFrames.length && !htmlFrames.length) return null;
 
-        // Pass 1: strict text / excerpt / marker match across all child frames.
-        for (const { frame, doc } of loadedFrames) {
+        // Pass 1: strict text / excerpt / marker match across eligible mixed prose frames first.
+        for (const { frame, doc } of mixedFrames) {
             const after = findSandboxParagraphAnchor(doc, spec.anchor, { allowIndexFallback: false });
             if (after && after.parentNode) return { frame, doc, after };
         }
+        if (!hasAnyMixedFrame) {
+            for (const { frame, doc } of htmlFrames) {
+                const after = findSandboxParagraphAnchor(doc, spec.anchor, { allowIndexFallback: false });
+                if (after && after.parentNode) return { frame, doc, after };
+            }
+        }
 
-        // Pass 2: index fallback only on the tallest prose frame.
-        const byHeight = [...loadedFrames].sort((a, b) => {
-            const ha = typeof a.frame.getBoundingClientRect === 'function' ? a.frame.getBoundingClientRect().height : 0;
-            const hb = typeof b.frame.getBoundingClientRect === 'function' ? b.frame.getBoundingClientRect().height : 0;
-            return hb - ha;
-        });
-        for (const { frame, doc } of byHeight) {
+        if (!allLoaded) return null;
+
+        const sortByHeight = (list: { frame: HTMLIFrameElement; doc: Document }[]) =>
+            [...list].sort((a, b) => {
+                const ha = typeof a.frame.getBoundingClientRect === 'function' ? a.frame.getBoundingClientRect().height : 0;
+                const hb = typeof b.frame.getBoundingClientRect === 'function' ? b.frame.getBoundingClientRect().height : 0;
+                return hb - ha;
+            });
+
+        // Pass 2: index fallback only after all sibling frames loaded, on the tallest eligible prose frame.
+        for (const { frame, doc } of sortByHeight(mixedFrames)) {
             const after = findSandboxParagraphAnchor(doc, spec.anchor, { allowIndexFallback: true });
             if (after && after.parentNode) return { frame, doc, after };
+        }
+        if (!hasAnyMixedFrame) {
+            for (const { frame, doc } of sortByHeight(htmlFrames)) {
+                const after = findSandboxParagraphAnchor(doc, spec.anchor, { allowIndexFallback: true });
+                if (after && after.parentNode) return { frame, doc, after };
+            }
         }
         return null;
     };

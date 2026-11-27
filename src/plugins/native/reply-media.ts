@@ -72,7 +72,6 @@ export function projectMedia(node: ChatMessageNode): MediaProjection[] {
                 const parsed = replyMediaItemSchema.safeParse(sanitizeRawMediaItem(rawEntry));
                 if (!parsed.success) continue;
                 const item = parsed.data;
-                if (item.revision && item.revision !== ref.revision) continue;
                 settledItems.push({
                     key: JSON.stringify([node.id, ref.swipeId, plugin.manifest.id, item.slotId]),
                     node,

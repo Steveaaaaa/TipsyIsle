@@ -134,17 +134,17 @@ export function prepareNativeMessages(rawMessages, model, useSystemPrompt = true
       normalized.push(message);
       continue;
     }
-    const isPlainAssistant = message.role === 'assistant' && !message.tool_calls?.length && !message.reasoning_signature && !message.reasoning_content;
+    const isPlainAssistant = message.role === 'assistant' && !message.tool_calls?.length && !message.reasoning_signature && !message.thoughtSignature && !message.reasoning_content;
     let role = message.role;
     if (role === 'system') role = 'user';
-    else if (role === 'assistant' && noPrefillModel && index === rest.length - 1 && !message.tool_calls?.length) role = 'user';
+    else if (role === 'assistant' && noPrefillModel && index === rest.length - 1 && isPlainAssistant) role = 'user';
 
     const content = formatNamedMessage(message);
     const next = { ...message, role, content };
     delete next.name;
 
     const previous = normalized.at(-1);
-    const previousPlainAssistant = previous?.role === 'assistant' && !previous.tool_calls?.length && !previous.reasoning_signature && !previous.reasoning_content;
+    const previousPlainAssistant = previous?.role === 'assistant' && !previous.tool_calls?.length && !previous.reasoning_signature && !previous.thoughtSignature && !previous.reasoning_content;
     const canMergeUser = previous?.role === 'user' && role === 'user';
     const canMergeAssistant = anthropic && previousPlainAssistant && isPlainAssistant && role === 'assistant';
     if (canMergeUser || canMergeAssistant) {
@@ -189,12 +189,21 @@ async function contextFor(payload, model, signal) {
     if (message.role === 'tool') return { role: 'toolResult', toolCallId: message.tool_call_id,
       toolName: message.name, isError: !!message.isError, content, timestamp: index };
     if (message.role === 'assistant') {
-      if (message.reasoning_content || message.reasoning_signature) content.unshift({ type: 'thinking', thinking: message.reasoning_content ?? '',
-        thinkingSignature: message.reasoning_signature });
-      for (const tool of message.tool_calls ?? []) {
+      const thinkMatch = !message.reasoning_signature && message.thoughtSignature && typeof message.content === 'string'
+        ? /^\s*<think>([\s\S]*?)<\/think>\s*$/i.exec(message.content)
+        : null;
+      if (thinkMatch) {
+        content.length = 0;
+        content.unshift({ type: 'thinking', thinking: thinkMatch[1], thinkingSignature: message.thoughtSignature });
+      } else if (message.reasoning_content || message.reasoning_signature) {
+        content.unshift({ type: 'thinking', thinking: message.reasoning_content ?? '', thinkingSignature: message.reasoning_signature });
+      }
+      for (const [toolIdx, tool] of (message.tool_calls ?? []).entries()) {
         let args = {};
         try { const input = JSON.parse(tool.function.arguments); if (input && typeof input === 'object' && !Array.isArray(input)) args = input; } catch {}
-        content.push({ type: 'toolCall', id: tool.id, name: tool.function.name, arguments: args, thoughtSignature: tool.thought_signature });
+        const sig = tool.thought_signature ?? tool.signature ?? tool.extra_content?.google?.thoughtSignature
+          ?? (toolIdx === 0 && !message.reasoning_signature && content.length === 0 ? message.thoughtSignature : undefined);
+        content.push({ type: 'toolCall', id: tool.id, name: tool.function.name, arguments: args, thoughtSignature: sig });
       }
       return { role: 'assistant', content: content.filter(part => part.type !== 'text' || part.text), timestamp: index, api: model.api,
         provider: model.provider, model: model.id, usage: emptyUsage(), stopReason: message.tool_calls?.length ? 'toolUse' : 'stop' };
@@ -230,9 +239,13 @@ function requestOptions(payload, model, signal) {
           if (parameters[key] !== undefined && !(key === 'top_k' && parameters[key] === 0)) body.config[native] = parameters[key];
         }
         if (format) { body.config.responseMimeType = 'application/json'; if (format.json_schema) body.config.responseJsonSchema = format.json_schema.schema; }
-        if (parameters.tool_choice) body.config.toolConfig = { functionCallingConfig: {
-          mode: parameters.tool_choice === 'required' || typeof parameters.tool_choice === 'object' ? 'ANY' : parameters.tool_choice.toUpperCase(),
-          ...(parameters.tool_choice?.function?.name ? { allowedFunctionNames: [parameters.tool_choice.function.name] } : {}) } };
+        if (includeBody.toolConfig || parameters.toolConfig) {
+          body.config.toolConfig = includeBody.toolConfig ?? parameters.toolConfig;
+        } else if (parameters.tool_choice) {
+          body.config.toolConfig = { functionCallingConfig: {
+            mode: parameters.tool_choice === 'required' || typeof parameters.tool_choice === 'object' ? 'ANY' : parameters.tool_choice.toUpperCase(),
+            ...(parameters.tool_choice?.function?.name ? { allowedFunctionNames: [parameters.tool_choice.function.name] } : {}) } };
+        }
         if (['none', 'off'].includes(level)) body.config.thinkingConfig = { thinkingBudget: 0 };
         else if (!body.config.thinkingConfig && /(?:^|[\s_\-\]/])(?:gemini-(?:2\.5|[3-9]|[1-9]\d)|gemini-(?:flash|pro)(?:-lite)?-latest|gemini-[\w.-]*thinking|gemma-?4)/i.test(model.id ?? '')) {
           body.config.thinkingConfig = { includeThoughts: true };

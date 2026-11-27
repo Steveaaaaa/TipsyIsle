@@ -25,6 +25,7 @@ import type { ChatMessageNode, SandboxRpcRequest, SandboxRpcResponse, VariableSc
 
 export interface SandboxFrameProps {
     componentTargets?: Array<{ key: string; selector: string }>;
+    blockType?: 'html' | 'mixed';
     htmlContent: string;
     messageNode?: ChatMessageNode;
     messageId: string;
@@ -45,6 +46,7 @@ let frameCounter = 0;
 
 export function SandboxFrame({
     componentTargets,
+    blockType,
     htmlContent,
     messageNode,
     messageId,
@@ -354,13 +356,14 @@ export function SandboxFrame({
     ]);
 
     return (
-        <div className="ttm-sandbox-container" style={{ position: 'relative' }}>
+        <div className="ttm-sandbox-container" data-block-type={blockType} style={{ position: 'relative' }}>
                 {loading && <StreamingMessage preview={{ source: '', status: '', phase: 'layout', document: false, scope: frameId,
                     parts: [{ id: 'author-load', type: 'waiting', content: '', complete: true, key: componentTargets?.[0]?.key, label: '互动内容' }] }} />}
                 <iframe
                     ref={iframeRef}
                     title={`互动内容 · 第 ${floor} 层`}
                     className="ttm-sandbox-iframe"
+                    data-block-type={blockType}
                     sandbox="allow-scripts"
                     srcDoc={srcDoc}
                     onLoad={() => { publishPresentation(); requestAnimationFrame(() => requestAnimationFrame(() => setLoadedDocument(srcDoc))); }}

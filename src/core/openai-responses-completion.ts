@@ -177,6 +177,7 @@ export function openAiResponsesReplyAdapter() {
                         ...(tool_calls.length ? { tool_calls } : {}),
                     },
                 }],
+                ...(packet?.usage ? { usage: { prompt_tokens: packet.usage.input_tokens, completion_tokens: packet.usage.output_tokens } } : {}),
             };
         }
 
@@ -256,7 +257,8 @@ export function openAiResponsesReplyAdapter() {
                 return { choices: [] };
             }
             case 'response.completed':
-            case 'response.incomplete':
+            case 'response.incomplete': {
+                const responseUsage = packet.response?.usage ?? packet.usage;
                 return {
                     choices: [{
                         index: 0,
@@ -265,7 +267,9 @@ export function openAiResponsesReplyAdapter() {
                             : 'stop',
                         delta: {},
                     }],
+                    ...(responseUsage ? { usage: { prompt_tokens: responseUsage.input_tokens, completion_tokens: responseUsage.output_tokens } } : {}),
                 };
+            }
             default:
                 return { choices: [] };
         }

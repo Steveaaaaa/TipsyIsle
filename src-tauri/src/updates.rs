@@ -48,10 +48,13 @@ impl UpdateError {
 }
 
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateDetails {
     version: String,
     title: Option<String>,
     notes: Option<String>,
+    published_at: Option<String>,
+    installer_size: Option<u64>,
 }
 
 #[tauri::command]
@@ -87,6 +90,7 @@ mod native {
         tag_name: String,
         name: Option<String>,
         body: Option<String>,
+        published_at: Option<String>,
         draft: bool,
         prerelease: bool,
         assets: Vec<ReleaseAsset>,
@@ -123,7 +127,13 @@ mod native {
             .filter(|asset| (1..=MAX_INSTALLER_BYTES).contains(&asset.size))
             .ok_or("这个版本还没有适用于本机的安装包。")?;
         Ok(Some(Update {
-            details: UpdateDetails { version: version.to_string(), title: release.name, notes: release.body },
+            details: UpdateDetails {
+                version: version.to_string(),
+                title: release.name,
+                notes: release.body,
+                published_at: release.published_at,
+                installer_size: Some(asset.size),
+            },
             file,
             size: asset.size,
         }))

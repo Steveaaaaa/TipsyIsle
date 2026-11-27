@@ -5,87 +5,28 @@ import type { SchemaFieldDescriptor } from '../types';
 import { ModelNameInput } from './ModelNameInput';
 
 export interface SchemaFormRendererProps {
-    compactMobile?: boolean;
-    filterGroup?: string;
-    excludeGroups?: string[];
     fieldIds?: string[];
     fieldOverrides?: Record<string, Partial<SchemaFieldDescriptor>>;
     ungrouped?: boolean;
-    showDescriptions?: boolean;
     inlineHelpIds?: ReadonlySet<string>;
     disabled?: boolean;
     displayValues?: Record<string, unknown>;
 }
 
-export function SchemaFormRenderer({ compactMobile = false, filterGroup, excludeGroups = [], fieldIds, fieldOverrides = {}, ungrouped = false, showDescriptions = false, inlineHelpIds, disabled = false, displayValues }: SchemaFormRendererProps) {
-    const { fields, groupsOrder, values } = useSettingsEditor();
-    const [expandedAdvancedGroups, setExpandedAdvancedGroups] = useState<Record<string, boolean>>({});
+export function SchemaFormRenderer({ fieldIds, fieldOverrides = {}, ungrouped = false, inlineHelpIds, disabled = false, displayValues }: SchemaFormRendererProps) {
+    const { fields, values } = useSettingsEditor();
     const [activeHelpId, setActiveHelpId] = useState<string | null>(null);
-
-    const toggleAdvancedGroup = (group: string) => {
-        setExpandedAdvancedGroups((prev) => ({ ...prev, [group]: !prev[group] }));
-    };
 
     const selected = (fieldIds ? fieldIds.map(id => fields[id]).filter(Boolean) : Object.values(fields))
         .map(field => ({ ...field, ...fieldOverrides[field.id] }));
-    const visibleGroups = groupsOrder.filter(group => (!filterGroup || group === filterGroup) && !excludeGroups.includes(group));
     const renderField = (field: SchemaFieldDescriptor) => {
-        const inline = inlineHelpIds ? inlineHelpIds.has(field.id) : showDescriptions;
+        const inline = Boolean(inlineHelpIds?.has(field.id));
         return <SchemaFieldItem key={field.id} field={field} value={displayValues?.[field.id] ?? values[field.id]} disabled={disabled}
             settings={displayValues ?? values} ungrouped={ungrouped}
             helpExpanded={inline || activeHelpId === field.id} onToggleHelp={() => setActiveHelpId(activeHelpId === field.id ? null : field.id)} />;
     };
 
-    if (ungrouped) return <fieldset className="ttm-settings-fields" disabled={disabled}>{selected.map(renderField)}</fieldset>;
-
-    return (
-        <div className="ttm-schema-form">
-            {visibleGroups.map((groupName) => {
-                const groupFields = selected.filter((f) => f.group === groupName);
-                if (groupFields.length === 0) return null;
-
-                const primaryFields = groupFields.filter(
-                    (f) => f.mobileWeight === 'essential' || (!compactMobile && f.mobileWeight === 'standard'),
-                );
-                const advancedFields = groupFields.filter(
-                    (f) => f.mobileWeight === 'advanced' || (compactMobile && f.mobileWeight === 'standard'),
-                );
-                const isExpanded = Boolean(expandedAdvancedGroups[groupName]);
-
-                return (
-                    <section key={groupName} className="ttm-schema-group">
-                        <header className="ttm-schema-group-header">
-                            <span className="ttm-schema-group-title">{groupName}</span>
-                            <span className="ttm-schema-group-badge">{groupFields.length} 项</span>
-                        </header>
-
-                        <div className="ttm-schema-fields">
-                            {primaryFields.map(renderField)}
-                        </div>
-
-                        {advancedFields.length > 0 && (
-                            <div className="ttm-schema-advanced-fold">
-                                <button
-                                    type="button"
-                                    className="ttm-schema-fold-trigger"
-                                    aria-expanded={isExpanded}
-                                    onClick={() => toggleAdvancedGroup(groupName)}
-                                >
-                                    <span>{isExpanded ? '收起高阶参数' : `展开高阶参数 (${advancedFields.length})`}</span>
-                                    <span className="ttm-chevron">{isExpanded ? '▴' : '▾'}</span>
-                                </button>
-                                {isExpanded && (
-                                    <div className="ttm-schema-fields ttm-schema-fields-advanced">
-                                        {advancedFields.map(renderField)}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </section>
-                );
-            })}
-        </div>
-    );
+    return <fieldset className="ttm-settings-fields" disabled={disabled}>{selected.map(renderField)}</fieldset>;
 }
 
 interface SchemaFieldItemProps {

@@ -3,9 +3,10 @@ import type { ModelRequest, Permission, TaskResult, TaskView } from '../../../pa
 import { imageRequest } from './image-protocol';
 import { generateImage } from './image-adapter';
 import { detectRuntimeFlavor, streamLlmCompletion } from '../../core/platform-bridge';
+import { isGeminiSource } from '../../core/gemini-endpoint';
 import { isNativeRuntime, platformFetch, compatibilityOrigin } from '../../core/native-runtime';
 import { authorizedConnection, httpEndpoint } from './connections';
-import { fromBase64, readLimited } from './bytes';
+import { readLimited } from './bytes';
 import { mediaLimit, saveMedia, transcodeToWebP } from './media';
 import { idSchema, jsonObject, missing, roleSchema, sliceInt } from './edits';
 import { PluginApiError } from './errors';
@@ -57,7 +58,10 @@ function drain() {
                 task.result = result; task.progress = 1; finish(task, 'done');
             } catch (error) {
                 const fault = task.controller.signal.aborted ? task.controller.signal.reason : error;
-                task.error = fault instanceof PluginApiError ? { code: fault.code, message: fault.message } : { code: 'NETWORK_ERROR', message: '外部任务失败，请检查连接或服务状态' };
+                const detail = fault instanceof Error && fault.message.trim()
+                    ? fault.message.trim().slice(0, 240)
+                    : '外部任务失败，请检查连接或服务状态';
+                task.error = fault instanceof PluginApiError ? { code: fault.code, message: fault.message } : { code: 'NETWORK_ERROR', message: detail };
                 finish(task, task.error.code === 'CANCELLED' ? 'cancelled' : 'failed');
             } finally { clearTimeout(timer); running--; drain(); }
         })();
@@ -147,10 +151,15 @@ export async function startModel(owner: string, args: unknown, grants: string[],
     signal.throwIfAborted();
     return start(owner, async task => {
         if (data.kind === 'chat') {
+            const gemini = isGeminiSource(connection.source);
+            const compactMax = data.maxTokens ?? 4096;
             const response = await streamLlmCompletion({ ...connection, signal: task.signal, stream: data.stream ?? true, onToken: task.append,
                 messages: data.messages.map(row => ({ ...row, tokens: 0, sourceId: 'plugin-task', sourceLabel: '插件模型任务' })),
-                includeHeaders: connection.headers, parameters: { max_tokens: data.maxTokens ?? 4096, temperature: data.temperature ?? .7,
-                    ...(data.schema && { response_format: { type: 'json_schema', json_schema: { name: 'plugin_response', schema: data.schema } } }) } });
+                includeHeaders: connection.headers, parameters: {
+                    max_tokens: gemini ? Math.max(compactMax, 8192) : compactMax,
+                    temperature: data.temperature ?? .7,
+                    ...(data.schema && { response_format: { type: 'json_schema', json_schema: { name: 'plugin_response', schema: data.schema } } }),
+                } });
             return { kind: 'chat', text: response.content, reasoning: response.reasoning };
         }
         if (data.kind === 'image') {

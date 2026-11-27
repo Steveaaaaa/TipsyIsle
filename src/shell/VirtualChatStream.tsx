@@ -5,19 +5,20 @@ import { routesAt } from '../store/chat-tree';
 import { workspaceStore, setStatusBanner } from '../store/workspace-store';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { extractHtmlSandboxBlocks } from '../pipeline/macro-regex-engine';
+import { blockContentKey } from '../compatibility/block-reconcile';
 import { renderMessageMarkdown, renderMixedMessage } from '../pipeline/message-markdown';
 import { getMessageStreamPreview, getMessageComponentTargets } from '../store/workspace-store';
 import { StreamingMessage } from './StreamingMessage';
 import { SandboxFrame } from '../sandbox/SandboxFrame';
 import { InlineMedia, StageLight } from '../plugins/native/ReplyMediaSlot';
 import { resolveActiveStage } from '../plugins/native/reply-media';
-import { SlotMount } from '../plugins/slot-registry';
 import { PluginButtons } from '../plugins/native/PluginCommands';
 import { Icon } from './Icon';
 import { CharacterAvatar } from './CharacterAvatar';
 import { GenerationActivity } from './GenerationActivity';
+import { MessageMetricsBar } from './MessageMetricsBar';
 import { storySpeakerName } from '../core/story-identity';
-import { observeReadingActivity, type ReadingNavigationProps } from './reading-navigation';
+import { observeReadingActivity, resolveReplyJumpMode, type ReadingNavigationProps } from './reading-navigation';
 import { captureReadingBookmark, readReadingBookmark, readingBookmarkAdjustment, readingSwipeId, trackReadingBookmark, writeReadingBookmark } from './reading-bookmark';
 import type { ReactNode } from 'react';
 import type { ChatMessageNode, LayoutMode } from '../types';
@@ -76,7 +77,7 @@ export function VirtualChatStream({
     onSetChatMessage,
     onGetWorldbook,
     onReplaceWorldbook,
-    replyId, jumpRequest, onReadingActivity, onReplyPosition,
+    replyId, jumpRequest, jumpMode, onReadingActivity, onReplyPosition,
 }: VirtualChatStreamProps) {
     const allMessages = workspaceStore.useStore(state => state.messages);
     const branchEpoch = workspaceStore.useStore(state => state.branchEpoch);
@@ -237,14 +238,30 @@ export function VirtualChatStream({
     }, [messages, offsets, startIndex, endIndex, introductionHeight, viewportHeight, hasIntroduction, stopRestoring]);
     const lastJump = useRef(jumpRequest);
     useEffect(() => {
-        if (!replyId || !jumpRequest || jumpRequest === lastJump.current) return;
+        if (!jumpRequest || jumpRequest === lastJump.current) return;
         lastJump.current = jumpRequest;
         const container = containerRef.current;
         if (!container) return;
+        const behavior: ScrollBehavior = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth';
+        if (jumpMode === 'latest-bottom') {
+            stopRestoring();
+            followEnd.current = true;
+            container.scrollTo({ top: container.scrollHeight, behavior });
+            onReplyPosition('none');
+            return;
+        }
+        if (!replyId) return;
         const data = navigationRef.current;
         const index = data.messages.findIndex(node => node.id === replyId);
         if (index < 0) return;
         stopRestoring();
+        const existing = [...container.querySelectorAll<HTMLElement>('[data-message-id]')].find(row => row.dataset.messageId === replyId);
+        if (existing) {
+            const top = Math.max(0, container.scrollTop + existing.getBoundingClientRect().top - container.getBoundingClientRect().top - 14);
+            container.scrollTo({ top, behavior });
+            onReplyPosition('none');
+            return;
+        }
         container.scrollTop = data.introductionHeight + data.offsets[index];
         setScrollTop(container.scrollTop);
         // The target may be outside the virtual window until the first scroll.
@@ -252,22 +269,36 @@ export function VirtualChatStream({
         const align = (attempt: number) => {
             const target = [...container.querySelectorAll<HTMLElement>('[data-message-id]')].find(row => row.dataset.messageId === replyId);
             if (target) {
-                container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top - 12;
-                onReplyPosition(false);
+                const top = Math.max(0, container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top - 14);
+                container.scrollTo({ top, behavior });
+                onReplyPosition('none');
             } else if (attempt < 3) pending = requestAnimationFrame(() => align(attempt + 1));
         };
         pending = requestAnimationFrame(() => align(0));
         return () => cancelAnimationFrame(pending);
-    }, [replyId, jumpRequest, onReplyPosition, stopRestoring]);
+    }, [replyId, jumpRequest, jumpMode, onReplyPosition, stopRestoring]);
 
     useEffect(() => {
         const container = containerRef.current;
-        const index = messages.findIndex(node => node.id === replyId);
-        if (!container || index < 0) { onReplyPosition(false); return; }
-        const row = [...container.querySelectorAll<HTMLElement>('[data-message-id]')].find(item => item.dataset.messageId === replyId);
-        const distance = row ? row.getBoundingClientRect().top - container.getBoundingClientRect().top : introductionHeight + offsets[index] - scrollTop;
-        onReplyPosition(Math.abs(distance - 12) > 100);
-    }, [replyId, messages, offsets, scrollTop, viewportHeight, introductionHeight, onReplyPosition]);
+        const targetId = replyId ?? messages.at(-1)?.id;
+        const index = targetId ? messages.findIndex(node => node.id === targetId) : -1;
+        if (!container || index < 0) { onReplyPosition('none'); return; }
+        const containerTop = container.getBoundingClientRect().top;
+        const row = [...container.querySelectorAll<HTMLElement>('[data-message-id]')].find(item => item.dataset.messageId === targetId);
+        const estimatedHeight = row?.getBoundingClientRect().height ?? heightCacheRef.current.get(targetId!) ?? ESTIMATED_ROW_HEIGHT;
+        const replyTop = row ? row.getBoundingClientRect().top - containerTop : introductionHeight + offsets[index] - scrollTop;
+        const replyBottom = replyTop + estimatedHeight;
+        const distanceFromBottom = Math.max(0, container.scrollHeight - container.clientHeight - container.scrollTop);
+        const canJumpToReplyStart = Boolean(replyId && index === messages.length - 1 && messages[index]!.floor > 0);
+        onReplyPosition(resolveReplyJumpMode({
+            replyTop,
+            replyBottom,
+            replyHeight: estimatedHeight,
+            viewportHeight,
+            distanceFromBottom,
+            canJumpToReplyStart,
+        }));
+    }, [replyId, messages, offsets, scrollTop, viewportHeight, introductionHeight, heightVersion, onReplyPosition]);
 
     const handleTouchStart = (node: ChatMessageNode, e: React.TouchEvent) => {
         if ((e.target as HTMLElement).closest('input, textarea, select, a, button, [contenteditable]')) return;
@@ -366,32 +397,40 @@ export function VirtualChatStream({
                                 {freeChat ? <>
                                     {node.reasoning && <details className="ttm-reasoning-drawer"><summary>思考过程</summary><p>{node.reasoning}</p></details>}
                                     {node.extra?.tipsy_generation_incomplete && !formatted.trim() ? <GenerationActivity phase={streamingReasoning ? 'thinking' : 'waiting'} /> : <MessageProse source={formatted} />}
-                                </> : streaming ? <StreamingMessage preview={streaming} renderComponents /> : blocks.map((block, idx) => block.type === 'markdown' ? <MessageProse key={`${node.id}_prose_${idx}`} source={block.content} /> : (
-                                    <SandboxFrame
-                                        key={`${node.id}_${branchEpoch}_sbx_${idx}`}
-                                        htmlContent={block.type === 'mixed' ? renderMixedMessage(block.content) : block.content}
-                                        componentTargets={getMessageComponentTargets(node)}
-                                        messageNode={node}
-                                        messageId={node.id}
-                                        floor={node.floor}
-                                        characterId={characterId}
-                                        chatId={chatId}
-                                        presetId={presetId}
-                                        onTriggerSlash={onTriggerSlash}
-                                        onRequestGenerate={onRequestGenerate}
-                                        onGetChatMessages={onGetChatMessages}
-                                        onSetChatMessage={onSetChatMessage}
-                                        onGetWorldbook={onGetWorldbook}
-                                        onReplaceWorldbook={onReplaceWorldbook}
-                                        onReadingActivity={handleReadingActivity}
-                                    />
-                                ))}
-                                {!freeChat&&<InlineMedia node={node} source={formatted}/>}
+                                </> : streaming ? <StreamingMessage preview={streaming} renderComponents /> : (() => {
+                                    const occurrences = new Map<string, number>();
+                                    return blocks.map((block) => {
+                                        const rawId = `${block.type}:${block.content}`;
+                                        const occ = occurrences.get(rawId) ?? 0;
+                                        occurrences.set(rawId, occ + 1);
+                                        const blockKey = `${node.id}_${branchEpoch}_${blockContentKey(block.type, block.content, occ)}`;
+                                        return block.type === 'markdown' ? <MessageProse key={blockKey} source={block.content} /> : (
+                                            <SandboxFrame
+                                                key={blockKey}
+                                                blockType={block.type}
+                                                htmlContent={block.type === 'mixed' ? renderMixedMessage(block.content) : block.content}
+                                                componentTargets={getMessageComponentTargets(node)}
+                                                messageNode={node}
+                                                messageId={node.id}
+                                                floor={node.floor}
+                                                characterId={characterId}
+                                                chatId={chatId}
+                                                presetId={presetId}
+                                                onTriggerSlash={onTriggerSlash}
+                                                onRequestGenerate={onRequestGenerate}
+                                                onGetChatMessages={onGetChatMessages}
+                                                onSetChatMessage={onSetChatMessage}
+                                                onGetWorldbook={onGetWorldbook}
+                                                onReplaceWorldbook={onReplaceWorldbook}
+                                                onReadingActivity={handleReadingActivity}
+                                            />
+                                        );
+                                    });
+                                })()}
+                                {!freeChat&&<InlineMedia node={node} source={formatted} streaming={Boolean(streaming)}/>}
                             </div>
 
-                        {!freeChat && <footer className="ttm-msg-footer">
-                            <SlotMount name="message.footer" slotProps={{ message: node }} />
-                        </footer>}
+                        <MessageMetricsBar node={node} />
                     </article>
                 );
             })}
@@ -430,8 +469,7 @@ export function VirtualChatStream({
                             >
                                 修改内容
                             </button>
-                            {!freeChat && <><SlotMount name="message.actions" slotProps={{ message: actionSheetNode }} />
-                            <PluginButtons message={actionSheetNode} onOpen={() => setActionSheetNode(null)} /></>}
+                            {!freeChat && <PluginButtons message={actionSheetNode} onOpen={() => setActionSheetNode(null)} />}
                             {onIllustrateMessage && actionSheetNode.role === 'assistant' && !actionSheetNode.extra?.tipsy_generation_incomplete && <button type="button" className="ttm-btn-ghost" onClick={() => { onIllustrateMessage(actionSheetNode.id); setActionSheetNode(null); }}>本楼配图</button>}
                             {canRetry && <button
                                 type="button"

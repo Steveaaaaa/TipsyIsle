@@ -160,7 +160,12 @@ export class StreamingView {
 }
 
 /** Keep a measured placeholder while the final author document loads in its own runtime. */
-export function mountAuthorLoading(frame: HTMLIFrameElement, targets: Array<{ key: string; selector: string }> = [], sprite: () => string = () => '') {
+export function mountAuthorLoading(
+    frame: HTMLIFrameElement,
+    targets: Array<{ key: string; selector: string }> = [],
+    sprite: () => string = () => '',
+    onReady?: () => void,
+) {
     const wrapper = document.createElement('div');
     const placeholder = document.createElement('div');
     wrapper.style.position = 'relative'; wrapper.style.overflow = 'hidden';
@@ -188,6 +193,7 @@ export function mountAuthorLoading(frame: HTMLIFrameElement, targets: Array<{ ke
         frame.removeEventListener('load', ready);
         requestAnimationFrame(() => requestAnimationFrame(() => {
             const restore = preserveReadingAnchor(wrapper); dispose(); restore();
+            onReady?.();
         }));
     };
     frame.addEventListener('load', ready);

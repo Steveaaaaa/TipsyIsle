@@ -7,10 +7,14 @@ const bundle = await build({
         contents: `
             export * from './src/core/openai-responses-completion';
             export * from './src/core/gemini-completion';
+            export * from './src/core/claude-completion';
             export * from './src/core/platform-bridge';
             export * from './src/core/model-profiles';
             export * from './src/shell/workspace-page';
             export * from './src/pipeline/streaming-message';
+            export * from './src/pipeline/message-metrics';
+            export { resolveReplyJumpMode } from './src/shell/reading-navigation';
+            export { messageExtra } from './src/compatibility/chat-message-codec';
         `,
         resolveDir: process.cwd(),
     },
@@ -28,6 +32,7 @@ const {
     openAiResponsesReplyAdapter,
     requestGeminiCompletion,
     geminiReplyAdapter,
+    claudeReplyAdapter,
     streamLlmCompletion,
     profileFromSettings,
     serializeConnectionProfiles,
@@ -38,6 +43,14 @@ const {
     rememberWorkspacePage,
     createStreamPlan,
     StreamProjector,
+    estimateTokenDelta,
+    tokenDisplayBucket,
+    formatApproxTokens,
+    formatReplyDuration,
+    readMessageMetrics,
+    setSwipeMetrics,
+    resolveReplyJumpMode,
+    messageExtra,
 } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
 
 test('requestOpenAiResponsesCompletion normalizes URLs, leading instructions, tools, and headers', async () => {
@@ -352,4 +365,133 @@ test('StreamProjector retains thinking phase across whitespace-only content and 
     assert.equal(thinkingPreview.phase, 'thinking');
     const writingPreview = projector.update('真正落下的第一行。', false, !'真正落下的第一行。'.trim() && true);
     assert.equal(writingPreview.phase, 'writing');
+});
+
+test('message-metrics formats rough 100-step tokens, live/final durations, reads swipes lazily, and stays hidden from compat extra', () => {
+    assert.equal(formatApproxTokens(undefined), undefined);
+    assert.equal(formatApproxTokens(0), undefined);
+    assert.equal(formatApproxTokens(42), '<100');
+    assert.equal(formatApproxTokens(149), '~100');
+    assert.equal(formatApproxTokens(250), '~300');
+    assert.equal(formatApproxTokens(960), '~1k');
+    assert.equal(formatApproxTokens(1240), '~1.2k');
+
+    assert.equal(tokenDisplayBucket(0), 0);
+    assert.equal(tokenDisplayBucket(45), 50);
+    assert.equal(tokenDisplayBucket(249), 200);
+    assert.equal(tokenDisplayBucket(251), 300);
+
+    assert.equal(formatReplyDuration(3200, true), '3s');
+    assert.equal(formatReplyDuration(65400, true), '1m 5s');
+    assert.equal(formatReplyDuration(3240, false), '3.2s');
+    assert.equal(formatReplyDuration(65400, false), '1m 5s');
+
+    const deltaSum = estimateTokenDelta('你好世界，') + estimateTokenDelta('hello world!');
+    assert.ok(deltaSum > 5);
+
+    const userNode = {
+        id: 'u1', parentId: 'a0', floor: 1, role: 'user', speakerName: 'User',
+        content: '继续', swipes: ['继续'], activeSwipeIndex: 0,
+    };
+    assert.equal(readMessageMetrics(userNode), undefined);
+    userNode.extra = setSwipeMetrics(userNode, 0, { promptTokens: 3520 });
+    assert.deepEqual(readMessageMetrics(userNode), { promptTokens: 3520, isLive: false });
+    assert.deepEqual(messageExtra(userNode, 0), {});
+
+    const openingNode = {
+        id: 'a0', parentId: null, floor: 0, role: 'assistant', speakerName: 'Char',
+        content: 'Opening greeting', swipes: ['Opening greeting'], activeSwipeIndex: 0,
+    };
+    assert.equal(readMessageMetrics(openingNode), undefined);
+
+    const legacyAssistant = {
+        id: 'a2', parentId: 'u1', floor: 2, role: 'assistant', speakerName: 'Char',
+        content: '这是一段历史回复正文。', swipes: ['这是一段历史回复正文。'], activeSwipeIndex: 0,
+    };
+    const firstRead = readMessageMetrics(legacyAssistant);
+    assert.ok(firstRead?.outputTokens && firstRead.outputTokens > 0);
+    assert.equal(firstRead.estimatedFallback, true);
+    assert.equal(readMessageMetrics(legacyAssistant)?.outputTokens, firstRead.outputTokens);
+
+    const liveAssistant = {
+        id: 'a3', parentId: 'u1', floor: 2, role: 'assistant', speakerName: 'Char',
+        content: '半句正文', swipes: ['半句正文'], activeSwipeIndex: 0,
+        extra: { tipsy_generation_incomplete: true, tipsy_metrics: { 0: { startedAt: 1000, outputTokens: 200 } } },
+    };
+    assert.deepEqual(readMessageMetrics(liveAssistant), { startedAt: 1000, outputTokens: 200, isLive: true });
+});
+
+test('LLM adapters and streamLlmCompletion passively capture prompt and completion token usage', async () => {
+    const gemAdapt = geminiReplyAdapter();
+    const gemPacket = gemAdapt({
+        candidates: [{ index: 0, finishReason: 'STOP', content: { parts: [{ text: '你好' }] } }],
+        usageMetadata: { promptTokenCount: 1554, candidatesTokenCount: 120, thoughtsTokenCount: 80 },
+    }, true);
+    assert.deepEqual(gemPacket.usage, { prompt_tokens: 1554, completion_tokens: 200 });
+
+    const respAdapt = openAiResponsesReplyAdapter();
+    const respDone = respAdapt({
+        type: 'response.completed',
+        response: { usage: { input_tokens: 800, output_tokens: 310 } },
+    }, true);
+    assert.deepEqual(respDone.usage, { prompt_tokens: 800, completion_tokens: 310 });
+
+    const claudeAdapt = claudeReplyAdapter();
+    claudeAdapt({ type: 'message_start', message: { usage: { input_tokens: 420 } } }, true);
+    const claudeEnd = claudeAdapt({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 150 } }, true);
+    assert.deepEqual(claudeEnd.usage, { prompt_tokens: 420, completion_tokens: 150 });
+
+    const encoder = new TextEncoder();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+        if (url === '/api/tipsy-isle/health') return new Response('{}', { status: 404 });
+        return new Response(new ReadableStream({
+            start(controller) {
+                controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"回答完成"}}]}\n\n'));
+                controller.enqueue(encoder.encode('data: {"choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":350}}\n\ndata: [DONE]\n\n'));
+                controller.close();
+            },
+        }), { headers: { 'Content-Type': 'text/event-stream' } });
+    };
+    try {
+        const res = await streamLlmCompletion({
+            source: 'openai',
+            baseUrl: 'https://relay.invalid/v1',
+            apiKey: '',
+            model: 'gpt-4o',
+            messages: [{ role: 'user', content: 'hi' }],
+            parameters: {},
+            onToken() {},
+        });
+        assert.deepEqual(res.usage, { promptTokens: 1200, outputTokens: 350 });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('resolveReplyJumpMode distinguishes visible/short replies, scrolled long replies, and upper history', () => {
+    // Opening or short reply stays quiet even if scrolled slightly.
+    assert.equal(resolveReplyJumpMode({
+        replyTop: -120, replyBottom: 380, replyHeight: 500,
+        viewportHeight: 800, distanceFromBottom: 40, canJumpToReplyStart: false,
+    }), 'none');
+    assert.equal(resolveReplyJumpMode({
+        replyTop: -240, replyBottom: 140, replyHeight: 380,
+        viewportHeight: 800, distanceFromBottom: 20, canJumpToReplyStart: true,
+    }), 'none');
+    // Long reply whose top is still visible or barely scrolled stays quiet.
+    assert.equal(resolveReplyJumpMode({
+        replyTop: -120, replyBottom: 780, replyHeight: 900,
+        viewportHeight: 800, distanceFromBottom: 100, canJumpToReplyStart: true,
+    }), 'none');
+    // Deep inside a long reply shows 'reply-start'.
+    assert.equal(resolveReplyJumpMode({
+        replyTop: -320, replyBottom: 580, replyHeight: 900,
+        viewportHeight: 800, distanceFromBottom: 100, canJumpToReplyStart: true,
+    }), 'reply-start');
+    // Scrolled far up into earlier history shows 'latest-bottom'.
+    assert.equal(resolveReplyJumpMode({
+        replyTop: 950, replyBottom: 1850, replyHeight: 900,
+        viewportHeight: 800, distanceFromBottom: 1200, canJumpToReplyStart: true,
+    }), 'latest-bottom');
 });

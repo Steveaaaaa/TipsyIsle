@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { ModelConnection, ModelKind } from '../../../packages/plugin-sdk/index.js';
+import { ModelNameInput } from '../../registry/ModelNameInput';
 import { workspaceStore } from '../../store/workspace-store';
 import { resourceChoices } from './asset-data';
 import { workflow } from './image-protocol';
@@ -22,6 +23,11 @@ export function PluginConnections({ working, run }: { working: boolean; run: Run
         run(async () => { await saveConnection({ ...input, baseUrl: input.baseUrl.trim(), apiKey: input.apiKey.trim() }, id); setForm(undefined); });
     };
     let parsed:ReturnType<typeof workflow>|undefined; try{if(form?.workflowText)parsed=workflow(form.workflowText);}catch{ /* The JSON may still be in progress. */ }
+    const modelCatalogConnection = useMemo(() => form ? {
+        baseUrl: form.baseUrl,
+        apiKey: form.apiKey,
+        source: form.kind === 'image' && form.providerKind === 'gemini' ? 'makersuite' : 'openai',
+    } : undefined, [form?.baseUrl, form?.apiKey, form?.kind, form?.providerKind]);
     return <div className="ttm-native-access">
         {items.map(item => <div className="ttm-native-connection" key={item.id}>
             <div><strong>{item.label}</strong><small>{item.kinds.map(kind => kindLabels[kind]).join('、')} · {item.model}</small></div>
@@ -36,12 +42,23 @@ export function PluginConnections({ working, run }: { working: boolean; run: Run
                 <label className="ttm-native-field"><span>连接名称</span><input className="ttm-native-input" maxLength={80} required value={form.label} onChange={e => change('label', e.currentTarget.value)} /></label>
                 <label className="ttm-native-field"><span>任务类型</span><select className="ttm-select-input" value={form.kind} onChange={e => change('kind', e.currentTarget.value)}>
                     {Object.entries(kindLabels).map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label>
-                <label className="ttm-native-field"><span>模型</span><input className="ttm-native-input" maxLength={300} required value={form.model} onChange={e => change('model', e.currentTarget.value)} /></label>
                 {form.kind==='image' && <><label className="ttm-native-field">生图协议<select className="ttm-select-input" value={form.providerKind??'openai'} onChange={event=>change('providerKind',event.target.value)}>{Object.entries({openai:'OpenAI 兼容',moss:'MOSS-Image（OpenMOSS / 硅基流动等）',gemini:'Google Gemini',novelai:'NovelAI Diffusion',comfyui:'ComfyUI 工作流',webui:'SD WebUI / Forge'}).map(([key,title])=><option key={key} value={key}>{title}</option>)}</select></label>
                     {form.providerKind==='comfyui' && <><label>导入 API 工作流<input type="file" accept="application/json,.json" onChange={event=>{const file=event.target.files?.[0];if(file)run(async()=>{if(file.size>512000)throw new Error('工作流过大');change('workflowText',await file.text());});}} /></label><label>工作流 JSON<textarea value={form.workflowText??''} required maxLength={512000} onChange={event=>change('workflowText',event.target.value)}/></label>{parsed && <details><summary>检查和调整槽位</summary>{['prompt','negativePrompt','width','height','seed','charRef','styleRef'].map(slot=><label key={slot}>{slot}<select value={JSON.stringify(form.slotOverrides?.[slot]??parsed!.slots[slot]??null)} onChange={event=>{const overrides={...form.slotOverrides};if(event.target.value==='null')delete overrides[slot];else overrides[slot]=JSON.parse(event.target.value);setForm({...form,slotOverrides:overrides});}}><option value="null">自动识别</option>{Object.entries(parsed!.graph).flatMap(([key,node])=>Object.keys(node.inputs).filter(input=>!Array.isArray(node.inputs[input])).map(input=><option key={`${key}:${input}`} value={JSON.stringify([key,input])}>{key} · {node.class_type} · {input}</option>))}</select></label>)}</details>}</>}
-                    <label><input type="checkbox" checked={!!form.preservePng} onChange={event=>setForm({...form,preservePng:event.target.checked})}/>保留原始图片，不转换为 WebP</label></>}
+                    <label className="ttm-native-field is-wide is-check"><span>保留原始图片，不转换为 WebP</span><input type="checkbox" checked={!!form.preservePng} onChange={event=>setForm({...form,preservePng:event.target.checked})}/></label></>}
                 <label className="ttm-native-field"><span>API 地址</span><input className="ttm-native-input" type="url" required placeholder="https://…/v1" value={form.baseUrl} onChange={e => change('baseUrl', e.currentTarget.value)} /></label>
                 <label className="ttm-native-field"><span>API 密钥</span><input className="ttm-native-input" type="password" autoComplete="new-password" maxLength={4000} value={form.apiKey} onChange={e => change('apiKey', e.currentTarget.value)} /></label>
+                <div className="ttm-native-field is-wide">
+                    <label htmlFor="ttm-native-connection-model">模型</label>
+                    <ModelNameInput
+                        inputId="ttm-native-connection-model"
+                        value={form.model}
+                        required
+                        disabled={working}
+                        placeholder={form.kind === 'image' && ['comfyui', 'webui', 'novelai'].includes(form.providerKind ?? '') ? '填写模型或检查点名称' : '先填写地址与密钥，再获取模型列表'}
+                        connection={modelCatalogConnection}
+                        onChange={value => change('model', value)}
+                    />
+                </div>
                 <div className="ttm-native-actions"><button type="button" className="ttm-btn-secondary" disabled={working} onClick={() => setForm(undefined)}>取消</button>
                     <button type="submit" className="ttm-btn-primary" disabled={working}>保存连接</button></div>
             </form>}

@@ -1,4 +1,5 @@
 import { useConversationComposer } from './useConversationComposer';
+import { hasActiveSPreset } from '../compatibility/spreset-config';
 import { WorkspaceInspector, type InspectorTab } from './WorkspaceInspector';
 import { ConversationComposer } from './ConversationComposer';
 import { ConversationHistory } from './ConversationHistory';
@@ -55,7 +56,6 @@ import { Icon } from './Icon';
 import { CharacterAvatar } from './CharacterAvatar';
 import { ThemeStudioPanel } from '../theme/ThemeStudioPanel';
 import { CharacterDetailsPanel, MvuCharacterSettingsEditor } from './AssetInspectorPanel';
-import { SlotMount } from '../plugins/slot-registry';
 import { NativePluginCommandHost, WorkspacePluginMenu } from '../plugins/native/PluginCommands';
 import { commandCompatibilityRuntime, compatibilityStoryReady, subscribeCompatibilityExtensionMenu, getCompatibilityIllustrationAvailable, getCompatibilityExtensionMenu } from '../compatibility/runtime-client';
 import { hostIllustrationKey, type HostIllustration } from '../compatibility/chat-message-codec';
@@ -369,9 +369,9 @@ export function AdaptiveWorkspaceApp() {
     const messageHostRequired = useMemo(() => cardNeedsAuthorHost(activeCharacter) || regexesNeedAuthorHost(activePreset.regexScripts) || regexesNeedAuthorHost(globalRules),
         [activeCharacter, activePreset.regexScripts, globalRules]);
     const compatibilityView = useMemo(() => (extensionFloors && hasExtensionMenu) || galleryStoryId === activeCharacter.id || scripts.some(script => script.enabled) ||
-        messageHostRequired || activeMessages.some(node => messageNeedsAuthorHost(node.content) || /<%|\[RENDER:|@@render_(?:before|after)/.test(node.content)) ||
+        hasActiveSPreset(activePreset) || messageHostRequired || activeMessages.some(node => messageNeedsAuthorHost(node.content) || /<%|\[RENDER:|@@render_(?:before|after)/.test(node.content)) ||
         activeLorebooks.some(book => book.entries.some(entry => /<%|\[RENDER:|@@render_(?:before|after)/.test(entry.comment + '\n' + entry.content))),
-        [extensionFloors, hasExtensionMenu, scripts, activeMessages, activeLorebooks, galleryStoryId, activeCharacter.id, messageHostRequired]);
+        [extensionFloors, hasExtensionMenu, scripts, activePreset, activeMessages, activeLorebooks, galleryStoryId, activeCharacter.id, messageHostRequired]);
 
     const finishStartup = useCallback(() => {
         const restored = workspaceStore.getState();
@@ -656,7 +656,6 @@ export function AdaptiveWorkspaceApp() {
                         <Icon name={darkReading ? 'sun' : 'moon'} />
                     </button>
                     <WorkspacePluginMenu />
-                    {!isFree && <SlotMount name="chat.header.actions" />}
                 </div>
             </header>
 

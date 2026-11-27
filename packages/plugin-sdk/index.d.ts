@@ -58,16 +58,23 @@ export interface StoragePatch {
 }
 export interface StoryStorageTarget { route: RouteAddress; reply?: MessageRef }
 
+export type PanelTheme = 'default' | 'darkroom' | 'editorial' | 'nocturne';
+export type PanelActionIcon = 'sparkle' | 'film' | 'stage' | 'trash' | 'download' | 'refresh' | 'sliders';
 export type PanelBlock = { type: 'text'; text: string } | { type: 'list'; items: string[] };
 export type SurfaceBlock = PanelBlock | { type: 'table'; columns: string[]; rows: string[][] }
-    | { type: 'media'; id: string; label: string };
+    | { type: 'media'; id: string; label: string; caption?: string; meta?: string; featured?: boolean }
+    | { type: 'notice'; text: string; tone?: 'info' | 'success' | 'warning' }
+    | { type: 'badges'; items: { label: string; value?: string; tone?: 'default' | 'accent' | 'muted' }[] }
+    | { type: 'filmstrip'; label?: string; items: { id: string; label: string; caption?: string; active?: boolean; actionId?: string; value?: string }[] };
 export type PanelField = {
     id: string; label: string; type: 'text' | 'textarea' | 'checkbox' | 'select';
     initial?: string | boolean; required?: boolean; options?: { value: string; label: string }[];
+    placeholder?: string; hint?: string; variant?: 'default' | 'chips' | 'aspect';
 };
 export interface Panel {
-    title: string; blocks?: SurfaceBlock[]; fields?: PanelField[];
-    actions?: { id: string; label: string; kind?: 'primary' | 'secondary' }[];
+    title: string; theme?: PanelTheme; eyebrow?: string; subtitle?: string;
+    blocks?: SurfaceBlock[]; fields?: PanelField[];
+    actions?: { id: string; label: string; kind?: 'primary' | 'secondary' | 'danger' | 'ghost'; icon?: PanelActionIcon }[];
     /** Passed back on the next action in this panel, never persisted by the host. */
     state?: Json;
     /** HTML and CSS from the signed package. Interact through forms and data-action buttons. */
@@ -166,7 +173,7 @@ export interface PluginApi {
     readonly settings: Immutable<Settings>;
     readonly story: {
         participants(): Promise<Immutable<StoryParticipant[]>>;
-        visualSources(): Promise<Immutable<{ characterId: string; layoutMode: 'tipsy-bubble' | 'novel-reader' | 'adv-galgame' | 'im-messenger'; people: string[]; profiles: Record<string, string>; gallery: string[]; characters?: CharacterVisualEntry[] }>>;
+        visualSources(): Promise<Immutable<{ characterId: string; layoutMode: 'tipsy-bubble' | 'novel-reader' | 'adv-galgame' | 'im-messenger'; people: string[]; profiles: Record<string, string>; gallery: string[]; characters?: CharacterVisualEntry[]; worldContext?: string; inferredStyle?: string }>>;
         /** Newest page by default, ordered oldest first within a page. Use nextBefore on this snapshot to page further. */
         readMessages(options?: { before?: number; limit?: number }): Promise<Immutable<StoryPage>>;
         getMessage(ref: MessageRef): Promise<Immutable<StoryMessage> | null>;

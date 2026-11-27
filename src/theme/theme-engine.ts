@@ -182,14 +182,6 @@ export function readingColorScheme(bgPrimary: string): 'light' | 'dark' {
     return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722 > 155 ? 'light' : 'dark';
 }
 
-export function setFollowSystemFont(value: boolean): void {
-    themeEngineStore.setState(draft => { draft.followSystemFont = value; });
-    persistThemeState();
-}
-export function setStreamLoadingSprite(value: string): void {
-    themeEngineStore.setState(draft => { draft.streamLoadingSprite = value; }); persistThemeState();
-}
-
 /**
  * Prefixes raw user CSS rules with `#tipsy-isle-stage` unless already scoped or an @-rule,
  * ensuring custom user themes never break top-level app navigation or modal recovery controls.
@@ -290,24 +282,6 @@ export async function hydrateThemeFromPlatform(): Promise<void> {
     applyThemeToDocument(themeEngineStore.getState());
 }
 
-export function selectThemePreset(presetId: string): void {
-    const state = themeEngineStore.getState();
-    const all = [...BUILTIN_THEME_PRESETS, ...state.customPresets];
-    const found = all.find((p) => p.id === presetId);
-    if (!found) return;
-    themeEngineStore.setState((draft) => {
-        draft.activePresetId = found.id;
-        draft.layoutMode = found.layoutMode;
-        draft.tokens = { ...found.tokens };
-        draft.scopedCustomCss = found.scopedCustomCss;
-    });
-    persistThemeState();
-}
-
-export function updateThemeToken<K extends keyof ThemeDesignTokens>(key: K, value: ThemeDesignTokens[K]): void {
-    updateThemeTokens({ [key]: value });
-}
-
 export function updateThemeTokens(patch: Partial<ThemeDesignTokens>): void {
     themeEngineStore.setState((draft) => {
         Object.assign(draft.tokens, patch);
@@ -326,45 +300,4 @@ export function toggleReadingColorScheme(): void {
     persistThemeState();
 }
 
-export function setThemeLayoutMode(mode: LayoutMode): void {
-    themeEngineStore.setState((draft) => {
-        draft.layoutMode = mode;
-    });
-    persistThemeState();
-}
 
-export function setScopedCustomCss(cssText: string): void {
-    themeEngineStore.setState((draft) => {
-        draft.scopedCustomCss = cssText;
-    });
-    persistThemeState();
-}
-
-export function exportCurrentThemePackage(name?: string): ThemePresetPackage {
-    const state = themeEngineStore.getState();
-    return {
-        id: `custom-${Date.now()}`,
-        name: name?.trim() || '微醺屿自定义主题包',
-        author: 'User',
-        description: '导出自微醺屿（TipsyIsle）三层美化工作台',
-        layoutMode: state.layoutMode,
-        tokens: { ...state.tokens },
-        scopedCustomCss: state.scopedCustomCss,
-    };
-}
-
-export function importThemePackage(pkg: ThemePresetPackage): void {
-    themeEngineStore.setState((draft) => {
-        const existingIdx = draft.customPresets.findIndex((p) => p.id === pkg.id);
-        if (existingIdx >= 0) {
-            draft.customPresets[existingIdx] = pkg;
-        } else {
-            draft.customPresets.push(pkg);
-        }
-        draft.activePresetId = pkg.id;
-        draft.layoutMode = pkg.layoutMode;
-        draft.tokens = { ...pkg.tokens };
-        draft.scopedCustomCss = pkg.scopedCustomCss || '';
-    });
-    persistThemeState();
-}

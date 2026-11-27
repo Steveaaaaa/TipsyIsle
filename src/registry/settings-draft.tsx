@@ -11,16 +11,24 @@ export const settingsDraftStore = createReactiveStore(() => ({
     syncOptions: {} as Partial<SyncOptions>,
     deviceName: undefined as string | undefined,
     extensions: {} as Record<string, boolean>,
+    saving: false,
+    saveError: '',
 }));
+export type SettingsDraftSnapshot = ReturnType<typeof settingsDraftStore.getState>;
+export function countPendingSettingsChanges(draft: SettingsDraftSnapshot): number {
+    return Object.keys(draft.values).length
+        + Object.keys(draft.streamModes).length
+        + Object.keys(draft.syncOptions).length
+        + Object.keys(draft.extensions).length
+        + Number(draft.deviceName !== undefined);
+}
 if (typeof window !== 'undefined') window.addEventListener('beforeunload', event => {
-    const draft = settingsDraftStore.getState();
-    if (Object.keys(draft.values).length || Object.keys(draft.streamModes).length || Object.keys(draft.syncOptions).length
-        || Object.keys(draft.extensions).length || draft.deviceName !== undefined) {
+    if (countPendingSettingsChanges(settingsDraftStore.getState()) > 0) {
         event.preventDefault(); event.returnValue = '';
     }
 });
 export function discardSettingsDraft() {
-    settingsDraftStore.setState({ values: {}, streamModes: {}, syncOptions: {}, deviceName: undefined, extensions: {} });
+    settingsDraftStore.setState({ values: {}, streamModes: {}, syncOptions: {}, deviceName: undefined, extensions: {}, saveError: '' });
 }
 function editValues(patch: Record<string, unknown>) {
     settingsDraftStore.setState(draft => {

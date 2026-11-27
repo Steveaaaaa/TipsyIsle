@@ -307,7 +307,8 @@ export function visualBible(
     if (
         !matched.length &&
         corefContext.trim() &&
-        /(?:她|他|少女|少年|女孩|男孩|女人|男人|脸颊|脸庞|侧脸|眉眼|眼眸|眼睛|长发|发丝|身影|唇|指尖|\b(?:she|he|her|his|girl|boy)\b)/i.test(paragraph)
+        (/(?:她|他|少女|少年|女孩|男孩|女人|男人|脸颊|脸庞|侧脸|眉眼|眼眸|眼睛|长发|发丝|身影|唇|指尖|\b(?:she|he|her|his|girl|boy)\b)/i.test(paragraph) ||
+            /(?:她俩|她们|他俩|他们|两人|二人|侧脸|脸颊|眉眼|眼眸|看她|看他|\b(?:she|he|her|their|profile|face)\b)/i.test(corefContext))
     ) {
         const corefLines = corefContext.split('\n').filter((line) => line.trim());
         const corefHits: typeof entities = [];

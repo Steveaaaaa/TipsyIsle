@@ -22,13 +22,35 @@ const smallId = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);
 const text = (size: number) => z.string().max(size);
 const label = text(100).min(1);
 const refSchema = z.strictObject({ messageId: text(300), swipeId: text(300), revision: text(200) });
-const panelSchema = z.strictObject({ title: label,
-    blocks: z.array(z.discriminatedUnion('type', [z.strictObject({ type: z.literal('text'), text: text(4000) }), z.strictObject({ type: z.literal('list'), items: z.array(text(2000)).max(24) }),
+const panelSchema = z.strictObject({
+    title: label,
+    theme: z.enum(['default', 'darkroom', 'editorial', 'nocturne']).optional(),
+    eyebrow: text(120).optional(),
+    subtitle: text(240).optional(),
+    blocks: z.array(z.discriminatedUnion('type', [
+        z.strictObject({ type: z.literal('text'), text: text(4000) }),
+        z.strictObject({ type: z.literal('list'), items: z.array(text(2000)).max(24) }),
         z.strictObject({ type: z.literal('table'), columns: z.array(label).min(1).max(12), rows: z.array(z.array(text(2000)).max(12)).max(100) }),
-        z.strictObject({ type: z.literal('media'), id: z.string().max(480), label })])).max(16).optional(),
-    fields: z.array(z.strictObject({ id: smallId, label, type: z.enum(['text', 'textarea', 'checkbox', 'select']), initial: z.union([text(4000), z.boolean()]).optional(),
-        required: z.boolean().optional(), options: z.array(z.strictObject({ value: text(200), label })).min(1).max(24).optional() })).max(12).optional(),
-    actions: z.array(z.strictObject({ id: smallId, label, kind: z.enum(['primary', 'secondary']).optional() })).max(12).optional(), state: z.unknown().optional(),
+        z.strictObject({ type: z.literal('media'), id: z.string().max(480), label, caption: text(240).optional(), meta: text(120).optional(), featured: z.boolean().optional() }),
+        z.strictObject({ type: z.literal('notice'), text: text(1200), tone: z.enum(['info', 'success', 'warning']).optional() }),
+        z.strictObject({ type: z.literal('badges'), items: z.array(z.strictObject({ label, value: text(120).optional(), tone: z.enum(['default', 'accent', 'muted']).optional() })).min(1).max(12) }),
+        z.strictObject({ type: z.literal('filmstrip'), label: label.optional(), items: z.array(z.strictObject({ id: z.string().max(480), label, caption: text(160).optional(), active: z.boolean().optional(), actionId: smallId.optional(), value: text(120).optional() })).min(1).max(16) }),
+    ])).max(16).optional(),
+    fields: z.array(z.strictObject({
+        id: smallId, label, type: z.enum(['text', 'textarea', 'checkbox', 'select']),
+        initial: z.union([text(4000), z.boolean()]).optional(),
+        required: z.boolean().optional(),
+        options: z.array(z.strictObject({ value: text(200), label })).min(1).max(24).optional(),
+        placeholder: text(240).optional(),
+        hint: text(300).optional(),
+        variant: z.enum(['default', 'chips', 'aspect']).optional(),
+    })).max(12).optional(),
+    actions: z.array(z.strictObject({
+        id: smallId, label,
+        kind: z.enum(['primary', 'secondary', 'danger', 'ghost']).optional(),
+        icon: z.enum(['sparkle', 'film', 'stage', 'trash', 'download', 'refresh', 'sliders']).optional(),
+    })).max(12).optional(),
+    state: z.unknown().optional(),
     layout: z.strictObject({ html: text(180_000), css: text(90_000).optional() }).optional(),
     task: z.strictObject({ id: text(480).min(1), onFinished: smallId.optional() }).optional(),
 });

@@ -1,8 +1,43 @@
+export type ReplyJumpMode = 'none' | 'reply-start' | 'latest-bottom';
+
+export interface ReplyJumpMetrics {
+    replyTop: number;
+    replyBottom: number;
+    replyHeight: number;
+    viewportHeight: number;
+    distanceFromBottom: number;
+    canJumpToReplyStart: boolean;
+}
+
+export function resolveReplyJumpMode({
+    replyTop,
+    replyBottom,
+    replyHeight,
+    viewportHeight,
+    distanceFromBottom,
+    canJumpToReplyStart,
+}: ReplyJumpMetrics): ReplyJumpMode {
+    const vh = Math.max(240, viewportHeight);
+    if (distanceFromBottom > Math.max(360, vh * 0.95) && replyTop > vh * 0.75) {
+        return 'latest-bottom';
+    }
+    if (
+        canJumpToReplyStart
+        && replyHeight >= Math.max(320, vh * 0.65)
+        && replyTop < -Math.max(160, vh * 0.28)
+        && replyBottom > 80
+    ) {
+        return 'reply-start';
+    }
+    return 'none';
+}
+
 export interface ReadingNavigationProps {
     replyId?: string;
     jumpRequest: number;
+    jumpMode?: Exclude<ReplyJumpMode, 'none'>;
     onReadingActivity: (kind?: 'scroll' | 'tap') => void;
-    onReplyPosition: (awayFromStart: boolean) => void;
+    onReplyPosition: (mode: ReplyJumpMode) => void;
 }
 
 /** Observe reader gestures, never streaming or programmatic scroll changes. */

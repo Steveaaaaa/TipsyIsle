@@ -7,7 +7,7 @@ import { routeExtra } from './baibai-route';
 // setChatMessages({ extra: ... }) and must not leak through getChatMessages().extra.
 const internalKeys = new Set(['swipeVariables', 'chatVariables', 'timedStates', 'swipeHostMetadata', 'tipsy_host_illustrations', 'swipeChatVariables', 'swipeTimedStates',
     'templateState', 'swipeTemplateStates', 'helperSwipeInfo', 'helperTopLevel', 'tipsy_template_render', 'tipsy_template_source', 'tipsy_generation_incomplete',
-    'tipsy_mvu_initialized', 'tipsy_mvu_initialization_pending', 'tipsy_template_variables_initialized', 'tipsy_generation_terminal']);
+    'tipsy_mvu_initialized', 'tipsy_mvu_initialization_pending', 'tipsy_template_variables_initialized', 'tipsy_generation_terminal', 'tipsy_metrics']);
 export function messageExtra(node: ChatMessageNode, swipe = node.activeSwipeIndex, metadata?: Record<string, unknown>): Record<string, unknown> {
     const table = node.extra?.helperSwipeInfo as Record<string, Record<string, unknown>> | undefined;
     const original = node.swipes[swipe];
@@ -73,7 +73,7 @@ export function patchHelperMessage(node: ChatMessageNode, item: Record<string, a
         next.extra.helperSwipeInfo = Object.fromEntries(Array.from({ length }, (_, index) => [index,
             structuredClone(item.swipes_info?.[index] ?? (item.swipes_info ? {} : oldInfo[index] ?? {}))]));
         // Removed/replaced swipes must not inherit another response's derived state.
-        for (const key of ['swipeChatVariables', 'swipeTimedStates', 'swipeTemplateStates', 'tipsy_template_render', 'tipsy_template_source', 'tipsy_template_variables_initialized']) {
+        for (const key of ['swipeChatVariables', 'swipeTimedStates', 'swipeTemplateStates', 'tipsy_template_render', 'tipsy_template_source', 'tipsy_template_variables_initialized', 'tipsy_metrics']) {
             const previous = next.extra[key] as Record<string, unknown> | undefined;
             next.extra[key] = Object.fromEntries(Object.entries(previous ?? {}).filter(([index]) => Number(index) < length
                 && (item.swipes === undefined || item.swipes[Number(index)] === (typeof node.swipes[Number(index)] === 'string' ? node.swipes[Number(index)] : (node.swipes[Number(index)] as any)?.content))));

@@ -10,9 +10,6 @@ export type PromptPostProcessingMode =
     | 'strict_tools'
     | 'single';
 
-export type PromptPostProcessingSetting = 'auto' | 'none' | Exclude<PromptPostProcessingMode, ''>;
-export type UseSystemPromptSetting = 'auto' | 'on' | 'off';
-
 export const PROMPT_PLACEHOLDER = "Let's get started.";
 
 export const GEMINI_SAFETY_SETTINGS = [

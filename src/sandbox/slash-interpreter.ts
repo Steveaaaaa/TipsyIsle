@@ -37,5 +37,3 @@ export async function executeSlashScript(
         quickReply: name => findExecutableQuickReply(resolvedQuickReplyConfig(readExtensionVariables(scopedVariableStore.getState().extension, 'quickReplyV2'), ctx.chatId, ctx.characterId), name),
     });
 }
-
-export const runSlashCommand = executeSlashScript;

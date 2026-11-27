@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { Immer } from 'immer';
 import _ from 'lodash';
-import type { AssetInfo, AssetRef, EditPreview, JsonMap } from '../../../packages/plugin-sdk/index.js';
+import type { AssetInfo, AssetRef, EditPreview } from '../../../packages/plugin-sdk/index.js';
 import type { WorkspaceState } from '../../store/workspace-store';
 import type { NormalizedCharacterCard, NormalizedLorebook, NormalizedPreset } from '../../types';
 import { serializeCharacterCard, serializeEntry, serializeLorebook, serializeRegexRule } from '../../pipeline/asset-serializer';

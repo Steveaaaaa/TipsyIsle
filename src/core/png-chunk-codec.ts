@@ -108,20 +108,6 @@ function parsePayload(keyword: string, bytes: Uint8Array): ExtractedPngCardPaylo
     } catch { return null; }
 }
 
-export function extractCharacterCardFromPng(pngBytes: Uint8Array): ExtractedPngCardPayload | null {
-    try {
-        const candidates = readChunks(pngBytes).map(textChunk).filter(item => item && !item.compressed);
-        for (const keyword of ['ccv3', 'chara']) {
-            for (const candidate of candidates.slice().reverse()) {
-                if (candidate?.keyword !== keyword) continue;
-                const parsed = parsePayload(keyword, candidate.bytes);
-                if (parsed) return parsed;
-            }
-        }
-    } catch { /* The async import API surfaces structural errors to the UI. */ }
-    return null;
-}
-
 /** Async path additionally supports PNG zTXt and compressed iTXt, without canvas decoding. */
 export async function extractCharacterCardFromPngAsync(bytes: Uint8Array): Promise<ExtractedPngCardPayload | null> {
     const candidates = readChunks(bytes).map(textChunk).filter(item => item !== null);

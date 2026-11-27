@@ -43,10 +43,13 @@ export function AnchoredDialog({ title, anchor, onClose, children, compact = fal
             dialog.style.width = `${width}px`;
             dialog.style.height = fitContent ? 'auto' : `${height}px`;
             dialog.style.maxHeight = `${height}px`;
-            dialog.style.left = `${centered ? (innerWidth - width) / 2 : Math.min(left, innerWidth - width - 16)}px`;
-            dialog.style.top = `${centered ? (innerHeight - height) / 2 : Math.max(16, Math.min(rect.top, innerHeight - height - 16))}px`;
+            dialog.style.left = `${centered ? Math.round((innerWidth - width) / 2) : Math.min(left, innerWidth - width - 16)}px`;
+            const renderedHeight = fitContent && dialog.open ? Math.min(height, dialog.getBoundingClientRect().height) : height;
+            dialog.style.top = `${centered ? Math.max(16, Math.round((innerHeight - renderedHeight) / 2)) : Math.max(16, Math.min(rect.top, innerHeight - height - 16))}px`;
         };
-        position(); dialog.showModal(); openDialogs.push(dialog); window.dispatchEvent(new Event('tipsy-dialog-change'));
+        position(); dialog.showModal();
+        if (centered && fitContent) position();
+        openDialogs.push(dialog); window.dispatchEvent(new Event('tipsy-dialog-change'));
         const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
         const rect = anchor.getBoundingClientRect(), bounds = dialog.getBoundingClientRect();
         dialog.style.transformOrigin = anchor === document.body ? '50% 45%' : `${Math.max(0, Math.min(bounds.width, rect.left + rect.width / 2 - bounds.left))}px ${Math.max(0, Math.min(bounds.height, rect.top + rect.height / 2 - bounds.top))}px`;

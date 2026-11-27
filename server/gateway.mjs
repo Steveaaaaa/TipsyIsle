@@ -99,12 +99,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (url.pathname === '/api/tipsy-isle/ping' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ ok: true, service: 'TipsyIsle Local SQLite Gateway' }));
-    return;
-  }
-
   // Health probe used by the frontend runtime-flavor detection (same payload as ping).
   if (url.pathname === '/api/tipsy-isle/health' && req.method === 'GET') {
     const uptime = Math.round(process.uptime());
@@ -145,25 +139,6 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       res.writeHead(error.status ?? 400, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify({ message: error.message }));
     }
-    return;
-  }
-
-  // Query-string shape: GET/PUT /api/tipsy-isle/storage?key=<collection>
-  if (url.pathname === '/api/tipsy-isle/storage' && req.method === 'GET') {
-    const key = url.searchParams.get('key') || '';
-    const row = getStmt.get(key);
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ key, value: row ? JSON.parse(row.value) : null }));
-    return;
-  }
-
-  if (url.pathname === '/api/tipsy-isle/storage' && req.method === 'PUT') {
-    const body = JSON.parse((await readBody(req)) || '{}');
-    if (body.key) {
-      upsertStmt.run(String(body.key), JSON.stringify(body.value ?? null), Date.now());
-    }
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(JSON.stringify({ ok: true }));
     return;
   }
 
@@ -364,11 +339,6 @@ const server = http.createServer(async (req, res) => {
       } catch {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ error: '请输入有效的 HTTP(S) API 地址' }));
-        return;
-      }
-      if (!Array.isArray(payload.messages) || !payload.model) {
-        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: '请求必须包含 model 和 messages' }));
         return;
       }
       const messages = payload.messages.map(message => message.role === 'tool'

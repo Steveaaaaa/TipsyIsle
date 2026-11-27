@@ -19,6 +19,8 @@ export interface CardVisualIndex {
     gallery: string[];
     characters: CharacterVisualEntry[];
     assetsById: Map<string, IndexedCardAsset>;
+    worldContext?: string;
+    inferredStyle?: string;
 }
 
 interface InternalEntity {
@@ -725,6 +727,101 @@ function scoreMatch(ent: InternalEntity, candidate: CandidateAsset): number {
     return 0;
 }
 
+const WORLD_ENTRY_COMMENT_RE = /世界观|背景|世界设定|地理|时代|舞台|日程|城镇|小镇|学院|学园|设定集|overview|setting|world|lore|era|background|geography|premise/i;
+const META_NOISE_LINE_RE = /^(?:使用说明|注意事项说明|本文件为|不得在正文|写作基准|核心原则|任务[:：]|性质[:：]|用途[:：]|<FORMAT_RULE|<rule_|#\s*(?:触发词|场景结算)|\{?\s*"CONSTRAINT_LIBRARY")/;
+const PHOTOREAL_CUE_RE = /写实风格|照片质感|摄影风|真人实拍|实景摄影|photorealistic|live[\s-]*action|film photography/i;
+const MODERN_ERA_CUE_RE = /20[0-3]\d年|手机|智能机|电视|冰箱|空调|便利店|T恤|短裤|拖鞋|牛仔裤|帆布鞋|卫衣|运动服|校服|制服|高中|高[一二三]|初[一二三]|大学|暑假|寒假|公寓|沙发|可乐|冰棒|瓷砖|电脑|笔记本|网吧|游戏机|公交|电车|地铁|高铁|柏油路|现代|都市|smartphone|television|high school|modern|contemporary/i;
+const JP_SLICE_OF_LIFE_CUE_RE = /神社|鸟居|巫女|电车|和室|榻榻米|蝉鸣|夏日祭|潮灯祭|花火大会|浴衣|木廊|拉门|商店街|町|学园|高二|社团/i;
+const SCIFI_ERA_CUE_RE = /赛博|义体|机甲|星际|飞船|太空|宇航|全息|虚拟现实|空间站|殖民星|cyberpunk|sci-fi|futuristic|mecha|spaceship|starship/i;
+const FANTASY_ERA_CUE_RE = /魔法|魔导|精灵|骑士团|魔王|冒险者|公会|地下城|剑与魔法|圣骑士|中世纪|炼金术|fantasy|magic|knight|elf|dungeon|medieval/i;
+const HISTORICAL_EASTERN_CUE_RE = /江湖|武林|仙侠|修仙|修真|朝廷|皇帝|皇宫|将军|宰相|丞相|王爷|宗门|弟子|灵气|金丹|元婴|内功|剑气|汉服|佩剑|青衫|大宋|大唐|大明|大清|古代|古风|xianxia|wuxia|ancient china|cultivation/i;
+
+function sanitizeSettingText(raw: string): string {
+    return raw
+        .replace(/```[\s\S]*?(?:```|$)/g, ' ')
+        .replace(/<(FORMAT_RULE|script|style|scene_cover|UpdateVariable|think|thinking|reasoning)[\s\S]*?(?:<\/\1\s*>|$)/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/\{\{(?:user|char)\}\}/gi, '')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !META_NOISE_LINE_RE.test(line))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+export function extractWorldVisualBaseline(
+    card: NormalizedCharacterCard,
+    books: (NormalizedLorebook | null | undefined)[],
+): { worldContext?: string; inferredStyle: string } {
+    const snippets: string[] = [];
+    const pushSnippet = (raw: string, maxLen: number) => {
+        const clean = sanitizeSettingText(raw);
+        if (!clean || clean.length < 8) return;
+        const cut = clean.slice(0, maxLen);
+        if (!snippets.some((s) => s.includes(cut))) snippets.push(cut);
+    };
+
+    if (card.scenario) pushSnippet(card.scenario, 160);
+    if (card.description) pushSnippet(card.description, 160);
+
+    const seenEntries = new Set<string>();
+    for (const book of books) {
+        for (const entry of book?.entries ?? []) {
+            if (entry.disabled || NSFW_RE.test(entry.comment)) continue;
+            if (!WORLD_ENTRY_COMMENT_RE.test(entry.comment) && !WORLD_ENTRY_COMMENT_RE.test(entry.content.slice(0, 80))) {
+                continue;
+            }
+            const dedupKey = `${entry.comment.trim()}|${entry.content.slice(0, 100)}`;
+            if (seenEntries.has(dedupKey)) continue;
+            seenEntries.add(dedupKey);
+            pushSnippet(entry.content, 180);
+            if (snippets.length >= 4) break;
+        }
+        if (snippets.length >= 4) break;
+    }
+
+    const firstMesClean = sanitizeSettingText(card.firstMessage ?? '');
+    if (firstMesClean) pushSnippet(firstMesClean, 220);
+
+    const worldContext = snippets.join('；').slice(0, 360).trim() || undefined;
+    const signalCorpus = [
+        (card.tags ?? []).join(' '),
+        card.name,
+        worldContext ?? '',
+        firstMesClean.slice(0, 700),
+    ].join(' ');
+
+    const isModern = MODERN_ERA_CUE_RE.test(signalCorpus);
+    const isJpSlice = JP_SLICE_OF_LIFE_CUE_RE.test(signalCorpus);
+    const isSciFi = SCIFI_ERA_CUE_RE.test(signalCorpus);
+    const isFantasy = FANTASY_ERA_CUE_RE.test(signalCorpus);
+    const isHistoricalEastern = HISTORICAL_EASTERN_CUE_RE.test(signalCorpus);
+    const isPhoto = PHOTOREAL_CUE_RE.test(signalCorpus);
+
+    let inferredStyle: string;
+    if (isPhoto) {
+        if (isModern) inferredStyle = 'modern contemporary setting, cinematic photography, natural film lighting, modern everyday clothing';
+        else if (isSciFi) inferredStyle = 'sci-fi futuristic setting, cinematic film still, dramatic lighting';
+        else if (isHistoricalEastern && !isModern) inferredStyle = 'historical period setting, cinematic photography, natural lighting';
+        else inferredStyle = 'cinematic photography, natural film lighting';
+    } else if (isModern) {
+        inferredStyle = isJpSlice
+            ? 'modern contemporary Japanese setting, anime visual novel CG illustration, vibrant natural lighting, modern everyday clothing'
+            : 'modern contemporary setting, detailed anime illustration, natural lighting, modern everyday clothing';
+    } else if (isSciFi) {
+        inferredStyle = 'sci-fi futuristic setting, detailed anime illustration, sleek atmospheric lighting';
+    } else if (isFantasy) {
+        inferredStyle = 'fantasy setting, atmospheric anime illustration, dramatic lighting';
+    } else if (isHistoricalEastern) {
+        inferredStyle = 'historical eastern setting, painterly atmospheric illustration, traditional period attire';
+    } else {
+        inferredStyle = 'anime visual novel illustration, clean lineart, atmospheric cinematic lighting';
+    }
+
+    return { worldContext, inferredStyle };
+}
+
 const indexCache = new Map<string, CardVisualIndex>();
 
 export function buildCardVisualIndex(
@@ -930,6 +1027,7 @@ export function buildCardVisualIndex(
         });
     }
 
+    const { worldContext, inferredStyle } = extractWorldVisualBaseline(card, books);
     const fingerprint = hash36(`${card.id}:${card.name}:${gallery?.version ?? ''}:${books.length}:${scripts.length}`);
     return {
         characterId: card.id,
@@ -939,6 +1037,8 @@ export function buildCardVisualIndex(
         gallery: galleryFiles.slice(0, 256),
         characters: characters.slice(0, 48),
         assetsById,
+        worldContext,
+        inferredStyle,
     };
 }
 

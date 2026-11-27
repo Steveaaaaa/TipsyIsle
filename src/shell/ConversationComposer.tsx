@@ -2,7 +2,6 @@ import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { stopHelperGeneration } from '../compatibility/helper-generation';
 import { commandCompatibilityRuntime, type getCompatibilityExtensionMenu, type getCompatibilityScriptButtons } from '../compatibility/runtime-client';
 import { PluginButtons } from '../plugins/native/PluginCommands';
-import { SlotMount } from '../plugins/slot-registry';
 import type { quickReplyContextItems } from '../sandbox/quick-reply';
 import { stopActiveGeneration, type WorkspaceState } from '../store/workspace-store';
 import { textOf, type Appearance, type Area } from '../theme/appearance-model';
@@ -50,7 +49,6 @@ export function ConversationComposer({
             <div className="ttm-composer-quickbar" data-ti-shell="composer-controls" data-ti-area="toolbar">
                 {shellParts('toolbar')}
                 <button type="button" data-ti-part="more" className={`ttm-chip-btn${toolsOpen ? ' is-active' : ''}`} aria-expanded={toolsOpen} aria-controls="ttm-composer-tools" onClick={() => setToolsOpen(value => !value)}><ShellArt skin={skin} id="more" fallback={<Icon name="more" width={17} height={17} />} />{textOf(skin, 'more')}</button>
-                {!isFree && <SlotMount name="chat.input.toolbar" />}
             </div>
             <div id="ttm-composer-tools" className="ttm-composer-tools" data-ti-shell="composer-controls" data-ti-part="more-panel" hidden={!toolsOpen}>
             {!isFree && (scriptButtons.length > 0 || activeQuickReplies.length > 0 || extensionMenu.length > 0) && <section className="ttm-composer-shortcuts" aria-labelledby="ttm-composer-shortcuts-title">

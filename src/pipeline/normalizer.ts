@@ -7,6 +7,7 @@ import type {
     NormalizedPresetPromptSlot,
     NormalizedRegexScript,
 } from '../types';
+import { extractSPresetRegexScripts } from '../compatibility/spreset-config';
 
 function asRecord(val: unknown): Record<string, unknown> {
     return val && typeof val === 'object' && !Array.isArray(val) ? (val as Record<string, unknown>) : {};
@@ -40,6 +41,21 @@ function asStringArray(val: unknown): string[] {
         return val.split(',').map((s) => s.trim()).filter(Boolean);
     }
     return [];
+}
+
+function mergeUniqueRegexScripts(base: NormalizedRegexScript[], extra: NormalizedRegexScript[]): NormalizedRegexScript[] {
+    if (!extra.length) return base;
+    const merged: NormalizedRegexScript[] = [];
+    const seenIds = new Set<string>();
+    const seenKeys = new Set<string>();
+    for (const rule of [...base, ...extra]) {
+        const key = `${rule.scriptName}\0${rule.findRegex}\0${rule.replaceString}`;
+        if ((rule.id && seenIds.has(rule.id)) || seenKeys.has(key)) continue;
+        if (rule.id) seenIds.add(rule.id);
+        seenKeys.add(key);
+        merged.push(rule);
+    }
+    return merged;
 }
 
 export function normalizeRegexScripts(rawList: unknown): NormalizedRegexScript[] {
@@ -518,7 +534,12 @@ export function normalizePreset(rawPreset: unknown, fallbackName = 'Default Pres
     };
 
     const ext = asRecord(p.extensions);
-    const regexScripts = normalizeRegexScripts(p.regexScripts ?? ext.regex_scripts ?? p.regex_scripts);
+    const baseRawRegex = p.regexScripts ?? ext.regex_scripts ?? p.regex_scripts;
+    const spresetRawRegex = extractSPresetRegexScripts(p);
+    const regexScripts = mergeUniqueRegexScripts(
+        normalizeRegexScripts(baseRawRegex),
+        normalizeRegexScripts(spresetRawRegex),
+    );
 
     return {
         rawData: structuredClone(p),

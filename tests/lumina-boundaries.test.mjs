@@ -117,6 +117,32 @@ test('generateImage skips dead remote references while propagating permission er
         ),
         { code: 'PERMISSION_DENIED' },
     );
+
+    // Falls back to images/generations when relay returns 503 distributor error for images/edits
+    const fallbackRes = await fixture(`export {generateImage} from './src/plugins/native/image-adapter'`, {
+        '../../core/platform-bridge': `export const detectRuntimeFlavor=async()=>'browser-offline'`,
+        '../../core/native-runtime': `export const platformFetch=(...args)=>globalThis.fetch(...args);export const isNativeRuntime=()=>false`,
+        './connections': `export const httpEndpoint=value=>new URL(value)`,
+        './media-ref': `export const resolveReference=async()=>new Blob([new Uint8Array([1,2,3])],{type:'image/png'})`,
+        './media': `export const mediaLimit=20*1024*1024`,
+    });
+    const calledUrls = [];
+    t.mock.method(globalThis, 'fetch', async (url) => {
+        calledUrls.push(String(url));
+        if (String(url).endsWith('/images/edits')) {
+            return new Response(JSON.stringify({ error: { code: 'model_not_found', message: '无可用渠道' } }), { status: 503 });
+        }
+        return Response.json({ data: [{ b64_json: 'ZmFsbGJhY2s=' }] });
+    });
+    const imgOut = await fallbackRes.generateImage(
+        conn,
+        { kind: 'image', prompt: 'Summer shrine', connection: 'c', references: [{ role: 'character', image: { source: 'media', id: 'ref-1' } }] },
+        'owner',
+        ['media.manage'],
+        new AbortController().signal,
+    );
+    assert.deepEqual(calledUrls, ['https://openai.example/v1/images/edits', 'https://openai.example/v1/images/generations']);
+    assert.equal(await imgOut.blob.text(), 'fallback');
 });
 
 const {encodeStoryFile,decodeStoryFile,restoreImages}=await fixture(`export * from './src/core/story-save-format';export {restoreImages} from './src/core/story-plugin-archive'`,{'../plugins/native/media':`export const loadMedia=()=>{throw new Error('unexpected I/O')}`});
@@ -243,4 +269,11 @@ test('projectMedia sanitizes oversized prompts/labels instead of dropping finish
     assert.equal(projected[0].item.subtitle?.length,120);
     assert.equal(projected[0].item.takes?.[0]?.prompt?.length,4000);
     assert.equal(projected[0].item.takes?.[0]?.seed,42);
+});
+test('projectMedia retains settled replyMedia even after post-generation author edits change node content revision',()=>{
+    const id=crypto.randomUUID();
+    const node={id:'m-post-edit',floor:2,role:'assistant',content:'作者脚本清理后的正文',swipes:['作者脚本清理后的正文'],activeSwipeIndex:0,swipeIds:['s-post'],nativePluginReplies:{'s-post':{lumina:{owner:'fp',schemaVersion:1,version:1,values:{replyMedia:[{slotId:'shot-0',revision:'old-hash:123',status:'ready',label:'夏日廊下',takes:[{id,createdAt:1}],activeTake:0}]}}}}};
+    const projected=projectMedia(node);
+    assert.equal(projected.length,1);
+    assert.equal(projected[0].item.label,'夏日廊下');
 });

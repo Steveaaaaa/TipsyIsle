@@ -2,8 +2,8 @@ import { createReactiveStore } from './reactive-store';
 
 export type NotificationKind = 'info' | 'success' | 'warning' | 'error' | 'progress';
 type NotificationAction = { label: string; run: () => void };
-export interface AppNotification { id: string; message: string; kind: NotificationKind; action?: NotificationAction; }
-export interface NotificationOptions { id?: string; kind?: NotificationKind; duration?: number; action?: NotificationAction; }
+export interface AppNotification { id: string; message: string; kind: NotificationKind; action?: NotificationAction; secondaryAction?: NotificationAction; }
+export interface NotificationOptions { id?: string; kind?: NotificationKind; duration?: number; action?: NotificationAction; secondaryAction?: NotificationAction; }
 export const notificationStore = createReactiveStore<{ items: AppNotification[] }>(() => ({ items: [] }));
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -18,8 +18,8 @@ export function showNotification(message: string, options: NotificationOptions =
     clearTimeout(timers.get(id)); timers.delete(id);
     notificationStore.setState(draft => {
         const existing = draft.items.find(item => item.id === id);
-        if (existing) Object.assign(existing, { message, kind, action: options.action });
-        else draft.items.push({ id, message, kind, action: options.action });
+        if (existing) Object.assign(existing, { message, kind, action: options.action, secondaryAction: options.secondaryAction });
+        else draft.items.push({ id, message, kind, action: options.action, secondaryAction: options.secondaryAction });
     });
     if (duration > 0) timers.set(id, setTimeout(() => dismissNotification(id), duration));
     return id;

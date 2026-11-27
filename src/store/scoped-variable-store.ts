@@ -77,10 +77,6 @@ export async function hydrateScopedVariables(): Promise<void> {
 
 export const hydrateVariablesFromPlatform = hydrateScopedVariables;
 
-export function getExtensionVariableBuckets(): ScopedBucketMap {
-    return structuredClone(scopedVariableStore.getState().extension);
-}
-
 export function replaceExtensionVariables(id: string, value: Record<string, unknown>): void {
     scopedVariableStore.setState(draft => { writeExtensionVariables(draft.extension, id, value); });
     persistVariables();
@@ -115,11 +111,6 @@ export function resolveMergedVariables(ctx: VariableScopeContext = {}): Record<s
         ...(state.chat[resolveBucketKey('chat', ctx)] || {}),
         ...(state.message[resolveBucketKey('message', ctx)] || {}),
     });
-}
-
-export function resolveScopedVariable(key: string, ctx: VariableScopeContext = {}): unknown {
-    const merged = resolveMergedVariables(ctx);
-    return merged[key];
 }
 
 export function insertOrAssignScopedVariables(
@@ -233,7 +224,3 @@ export function deleteScopedVariable(
     }
     return deleteScopedVariableKey(first, isScopeLevel(second) ? second : 'chat', ctx);
 }
-
-export const insertOrAssignVariables = insertOrAssignScopedVariables;
-export const deleteVariable = deleteScopedVariable;
-export const getVariablesByScope = getScopedVariables;

@@ -149,11 +149,14 @@ export function StoryModelProfilesBar() {
                     onChange={event => selectProfile(event.target.value)}
                 >
                     <option value="">手动直连（不关联已保存渠道）</option>
-                    {profiles.map(profile => (
-                        <option key={profile.id} value={profile.id}>
-                            {profile.name} · {profile.model || profile.source}
-                        </option>
-                    ))}
+                    {profiles.map(profile => {
+                        const name = profile.name.trim();
+                        const detail = (profile.model || profile.source || '').trim();
+                        const display = detail && detail.toLocaleLowerCase() !== name.toLocaleLowerCase()
+                            ? `${name} · ${detail}`
+                            : name;
+                        return <option key={profile.id} value={profile.id}>{display}</option>;
+                    })}
                 </select>
             </div>
             <div className="ttm-profile-bar-actions">

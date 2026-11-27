@@ -139,11 +139,44 @@ export async function generateImage(
         });
     };
 
+    const readErrorDetail = async (response: Response): Promise<string> => {
+        try {
+            const reader = response.body?.getReader?.();
+            if (!reader) {
+                await response.body?.cancel?.();
+                return '';
+            }
+            let received = new Uint8Array(0);
+            while (received.length < 768) {
+                const { done, value } = await reader.read();
+                if (done || !value) break;
+                const take = value.subarray(0, 768 - received.length);
+                const next = new Uint8Array(received.length + take.length);
+                next.set(received);
+                next.set(take, received.length);
+                received = next;
+            }
+            void reader.cancel().catch(() => {});
+            const text = new TextDecoder().decode(received).trim();
+            if (!text) return '';
+            try {
+                const parsed = JSON.parse(text) as { error?: { message?: unknown }; message?: unknown };
+                const msg = parsed?.error?.message ?? parsed?.message;
+                if (typeof msg === 'string' && msg.trim()) return msg.trim().slice(0, 140);
+            } catch {
+                // Non-JSON or truncated error body; return compact text below.
+            }
+            return text.replace(/\s+/g, ' ').slice(0, 140);
+        } catch {
+            return '';
+        }
+    };
+
     const request = async (path: string, body?: unknown, protocolOverride = protocol) => {
         const response = await sendRequest(path, body, protocolOverride);
         if (!response.ok) {
-            await response.body?.cancel();
-            throw new Error(`生图服务返回 ${response.status}`);
+            const detail = await readErrorDetail(response);
+            throw new Error(detail ? `生图服务返回 ${response.status}（${detail}）` : `生图服务返回 ${response.status}`);
         }
         return response;
     };
@@ -356,28 +389,42 @@ export async function generateImage(
         prompt: naturalPrompt,
         ...(data.size || data.aspectRatio ? { size: data.size ?? `${size.width}x${size.height}` } : {}),
     };
-    let result: { data?: { url?: string; b64_json?: string }[] } | undefined;
+    type OpenAiImagePayload = {
+        data?: { url?: string; b64_json?: string }[];
+        images?: { url?: string; b64_json?: string }[];
+    };
+    let result: OpenAiImagePayload | undefined;
     if (refs.length) {
         const form = new FormData();
         for (const [key, value] of Object.entries(body)) form.append(key, value);
         for (const ref of refs) form.append('image[]', ref.blob, `reference.${ref.blob.type.split('/')[1]}`);
         const editRes = await sendRequest('images/edits', form);
         if (editRes.ok) {
-            result = JSON.parse(await (await readLimited(editRes, mediaLimit * 2, signal)).text());
-        } else {
-            await editRes.body?.cancel();
-            if ([400, 404, 405, 415, 422, 501].includes(editRes.status)) {
-                result = await json('images/generations', body);
+            const parsed = JSON.parse(await (await readLimited(editRes, mediaLimit * 2, signal)).text()) as OpenAiImagePayload;
+            const editImage = parsed?.data?.[0] ?? parsed?.images?.[0];
+            if (editImage?.url || editImage?.b64_json) {
+                result = parsed;
             } else {
-                throw new Error(`生图服务返回 ${editRes.status}`);
+                result = await json('images/generations', body);
             }
+        } else {
+            if ([401, 403, 429].includes(editRes.status)) {
+                const detail = await readErrorDetail(editRes);
+                throw new Error(detail ? `生图服务返回 ${editRes.status}（${detail}）` : `生图服务返回 ${editRes.status}`);
+            }
+            await editRes.body?.cancel();
+            result = await json('images/generations', body);
         }
     } else {
         result = await json('images/generations', body);
     }
 
-    const image = result?.data?.[0];
+    const image = result?.data?.[0] ?? result?.images?.[0];
     if (typeof image?.url === 'string') {
+        const dataUri = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$/i.exec(image.url.trim());
+        if (dataUri) {
+            return { blob: fromImage(dataUri[2].replace(/\s+/g, ''), dataUri[1].toLowerCase()) };
+        }
         return { blob: await fetchResultUrl(image.url) };
     }
     return { blob: fromImage(image?.b64_json) };

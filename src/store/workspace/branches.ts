@@ -358,27 +358,6 @@ export async function swipeBranchMessage(messageId: string, direction: 'prev' | 
     if (routes.length === 1) await selectChatBranch(routes[0].key, internal);
 }
 
-/**
- * 统计当前会话树中的总分支数（含各楼层平行 swipe 与 parentId 分叉）
- */
-export function getChatBranchStats(messages = workspaceStore.getState().messages): {
-    totalBranches: number;
-    forkFloors: number[];
-} {
-    let extraBranches = 0;
-    const forkFloors: number[] = [];
-    for (const m of messages) {
-        if (m.swipes && m.swipes.length > 1) {
-            extraBranches += m.swipes.length - 1;
-            forkFloors.push(m.floor);
-        }
-    }
-    return {
-        totalBranches: 1 + extraBranches,
-        forkFloors,
-    };
-}
-
 export async function deleteStoryBranch(
     branchRootKey: string,
     options: { chatId?: string; internal?: boolean } = {},

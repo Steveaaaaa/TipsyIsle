@@ -1,7 +1,9 @@
 import { rollbackStateChanges } from '../state-rollback';
 import { diagnosticErrorKind, recordDiagnostic } from '../../core/diagnostics';
 import { NO_PRESET } from '../../core/empty-workspace';
-import { streamLlmCompletion, type CompletionResult } from '../../core/platform-bridge';
+import { streamLlmCompletion, type CompletionRequestMessage, type CompletionResult, type CompletionToolCall } from '../../core/platform-bridge';
+import { hasActiveSPreset, readSPresetConfig, type SPresetOutputPreprocessing } from '../../compatibility/spreset-config';
+import { createSPresetOutputProcessor, hasActiveSPresetOutput } from '../../core/spreset-output-stream';
 import { StorySummaryChannel, summaryContentHash } from '../../pipeline/story-summary';
 import { presetSamplingParameters } from '../../core/generation-settings';
 import { resolveUseSystemPrompt } from '../../core/prompt-post-process';
@@ -13,11 +15,11 @@ import _ from 'lodash';
 import { findUpdateMarkupBlocks } from '../../pipeline/mvu-markup';
 import { getSchemaValues } from '../../registry/schema-registry';
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_RESPONSE_TOKENS } from '../../core/generation-defaults';
-import { prepareTokenCounter, type TokenizerSelection } from '../../pipeline/token-counter';
+import { estimateTokenCount, prepareTokenCounter, type TokenizerSelection } from '../../pipeline/token-counter';
+import { estimateTokenDelta, readSwipeMetrics, setSwipeMetrics, tokenDisplayBucket } from '../../pipeline/message-metrics';
 import { scopedVariableStore, getScopedVariables } from '../scoped-variable-store';
 import { activePath, swipeId } from '../chat-tree';
 import type { BranchState } from '../branch-state';
-import { executePluginHooks } from '../../plugins/plugin-host';
 import { messageRef, settled } from '../../plugins/native/story-port';
 import { nativeGenerationContributions, notifyNativeReplySaved } from '../../plugins/native/host';
 import { notifyCheckpoint } from '../../plugins/native/host';
@@ -30,7 +32,7 @@ import { tavernEventBus } from '../../sandbox/event-bus';
 import { commandCompatibilityRuntime, publishNativeGenerationProgress, requireCompatibilityRouteReady, saveCompatibilityBeforeRouteChange } from '../../compatibility/runtime-client';
 import type { VariableWrite } from '../../compatibility/contracts';
 import { readMvuCommands, settleMvuWithoutScripts, formatMvuMessageContent } from '../../pipeline/mvu-commands';
-import type { AssembledPromptResult, ChatMessageNode } from '../../types';
+import type { AssembledChatMessage, AssembledPromptResult, ChatMessageNode, LorebookEntry, LorebookInsertPosition } from '../../types';
 import type { AssemblePromptInput } from '../../pipeline/prompt-assembler';
 import { enqueuePersistentOperation, waitForReplicaCommit } from '../persistence';
 import { globalRegexes } from '../global-regex-store';
@@ -225,6 +227,7 @@ async function generateFreeReply(userText: string | undefined, regenerate: boole
     const replaceReply = regenerate && previous?.role === 'assistant' && !!previous.parentId;
     if (!text && !replaceReply && !(regenerate && previous?.role === 'user')) return '';
 
+    const generationStartedAt = Date.now();
     const controller = new AbortController();
     activeAbortController = controller;
     workspaceStore.setState({ isGenerating: true, streamingReasoning: '' });
@@ -235,6 +238,7 @@ async function generateFreeReply(userText: string | undefined, regenerate: boole
     const id = `msg_${crypto.randomUUID()}`;
     let content = '', reasoning = '';
     let placeholder = false;
+    let streamedOutputTokens = 0;
     try {
         const count = await prepareTokenCounter(connection.model, (settings['sampler.tokenizer'] ?? 'auto') as TokenizerSelection);
         controller.signal.throwIfAborted();
@@ -255,28 +259,58 @@ async function generateFreeReply(userText: string | undefined, regenerate: boole
         while (messages[0]?.role === 'assistant') messages.shift();
         if (!messages.length) throw new Error('当前分支没有可发送的用户消息。');
 
+        const promptTokens = messages.reduce((sum, item) => sum + item.tokens, 0);
         const node: ChatMessageNode = { id, messageId: id, parentId: leaf, parentSwipeId: parent ? swipeId(parent) : undefined,
             floor: path.length, role: 'assistant', speakerName: 'AI', content: '', swipes: [''], activeSwipeIndex: 0,
             branchOrigin: replaceReply ? previous.branchOrigin ?? previous.id : undefined,
-            createdAt: Date.now(), updatedAt: Date.now(), extra: { tipsy_generation_incomplete: true } };
-        workspaceStore.setState(draft => { draft.messages.push(node); draft.activeLeafId = id; });
+            createdAt: Date.now(), updatedAt: Date.now(),
+            extra: { tipsy_generation_incomplete: true, tipsy_metrics: { 0: { startedAt: generationStartedAt, outputTokens: 0 } } } };
+        workspaceStore.setState(draft => {
+            if (promptTokens > 0 && parent?.role === 'user') {
+                const userNode = draft.messages.find(item => item.id === parent.id);
+                if (userNode) userNode.extra = setSwipeMetrics(userNode, userNode.activeSwipeIndex, { promptTokens });
+            }
+            draft.messages.push(node); draft.activeLeafId = id;
+        });
         placeholder = true;
+        let lastBucket = -1, lastMetricsAt = 0;
         const result = await streamLlmCompletion({ ...connection, messages, parameters, stream: settings['api.stream'] !== false,
             signal: controller.signal, requireReplyText: true, onToken: (text, thought = '') => {
                 if (controller.signal.aborted) return;
                 content += text; reasoning += thought;
+                streamedOutputTokens += estimateTokenDelta(text) + estimateTokenDelta(thought);
+                const nextBucket = tokenDisplayBucket(streamedOutputTokens);
+                const now = Date.now();
+                const shouldSyncMetrics = nextBucket !== lastBucket && (lastBucket <= 0 || now - lastMetricsAt >= 400);
+                if (shouldSyncMetrics) { lastBucket = nextBucket; lastMetricsAt = now; }
                 workspaceStore.setState(draft => {
                     const reply = draft.messages.at(-1)!;
                     reply.content = content; reply.swipes[0] = content;
+                    if (shouldSyncMetrics) {
+                        reply.extra = setSwipeMetrics(reply, reply.activeSwipeIndex, { outputTokens: nextBucket, startedAt: generationStartedAt });
+                    }
                     draft.streamingReasoning = reasoning;
                 });
             } });
         controller.signal.throwIfAborted();
         content = result.content; reasoning = result.reasoning;
+        const durationMs = Math.max(100, Date.now() - generationStartedAt);
+        const estimatedFallback = Math.max(Math.ceil(streamedOutputTokens), estimateTokenCount(content) + (reasoning ? estimateTokenCount(reasoning) : 0));
+        const primaryOutputTokens = result.usage?.outputTokens ?? estimatedFallback;
         const candidates = (result.candidates ?? [result]).map(({ content, reasoning }) => ({ content, reasoning }));
         workspaceStore.setState(draft => {
+            if (result.usage?.promptTokens && result.usage.promptTokens > 0 && parent?.role === 'user') {
+                const userNode = draft.messages.find(item => item.id === parent.id);
+                if (userNode) userNode.extra = setSwipeMetrics(userNode, userNode.activeSwipeIndex, { promptTokens: result.usage.promptTokens });
+            }
             const reply = draft.messages.at(-1)!;
-            Object.assign(reply, { content, reasoning, swipes: candidates, extra: undefined, updatedAt: Date.now() });
+            reply.extra = undefined;
+            for (const [candidateIndex, candidate] of candidates.entries()) {
+                const outputTokens = candidateIndex === 0 ? primaryOutputTokens
+                    : estimateTokenCount(candidate.content) + (candidate.reasoning ? estimateTokenCount(candidate.reasoning) : 0);
+                reply.extra = setSwipeMetrics(reply, candidateIndex, { durationMs, outputTokens, startedAt: undefined });
+            }
+            Object.assign(reply, { content, reasoning, swipes: candidates, updatedAt: Date.now() });
         });
         return content;
     } catch (error) {
@@ -286,7 +320,10 @@ async function generateFreeReply(userText: string | undefined, regenerate: boole
         if (placeholder) workspaceStore.setState(draft => {
             if (content) {
                 const reply = draft.messages.at(-1)!;
-                Object.assign(reply, { content, reasoning, swipes: [{ content, reasoning }], extra: undefined, updatedAt: Date.now() });
+                const durationMs = Math.max(100, Date.now() - generationStartedAt);
+                const outputTokens = Math.max(Math.ceil(streamedOutputTokens), estimateTokenCount(content) + (reasoning ? estimateTokenCount(reasoning) : 0));
+                reply.extra = setSwipeMetrics({ ...reply, extra: undefined }, 0, { durationMs, outputTokens });
+                Object.assign(reply, { content, reasoning, swipes: [{ content, reasoning }], updatedAt: Date.now() });
             } else {
                 draft.messages.pop();
                 draft.activeLeafId = replaceReply ? previous.id : leaf;
@@ -310,6 +347,7 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
     requireCompatibilityRouteReady();
     if (generationType === 'regenerate') await saveCompatibilityBeforeRouteChange();
     if (workspaceStore.getState().isGenerating) return '';
+    const generationStartedAt = Date.now();
     const controller = new AbortController();
     activeAbortController = controller;
     workspaceStore.setState(draft => { draft.isGenerating = true; });
@@ -370,7 +408,8 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
         }
         generationNotificationMessage = undefined;
         controller.signal.throwIfAborted();
-        const required = getWorkspaceScripts().some(s => s.enabled);
+        const activePresetForGen = getActivePreset();
+        const required = getWorkspaceScripts().some(s => s.enabled) || hasActiveSPreset(activePresetForGen);
         await tavernEventBus.emit('generation_started', { type: generationType, characterId: workspaceStore.getState().activeCharacterId });
         extensionGenerationPreparation = controller;
         const prepared = await commandCompatibilityRuntime('beforeGeneration', [generationType], required)
@@ -438,6 +477,8 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
     const checkpointCycle=startGeneration(placeholderId,controller.signal);
     regeneratedPlaceholderId = placeholderId;
     const prevNode = path.at(-1);
+    const promptTarget = prevNode?.role === 'user' ? { id: prevNode.id, swipe: prevNode.activeSwipeIndex } : undefined;
+    const promptTokens = assembled.tokenUsage.total;
 
     const assistantNode: ChatMessageNode = {
         id: placeholderId,
@@ -454,7 +495,7 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
         createdAt: Date.now(),
         updatedAt: Date.now(),
         tokenCount: 0,
-        extra: { tipsy_generation_incomplete: true },
+        extra: { tipsy_generation_incomplete: true, tipsy_metrics: { 0: { startedAt: generationStartedAt, outputTokens: 0 } } },
     };
     continueNativeRoute(state.messages, path, assistantNode, originalRoute);
     let completed = false;
@@ -468,6 +509,10 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
         if (prevNode) captureMessageSnapshot(prevNode.id);
         const assistantVariables = { ...getScopedVariables('chat', { chatId: state.activeChatId }), ...(prevNode ? getScopedVariables('message', { messageId: prevNode.id }) : {}) };
         workspaceStore.setState(draft => {
+            if (promptTokens > 0 && promptTarget) {
+                const userNode = draft.messages.find(node => node.id === promptTarget.id);
+                if (userNode) userNode.extra = setSwipeMetrics(userNode, promptTarget.swipe, { promptTokens });
+            }
             draft.streamingReasoning = '';
             draft.nativeToolPreview = undefined;
             draft.messages.push(assistantNode);
@@ -480,11 +525,11 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
 
         stage = '生成回复';
         const streamed = await streamStoryReply(controller, state, assembled, assemblyInput, nativeContributions, placeholderId, floor, summaryChannel,
-            { apiSource, baseUrl, apiKey, model, schemaVals });
+            { apiSource, baseUrl, apiKey, model, schemaVals }, generationStartedAt);
         controller.signal.throwIfAborted();
 
         stage = '应用回复与分支状态';
-        const firstContent = await settleStoryCandidates(streamed, summaryChannel, controller, state, card, assembled, placeholderId, floor, () => { firstCandidateSettled = true; });
+        const firstContent = await settleStoryCandidates(streamed, summaryChannel, controller, state, card, assembled, placeholderId, floor, () => { firstCandidateSettled = true; }, generationStartedAt, promptTarget);
         workspaceStore.setState(draft => {
             const target = draft.messages.find(message => message.id === placeholderId)!;
             target.extra = { ...target.extra }; delete target.extra.tipsy_generation_incomplete;
@@ -507,8 +552,21 @@ export async function sendUserMessageAndGenerate(userText?: string, generationTy
             const target = draft.messages.find((m) => m.id === placeholderId);
             if (target && !target.reasoning) target.reasoning = draft.streamingReasoning;
             if (target && !completed) {
-                target.extra = { ...target.extra, tipsy_generation_terminal: { swipe: target.activeSwipeIndex,
-                    phase: controller.signal.aborted ? 'stopped' : 'error', detail: controller.signal.aborted ? '' : msg } };
+                const currentMetrics = readSwipeMetrics(target, target.activeSwipeIndex);
+                const partialTokens = currentMetrics?.outputTokens ?? (target.content || target.reasoning
+                    ? estimateTokenCount(target.content) + (target.reasoning ? estimateTokenCount(target.reasoning) : 0) : 0);
+                target.extra = setSwipeMetrics({
+                    ...target,
+                    extra: {
+                        ...target.extra,
+                        tipsy_generation_terminal: { swipe: target.activeSwipeIndex,
+                            phase: controller.signal.aborted ? 'stopped' : 'error', detail: controller.signal.aborted ? '' : msg },
+                    },
+                }, target.activeSwipeIndex, {
+                    durationMs: Math.max(100, Date.now() - generationStartedAt),
+                    outputTokens: partialTokens,
+                    startedAt: undefined,
+                });
                 target.updatedAt = Date.now();
             }
         });
@@ -590,14 +648,61 @@ async function prepareStoryPrompt(prepared: { injections?: AssemblePromptInput['
     return { assembled, assemblyInput, nativeContributions };
 }
 
+const WI_POSITION_TO_NUMBER: Record<LorebookInsertPosition, number> = {
+    before_char: 0,
+    after_char: 1,
+    an_top: 2,
+    before_an: 2,
+    an_bottom: 3,
+    after_an: 3,
+    at_depth: 4,
+    before_example: 5,
+    after_example: 6,
+    outlet: 7,
+};
+
+const WI_ROLE_TO_NUMBER: Record<'system' | 'user' | 'assistant', number> = {
+    system: 0,
+    user: 1,
+    assistant: 2,
+};
+
+function formatWorldInfoEntriesForCompat(entries: LorebookEntry[]): Array<Record<string, unknown>> {
+    return (entries ?? []).map(entry => ({
+        uid: entry.uid,
+        world: entry.world ?? '',
+        comment: entry.comment ?? '',
+        content: entry.content ?? '',
+        constant: Boolean(entry.constant),
+        position: WI_POSITION_TO_NUMBER[entry.position] ?? 0,
+        depth: Number(entry.depth ?? 4),
+        order: Number(entry.order ?? 100),
+        role: WI_ROLE_TO_NUMBER[entry.role ?? 'system'] ?? 0,
+    }));
+}
+
+function buildSPresetDraftMessages(messages: AssembledChatMessage[]): Array<Record<string, unknown>> {
+    return messages.map(message => ({
+        role: message.role,
+        content: message.images?.length
+            ? [{ type: 'text', text: message.content }, ...message.images.map(url => ({ type: 'image_url', image_url: { url } }))]
+            : message.content,
+        ...(message.name ? { name: message.name } : {}),
+    }));
+}
+
 async function streamStoryReply(controller: AbortController, state: ReturnType<typeof workspaceStore.getState>, assembled: AssembledPromptResult,
     assemblyInput: AssemblePromptInput, nativeContributions: Awaited<ReturnType<typeof nativeGenerationContributions>>,
     placeholderId: string, floor: number, summaryChannel: StorySummaryChannel,
-    connection: { apiSource: string; baseUrl: string; apiKey: string; model: string; schemaVals: ReturnType<typeof getSchemaValues> }): Promise<CompletionResult> {
+    connection: { apiSource: string; baseUrl: string; apiKey: string; model: string; schemaVals: ReturnType<typeof getSchemaValues> },
+    generationStartedAt: number): Promise<CompletionResult & { estimatedOutputTokens?: number }> {
     const { apiSource, baseUrl, apiKey, model, schemaVals } = connection;
     let previewSummary = new StorySummaryChannel(summaryChannel.tag);
     let checkpointCount=0;
     let midCheckpointFired=false;
+    let streamedOutputTokens = 0;
+    let lastBucket = -1;
+    let lastMetricsAt = 0;
     if (!baseUrl) {
         const simulatedChunks = [
             '尚未配置模型连接，本条为本地演示提示。\n\n',
@@ -609,59 +714,150 @@ async function streamStoryReply(controller: AbortController, state: ReturnType<t
             await new Promise((r) => setTimeout(r, 90));
             controller.signal.throwIfAborted();
             built += chunk;
+            streamedOutputTokens += estimateTokenDelta(chunk);
+            const nextBucket = tokenDisplayBucket(streamedOutputTokens);
             workspaceStore.setState((draft) => {
                 const target = draft.messages.find((m) => m.id === placeholderId);
                 if (target) {
                     target.content = built;
                     target.swipes[target.activeSwipeIndex] = built;
+                    target.extra = setSwipeMetrics(target, target.activeSwipeIndex, { outputTokens: nextBucket, startedAt: generationStartedAt });
                 }
             });
             await tavernEventBus.emit('generation_stream_token', chunk);
         }
 
-        return { content: built, reasoning: '' };
+        return { content: built, reasoning: '', estimatedOutputTokens: Math.ceil(streamedOutputTokens) };
     }
-    return await streamStoryWithNativeTools({
-        source: apiSource,
-        baseUrl,
-        apiKey,
-        model: assembled.generationSettings?.model ?? model,
-        messages: await applyNativeContributions(assembled, assemblyInput, nativeContributions, summaryChannel.messages(assembled.messages), controller.signal),
-        parameters: assembled.generationSettings?.parameters ?? presetSamplingParameters(getActivePreset(state), schemaVals),
-        useSystemPrompt: resolveUseSystemPrompt(getActivePreset(state), schemaVals),
-        stream: assembled.generationSettings?.stream ?? schemaVals['api.stream'] !== false,
-        signal: controller.signal,
-        onToken: (deltaContent, deltaReasoning) => {
-            if (controller.signal.aborted) return;
-            deltaContent = summaryChannel.push(deltaContent);
-            workspaceStore.setState((draft) => {
-                draft.nativeToolPreview = undefined;
-                if (deltaReasoning) {
-                    draft.streamingReasoning += deltaReasoning;
-                }
-                const target = draft.messages.find((m) => m.id === placeholderId);
-                if (target && deltaContent) {
+    const activePreset = getActivePreset(state);
+    const preparedMessages = await applyNativeContributions(assembled, assemblyInput, nativeContributions, summaryChannel.messages(assembled.messages), controller.signal);
+    let finalMessages: CompletionRequestMessage[] = preparedMessages;
+    const finalParameters: Record<string, unknown> = structuredClone(
+        assembled.generationSettings?.parameters ?? presetSamplingParameters(activePreset, schemaVals),
+    );
+    const resolvedModel = assembled.generationSettings?.model ?? model;
+    const resolvedStream = assembled.generationSettings?.stream ?? schemaVals['api.stream'] !== false;
+    let spresetOutputConfig: SPresetOutputPreprocessing | undefined;
+
+    if (hasActiveSPreset(activePreset)) {
+        const spresetDraft: Record<string, unknown> = {
+            model: resolvedModel,
+            messages: buildSPresetDraftMessages(preparedMessages),
+            ...finalParameters,
+            stream: resolvedStream,
+            chat_completion_source: apiSource,
+        };
+        const spresetResult = await commandCompatibilityRuntime(
+            'runSPresetFinalRequest',
+            [{ request: spresetDraft, activatedLorebookEntries: formatWorldInfoEntriesForCompat(assembled.activatedLorebookEntries) }],
+            true,
+        );
+        if (spresetResult.spresetApplied && spresetResult.spresetRequest) {
+            const rewritten = spresetResult.spresetRequest;
+            if (Array.isArray(rewritten.messages)) {
+                finalMessages = rewritten.messages as CompletionRequestMessage[];
+            }
+            for (const key of ['tools', 'tool_choice', 'toolConfig', 'response_format', 'json_schema']) {
+                if (rewritten[key] !== undefined) finalParameters[key] = rewritten[key];
+                else if (key in spresetDraft) delete finalParameters[key];
+            }
+            for (const key of [
+                'stop', 'stop_sequences',
+                'temperature', 'max_tokens', 'top_p', 'top_k', 'frequency_penalty', 'presence_penalty', 'repetition_penalty', 'min_p', 'seed', 'n',
+            ]) {
+                if (rewritten[key] !== undefined) finalParameters[key] = rewritten[key];
+            }
+            if (spresetResult.spresetDeletedReasoningEffort) {
+                delete finalParameters.reasoning_effort;
+            }
+        }
+        spresetOutputConfig = spresetResult.spresetOutputPreprocessing ?? readSPresetConfig(activePreset)?.outputPreprocessing;
+    }
+
+    const spresetProcessor = hasActiveSPresetOutput(spresetOutputConfig)
+        ? createSPresetOutputProcessor(spresetOutputConfig)
+        : undefined;
+    let lastLiveText = '';
+
+    const emitStreamingProgress = (nextContent: string | null, deltaContent: string, deltaReasoning: string, addedTokens = 0) => {
+        streamedOutputTokens += addedTokens || (estimateTokenDelta(deltaContent) + estimateTokenDelta(deltaReasoning));
+        const nextBucket = tokenDisplayBucket(streamedOutputTokens);
+        const now = Date.now();
+        const shouldSyncMetrics = nextBucket !== lastBucket && (lastBucket <= 0 || now - lastMetricsAt >= 400);
+        if (shouldSyncMetrics) { lastBucket = nextBucket; lastMetricsAt = now; }
+        workspaceStore.setState((draft) => {
+            draft.nativeToolPreview = undefined;
+            if (deltaReasoning) {
+                draft.streamingReasoning += deltaReasoning;
+            }
+            const target = draft.messages.find((m) => m.id === placeholderId);
+            if (target) {
+                if (nextContent !== null) {
+                    target.content = nextContent;
+                    target.swipes[target.activeSwipeIndex] = target.content;
+                } else if (deltaContent) {
                     target.content += deltaContent;
                     target.swipes[target.activeSwipeIndex] = target.content;
                 }
-            });
-            void tavernEventBus.emit('generation_stream_token', deltaContent);
-            const current = workspaceStore.getState();
-            if(checkpointCount<4 && /\n/.test(deltaContent)) {
-                const node=current.messages.find(message=>message.id===placeholderId), parts=node&&closedParagraphs(node.content);
-                if(node&&parts&&parts.length>checkpointCount){checkpointCount=parts.length;const view=readNativeStory(),routeId=node.nativeRouteAnchors?.[swipeId(node)],route=routeId?{chatId:current.activeChatId,routeId}:view.route;if(route)notifyCheckpoint({...view,route},{id:`${placeholderId}:${parts.length}`,generationId:placeholderId,route,draft:{messageId:placeholderId,swipeId:swipeId(node),floor},settledText:parts.join('\n\n').slice(0,12000),paragraphCount:parts.length,kind:assemblyInput.generationType==='regenerate'?'regenerate':'normal'},controller.signal);}
-            } else if (!midCheckpointFired && /\n/.test(deltaContent)) {
-                const node=current.messages.find(message=>message.id===placeholderId);
-                if(node&&node.content.length>=2200){
-                    const parts=closedParagraphs(node.content,24);
-                    if(parts.length>=8&&parts.join('\n\n').length>=1850){
-                        midCheckpointFired=true;
-                        const view=readNativeStory(),routeId=node.nativeRouteAnchors?.[swipeId(node)],route=routeId?{chatId:current.activeChatId,routeId}:view.route;
-                        if(route)notifyCheckpoint({...view,route},{id:`${placeholderId}:mid:${parts.length}`,generationId:placeholderId,route,draft:{messageId:placeholderId,swipeId:swipeId(node),floor},settledText:parts.join('\n\n').slice(0,12000),paragraphCount:parts.length,kind:assemblyInput.generationType==='regenerate'?'regenerate':'normal'},controller.signal);
-                    }
+                if (shouldSyncMetrics) {
+                    target.extra = setSwipeMetrics(target, target.activeSwipeIndex, { outputTokens: nextBucket, startedAt: generationStartedAt });
                 }
             }
-            publishNativeGenerationProgress(placeholderId, floor, current.messages.find(message => message.id === placeholderId)?.content ?? '', current.streamingReasoning);
+        });
+        if (deltaContent) void tavernEventBus.emit('generation_stream_token', deltaContent);
+        const current = workspaceStore.getState();
+        if (checkpointCount < 4 && /\n/.test(deltaContent)) {
+            const node = current.messages.find(message => message.id === placeholderId), parts = node && closedParagraphs(node.content);
+            if (node && parts && parts.length > checkpointCount) { checkpointCount = parts.length; const view = readNativeStory(), routeId = node.nativeRouteAnchors?.[swipeId(node)], route = routeId ? { chatId: current.activeChatId, routeId } : view.route; if (route) notifyCheckpoint({ ...view, route }, { id: `${placeholderId}:${parts.length}`, generationId: placeholderId, route, draft: { messageId: placeholderId, swipeId: swipeId(node), floor }, settledText: parts.join('\n\n').slice(0, 12000), paragraphCount: parts.length, kind: assemblyInput.generationType === 'regenerate' ? 'regenerate' : 'normal' }, controller.signal); }
+        } else if (!midCheckpointFired && /\n/.test(deltaContent)) {
+            const node = current.messages.find(message => message.id === placeholderId);
+            if (node && node.content.length >= 2200) {
+                const parts = closedParagraphs(node.content, 24);
+                if (parts.length >= 8 && parts.join('\n\n').length >= 1850) {
+                    midCheckpointFired = true;
+                    const view = readNativeStory(), routeId = node.nativeRouteAnchors?.[swipeId(node)], route = routeId ? { chatId: current.activeChatId, routeId } : view.route;
+                    if (route) notifyCheckpoint({ ...view, route }, { id: `${placeholderId}:mid:${parts.length}`, generationId: placeholderId, route, draft: { messageId: placeholderId, swipeId: swipeId(node), floor }, settledText: parts.join('\n\n').slice(0, 12000), paragraphCount: parts.length, kind: assemblyInput.generationType === 'regenerate' ? 'regenerate' : 'normal' }, controller.signal);
+                }
+            }
+        }
+        publishNativeGenerationProgress(placeholderId, floor, current.messages.find(message => message.id === placeholderId)?.content ?? '', current.streamingReasoning);
+    };
+
+    const result = await streamStoryWithNativeTools({
+        source: apiSource,
+        baseUrl,
+        apiKey,
+        model: resolvedModel,
+        messages: finalMessages,
+        parameters: finalParameters,
+        useSystemPrompt: resolveUseSystemPrompt(activePreset, schemaVals),
+        stream: resolvedStream,
+        signal: controller.signal,
+        ...(spresetProcessor && spresetOutputConfig?.consumeToolCalls ? { requireReplyText: false } : {}),
+        ...(spresetProcessor ? {
+            onToolCallsDelta: (calls: CompletionToolCall[]) => {
+                if (controller.signal.aborted) return;
+                const nextText = spresetProcessor.onToolCallsDelta(calls);
+                if (nextText === null) return;
+                const deltaText = nextText.startsWith(lastLiveText) ? nextText.slice(lastLiveText.length) : nextText;
+                lastLiveText = nextText;
+                emitStreamingProgress(nextText, deltaText, '');
+            },
+        } : {}),
+        onToken: (rawDeltaContent, deltaReasoning = '') => {
+            if (controller.signal.aborted) return;
+            if (spresetProcessor) {
+                const nextText = spresetProcessor.onTextDelta(rawDeltaContent);
+                const deltaText = nextText.startsWith(lastLiveText)
+                    ? nextText.slice(lastLiveText.length)
+                    : nextText !== lastLiveText ? nextText : '';
+                if (!deltaText && !deltaReasoning && nextText === lastLiveText) return;
+                lastLiveText = nextText;
+                emitStreamingProgress(nextText, deltaText, deltaReasoning, estimateTokenDelta(rawDeltaContent) + estimateTokenDelta(deltaReasoning));
+                return;
+            }
+            const deltaContent = summaryChannel.push(rawDeltaContent);
+            emitStreamingProgress(null, deltaContent, deltaReasoning, estimateTokenDelta(rawDeltaContent) + estimateTokenDelta(deltaReasoning));
         },
     }, delta => {
         if (!delta) {
@@ -678,11 +874,49 @@ async function streamStoryReply(controller: AbortController, state: ReturnType<t
             preview.reasoning += delta.reasoning;
         });
     });
+
+    if (spresetProcessor) {
+        const rawCandidates = result.candidates ?? [result];
+        const finalizedCandidates = rawCandidates.map((candidate, index) => {
+            const processor = index === 0 ? spresetProcessor : createSPresetOutputProcessor(spresetOutputConfig);
+            const finalized = processor.finalize(candidate.content, candidate.tool_calls);
+            return {
+                ...candidate,
+                content: finalized.content,
+                ...(finalized.toolCalls?.length ? { tool_calls: finalized.toolCalls } : { tool_calls: undefined }),
+            };
+        });
+        if (!finalizedCandidates.some(candidate => candidate.content.trim() || candidate.tool_calls?.length)) {
+            throw new Error('模型接口没有返回可显示的正文，请重试。');
+        }
+        const primary = finalizedCandidates[0]!;
+        if (primary.content !== lastLiveText) {
+            workspaceStore.setState(draft => {
+                const target = draft.messages.find(message => message.id === placeholderId);
+                if (target) {
+                    target.content = primary.content;
+                    target.swipes[target.activeSwipeIndex] = primary.content;
+                }
+            });
+        }
+        return {
+            ...result,
+            content: primary.content,
+            ...(primary.tool_calls?.length ? { tool_calls: primary.tool_calls } : { tool_calls: undefined }),
+            ...(finalizedCandidates.length > 1 ? { candidates: finalizedCandidates } : {}),
+            estimatedOutputTokens: Math.ceil(streamedOutputTokens),
+        };
+    }
+
+    return { ...result, estimatedOutputTokens: Math.ceil(streamedOutputTokens) };
 }
 
-async function settleStoryCandidates(result: CompletionResult, summaryChannel: StorySummaryChannel, controller: AbortController,
+async function settleStoryCandidates(result: CompletionResult & { estimatedOutputTokens?: number }, summaryChannel: StorySummaryChannel, controller: AbortController,
     state: ReturnType<typeof workspaceStore.getState>, card: ReturnType<typeof getActiveCharacter>, assembled: AssembledPromptResult,
-    placeholderId: string, floor: number, firstSettled: () => void): Promise<string> {
+    placeholderId: string, floor: number, firstSettled: () => void,
+    generationStartedAt = Date.now(), promptTarget?: { id: string; swipe: number }): Promise<string> {
+    const durationMs = Math.max(100, Date.now() - generationStartedAt);
+    const estimatedFromStream = result.estimatedOutputTokens ?? 0;
     const summaries = (result.candidates ?? [result]).map(candidate => summaryChannel.split(candidate.content));
     const streamed = { ...result, content: summaries[0].content, candidates: (result.candidates ?? [result]).map((candidate, index) => ({ ...candidate, content: summaries[index].content })) };
     publishNativeGenerationProgress(placeholderId, floor, streamed.content, streamed.reasoning, true);
@@ -739,16 +973,22 @@ async function settleStoryCandidates(result: CompletionResult, summaryChannel: S
                 stage: 'ai_output', role: 'assistant', macroContext: regexMacroContext });
             const reasoning = applyRegexScripts(candidate.reasoning, regexes, {
                 stage: 'reasoning', role: 'assistant', macroContext: regexMacroContext });
-            const content = await executePluginHooks('afterMessageReceive', output);
-            if (typeof content !== 'string') throw new Error('消息处理插件必须返回字符串');
+            const content = output;
             controller.signal.throwIfAborted();
             const writes = [...(settled.writes ?? []), { variables: settled.variables, option: { type: 'message', message_id: floor } }];
             for (const write of writes) validateHelperVariableWrite(write.variables, write.option);
             for (const write of writes) saveHelperVariables(write.variables, write.option);
             workspaceStore.setState(draft => {
+                if (index === 0 && result.usage?.promptTokens && result.usage.promptTokens > 0 && promptTarget) {
+                    const userNode = draft.messages.find(message => message.id === promptTarget.id);
+                    if (userNode) userNode.extra = setSwipeMetrics(userNode, promptTarget.swipe, { promptTokens: result.usage.promptTokens });
+                }
                 const target = draft.messages.find(message => message.id === placeholderId)!;
                 target.content = content; target.reasoning = reasoning;
                 target.swipes[index] = { content, reasoning, extra: { reasoning_signature: candidate.reasoning_signature, tool_calls: candidate.tool_calls } };
+                const fallbackTokens = estimateTokenCount(candidate.content) + (candidate.reasoning ? estimateTokenCount(candidate.reasoning) : 0);
+                const outputTokens = index === 0 ? (result.usage?.outputTokens ?? Math.max(estimatedFromStream, fallbackTokens)) : fallbackTokens;
+                target.extra = setSwipeMetrics(target, index, { durationMs, outputTokens, startedAt: undefined });
                 const summary = summaries[index];
                 if (summary.summary && summary.source) (target.storySummaries ??= {})[swipeId(target, index)] = {
                     text: summary.summary, source: summary.source, contentHash: summaryContentHash(content),

@@ -81,13 +81,7 @@ function cleanArchive(chat: ArchivedChat | null): ArchivedChat | null {
     const continuation = removeStarterContinuation(removeRetiredBuiltinWorldbooks(chat.continuation));
     return continuation === chat.continuation ? chat : { ...chat, continuation };
 }
-export function publishChatArchive(chat: ArchivedChat, extras: Record<string, unknown> = {}): Promise<void> {
-    return updateChatArchive(chat.id, () => ({ chat, extras }), false).then(() => {});
-}
 type ArchiveUpdate<T> = { chat: ArchivedChat; extras: Record<string, unknown>; result?: T; silent?: boolean };
-export function deleteChatArchive(id: string, extras: Record<string, unknown> = {}): Promise<void> {
-    return deleteChatArchives([id], extras);
-}
 export function deleteChatArchives(ids: readonly string[], extras: Record<string, unknown> = {}): Promise<void> {
     const removed = new Set(ids);
     const job = writes.catch(() => {}).then(async () => {
@@ -104,15 +98,6 @@ export function updateChatArchive<T>(id: string, update: (current: ArchivedChat 
         const { chat, extras, result, silent } = await update(read ? cleanArchive(await platformStorage.loadSnapshot<ArchivedChat | null>(chatKey(id), null)) : null);
         await platformStorage.saveSnapshots({ ...extras, [indexKey]: [...index.filter(item => item.id !== chat.id), summarizeChat(chat)], [chatKey(chat.id)]: chat }, true, undefined, silent ? chat.id : undefined);
         return result;
-    });
-    writes = job;
-    return job;
-}
-export function deleteCharacterArchives(characterId: string): Promise<void> {
-    const job = writes.catch(() => {}).then(async () => {
-        const index = await platformStorage.loadSnapshot<ChatArchiveSummary[]>(indexKey, []);
-        await platformStorage.saveSnapshots({ [indexKey]: index.filter(item => item.characterId !== characterId),
-            ...Object.fromEntries(index.filter(item => item.characterId === characterId).map(item => [chatKey(item.id), null])) });
     });
     writes = job;
     return job;

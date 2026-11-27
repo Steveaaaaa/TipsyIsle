@@ -5,7 +5,7 @@ import { persistWorkspaceNow, workspaceStore } from '../store/workspace-store';
 import { createReactiveStore } from '../store/reactive-store';
 import { diagnosticLabel, diagnosticOperation, flushDiagnostics, recordDiagnostic } from './diagnostics';
 
-interface UpdateDetails { version: string; title: string | null; notes: string | null }
+export interface UpdateDetails { version: string; title: string | null; notes: string | null; publishedAt?: string | null; installerSize?: number | null }
 interface UpdateCheck { release: UpdateDetails | null; candidate: string | null; httpStatus: number | null }
 interface UpdateFailure { stage?: string; code?: string; message?: string; httpStatus?: number | null; candidate?: string | null }
 function updateFailure(error: unknown, stage: string) {
@@ -33,15 +33,22 @@ export function confirmAppUpdate() {
     void installUpdate(open.release, false);
 }
 
-export function ignoreAppUpdate() {
-    const { open } = releaseNotesView.getState();
-    if (open?.kind !== 'update') return;
-    ignoredVersion = open.release.version;
+export function ignoreUpdateVersion(version: string) {
+    ignoredVersion = version;
     recordDiagnostic('更新', '忽略版本', '跳过', { code: 'IGNORED_BY_USER', detail: diagnosticLabel(ignoredVersion) });
     try { localStorage.setItem(ignoredVersionKey, ignoredVersion); }
     catch { /* Keep the choice for this run if local storage is unavailable. */ }
-    releaseNotesView.setState({ open: null });
+    const { open } = releaseNotesView.getState();
+    if (open?.kind === 'update' && open.release.version === ignoredVersion) {
+        releaseNotesView.setState({ open: null });
+    }
     showNotification(`已忽略 TipsyIsle ${ignoredVersion}`, { id: notice });
+}
+
+export function ignoreAppUpdate() {
+    const { open } = releaseNotesView.getState();
+    if (open?.kind !== 'update') return;
+    ignoreUpdateVersion(open.release.version);
 }
 
 const notice = 'app-update';
@@ -65,6 +72,7 @@ function offerUpdate(release: UpdateDetails, message = `TipsyIsle ${release.vers
                 dismissNotification(notice);
                 releaseNotesView.setState({ open: { kind: 'update', release } });
             } },
+        ...(!ready ? { secondaryAction: { label: '忽略此版本', run: () => ignoreUpdateVersion(release.version) } } : {}),
     });
 }
 

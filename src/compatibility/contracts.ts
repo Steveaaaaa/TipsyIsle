@@ -104,7 +104,8 @@ export interface HelperGenerationConfig {
 export interface VariableWrite { variables: Record<string, unknown>; option: HelperVariableOption }
 export interface InterceptedHistoryMessage { messageId?: string; role: ChatMessageNode['role']; content: string; speakerName: string }
 export interface RuntimeResult { pipe?: string; variables?: Record<string, unknown>; messageContent?: string; writes?: VariableWrite[]; injections?: PromptInjection[]; generationAborted?: boolean; interceptedHistory?: InterceptedHistoryMessage[]; illustrationPath?: string; diagnostics?: RuntimeDiagnostic[]; assembled?: AssembledPromptResult;
-    generationConfig?: HelperGenerationConfig; generationResult?: string | Partial<import('../core/platform-bridge').CompletionResult> & { content: string } }
+    generationConfig?: HelperGenerationConfig; generationResult?: string | Partial<import('../core/platform-bridge').CompletionResult> & { content: string };
+    spresetRequest?: Record<string, unknown>; spresetOutputPreprocessing?: import('./spreset-config').SPresetOutputPreprocessing; spresetApplied?: boolean; spresetDeletedReasoningEffort?: boolean }
 export interface CompatibilityHost {
     session(): string;
     snapshot(): CompatSnapshot;
