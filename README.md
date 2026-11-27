@@ -12,13 +12,13 @@ We want this to become the place every AIRP player can eventually call home. Som
 
 **A beautiful interface draws you in. Stories, freedom, and a community with room to grow give you reasons to stay.**
 
-**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.5](docs/releases/1.1.5.en.md) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
+**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.6](docs/releases/1.1.6.en.md) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
 
-## New in 1.1.5
+## New in 1.1.6
 
-- **Large character cards load smoothly without mobile freezes or crashes.** Eliminated redundant storage copies, switched native SQLite reads to zero-AST raw JSON pass-through, and accurately distinguish real modals from transparent HUD/canvas layers so large cards open reliably without touch lockouts.
-- **Live streaming and floor scripts work seamlessly with placeholder slots.** Cards that swap `<content>` into empty `data-*` slots stream prose word-by-word and render directly into `.mes_text` even alongside HTML/script headers.
-- **Reliable deletion, multi-model profiles, and flexible bindings.** Delete story messages reliably, switch between saved model connections with per-profile settings, bind multiple worldbooks, and adjust reading typography.
+- **AVS model selection.** Select a saved connection to fill in its model name or fetch its model list.
+- **Preset switches keep your edits.** Saved prompt text, enabled states, and your streaming preference no longer reset when you switch presets.
+- **Simpler worldbook and story route management.** Open active worldbooks directly and review what will be removed before deleting a route, branch, or saved conversation.
 
 ## Why make the move?
 
