@@ -12,13 +12,13 @@
 
 **好看的界面是相遇的开始。值得留下的，是故事、自由，以及能一起生长的社区。**
 
-**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.1.6 更新日志](docs/releases/v1.1.6.md) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
+**[下载微醺屿](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [1.2.0 更新日志](docs/releases/v1.2.0.md) · [为什么值得试试](#为什么值得换) · [酒馆迁移指南](docs/MIGRATING_FROM_SILLYTAVERN.zh-CN.md) · [生态开发指南](docs/ECOSYSTEM.zh-CN.md)
 
-## 1.1.6 新变化
+## 1.2.0 新变化
 
-- **AVS 独立 API 可读取模型。** 选择代理预设后自动带出已保存的模型，也能查询该连接的可用模型列表。
-- **切换预设不再重置修改。** 已保存的条目正文、启用状态和流式输出设置都会保留。
-- **世界书和故事路线更好管理。** 可直接打开生效世界书的词条，删除路线、分支或已保存会话前会提示影响范围。
+- **Plugin SDK 1.2 与旗舰插件「浮光 · Lumina Director」。** 新增剧场舞台、回复媒体槽位、流式检查点与生图协议适配能力，并随仓库提供「浮光」叙事视觉导演插件。
+- **OpenAI Responses 原生支持与 Gemini 流式修复。** 新增 OpenAI Responses 适配器，改进 Gemini 流式思考阶段与分帧解析，新增 SPreset 运行时与消息指标栏。
+- **流内 Shadow DOM 兼容与移动端体验优化。** 新增隔离的流内 Shadow DOM 兼容渲染、Izumi/MVU 与全局脚本修复、消息编辑弹窗及移动端外观工作台与设置界面优化。
 
 ## 为什么值得换
 
@@ -100,7 +100,7 @@ Windows 与 Android 都有基于 Tauri 的独立客户端，手机端内置本�
 | 生图、语音、文本嵌入与多模型辅助 | 调用玩家授权的模型连接，管理异步任务、媒体资源，以及文本／向量索引。 |
 | 有完整界面的功能、能互相协作的插件 | 注册输入栏、消息与应用菜单命令，使用弹窗、侧栏或全屏界面；通过带版本的服务声明与其他插件协作。 |
 
-上表描述的是**可以用来开发这些玩法的接口**。仓库提供[剧情手记](examples/plugins/story-journal)与[行动选项](examples/plugins/action-options)两个示例，社区作品可以从这里迈出第一步。
+上表描述的是**可以用来开发这些玩法的接口**。仓库提供[剧情手记](examples/plugins/story-journal)、[行动选项](examples/plugins/action-options)与[浮光 · Lumina Director](examples/plugins/lumina-director)三个示例，社区作品可以从这里迈出第一步。
 
 ### 全新独立架构，为 AIRP 重新设计
 

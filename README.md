@@ -12,13 +12,13 @@ We want this to become the place every AIRP player can eventually call home. Som
 
 **A beautiful interface draws you in. Stories, freedom, and a community with room to grow give you reasons to stay.**
 
-**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.1.6](docs/releases/1.1.6.en.md) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
+**[Download TipsyIsle](https://github.com/Steveaaaaa/TipsyIsle/releases/latest)** · [What's new in 1.2.0](docs/releases/1.2.0.en.md) · [Why try TipsyIsle?](#why-make-the-move) · [Migration guide](docs/MIGRATING_FROM_SILLYTAVERN.md) · [Developer docs](docs/ECOSYSTEM.md)
 
-## New in 1.1.6
+## New in 1.2.0
 
-- **AVS model selection.** Select a saved connection to fill in its model name or fetch its model list.
-- **Preset switches keep your edits.** Saved prompt text, enabled states, and your streaming preference no longer reset when you switch presets.
-- **Simpler worldbook and story route management.** Open active worldbooks directly and review what will be removed before deleting a route, branch, or saved conversation.
+- **Plugin SDK 1.2 & Lumina Director.** Adds stage, reply media, streaming checkpoint, and image-adapter APIs alongside the flagship **Lumina Director** visual narrative plugin (`examples/plugins/lumina-director`).
+- **OpenAI Responses & Gemini streaming.** Native OpenAI Responses API support, improved Gemini streaming/thought-phase framing, SPreset runtime support, and message metrics.
+- **In-flow Shadow DOM compat & Izumi/MVU fixes.** Isolated in-flow Shadow DOM compat films, safer MVU JSONPatch and `WORLD_INFO_ACTIVATED` handling, a dedicated message edit dialog, and mobile UI polish.
 
 ## Why make the move?
 
@@ -100,7 +100,7 @@ Card and preset authors can start with familiar formats and compatibility featur
 | Images, speech, embeddings, and assistance from multiple models | Use player-authorized model connections and manage asynchronous tasks, media, and text / vector indexes. |
 | Plugins with their own interfaces and ways to work together | Register commands in the composer, on messages, or in the app menu; use dialogs, sidebars, or full-screen views; collaborate through versioned plugin services. |
 
-These are **APIs you can use to build those experiences**. The repository includes [Story Journal](examples/plugins/story-journal) and [Action Options](examples/plugins/action-options) as starting points.
+These are **APIs you can use to build those experiences**. The repository includes [Story Journal](examples/plugins/story-journal), [Action Options](examples/plugins/action-options), and [Lumina Director](examples/plugins/lumina-director) as starting points.
 
 ### A new, independent architecture designed for AIRP
 
